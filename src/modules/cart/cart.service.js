@@ -9,7 +9,7 @@ import { checkCode } from "../coupon/coupon.service.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
 import { orderingState } from "../kitchen/kitchen.hours.js";
 import { priceLines } from "../pricing/pricing.service.js";
-import { kitchenForPoint } from "../serviceability/serviceability.service.js";
+import { kitchenCovers } from "../serviceability/serviceability.service.js";
 import { User } from "../user/user.model.js";
 import { Cart } from "./cart.model.js";
 
@@ -190,8 +190,7 @@ export async function buildCart(userId, overrides = {}) {
   if (deliveryMode === "delivery") {
     if (!address) blockers.push({ code: "ADDRESS_REQUIRED", message: "Choose a delivery address" });
     else {
-      const match = await kitchenForPoint(address.latitude, address.longitude);
-      if (!match || String(match.kitchen._id) !== String(kitchen._id)) {
+      if (!kitchenCovers(kitchen, address.latitude, address.longitude)) {
         blockers.push({ code: "ADDRESS_NOT_SERVICEABLE", message: "This kitchen does not deliver to the selected address" });
       }
     }

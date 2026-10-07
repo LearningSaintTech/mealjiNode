@@ -7,20 +7,35 @@ import { resolveSetting } from "../settings/settings.service.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
 import { DemandLog } from "./demandLog.model.js";
 
-/** The nearest active, placed kitchen whose radius covers the point. */
-export async function kitchenForPoint(latitude, longitude) {
-  if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return null;
+const roundKm = (km) => Math.round(km * 100) / 100;
+
+/** Every active, placed kitchen whose radius covers the point, nearest first. */
+export async function kitchensForPoint(latitude, longitude) {
+  if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return [];
   const kitchens = await kitchenRepository.listActiveLocated();
-  let nearest = null;
-  let nearestKm = Infinity;
-  for (const kitchen of kitchens) {
-    const km = distanceKm(Number(latitude), Number(longitude), kitchen.latitude, kitchen.longitude);
-    if (km <= kitchen.serviceRadiusKm && km < nearestKm) {
-      nearest = kitchen;
-      nearestKm = km;
-    }
-  }
-  return nearest ? { kitchen: nearest, distanceKm: Math.round(nearestKm * 100) / 100 } : null;
+  return kitchens
+    .map((kitchen) => ({ kitchen, km: distanceKm(Number(latitude), Number(longitude), kitchen.latitude, kitchen.longitude) }))
+    .filter(({ kitchen, km }) => km <= kitchen.serviceRadiusKm)
+    .sort((a, b) => a.km - b.km)
+    .map(({ kitchen, km }) => ({ kitchen, distanceKm: roundKm(km), canOrder: orderingState(kitchen).canOrder }));
+}
+
+/**
+ * The kitchen that serves a point. With `preferOpen` (default) it is the nearest
+ * kitchen that can take orders now, else the nearest one; without it, always the nearest.
+ */
+export async function kitchenForPoint(latitude, longitude, { preferOpen = true } = {}) {
+  const matches = await kitchensForPoint(latitude, longitude);
+  if (!matches.length) return null;
+  const pick = (preferOpen && matches.find((match) => match.canOrder)) || matches[0];
+  return { kitchen: pick.kitchen, distanceKm: pick.distanceKm };
+}
+
+/** Whether this kitchen's radius covers the point. */
+export function kitchenCovers(kitchen, latitude, longitude) {
+  if (!kitchen || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return false;
+  if (!Number.isFinite(kitchen.latitude) || !Number.isFinite(kitchen.longitude)) return false;
+  return distanceKm(Number(latitude), Number(longitude), kitchen.latitude, kitchen.longitude) <= kitchen.serviceRadiusKm;
 }
 
 /**
@@ -29,7 +44,8 @@ export async function kitchenForPoint(latitude, longitude) {
  * whether it is open now, and a message when it is not.
  */
 export async function serviceabilityAt({ latitude, longitude, userId = null, source = "location", pincode = null }) {
-  const match = await kitchenForPoint(latitude, longitude);
+  const matches = await kitchensForPoint(latitude, longitude);
+  const match = matches.find((item) => item.canOrder) || matches[0];
   if (!match) {
     await DemandLog.create({ userId, latitude, longitude, pincode, source }).catch(() => {});
     return {
@@ -78,6 +94,18 @@ export async function serviceabilityAt({ latitude, longitude, userId = null, sou
       ratingAvg: kitchen.ratingAvg || 0,
       ratingCount: kitchen.ratingCount || 0,
     },
+    alternatives: matches
+      .filter((item) => item.kitchen !== kitchen)
+      .map((item) => ({
+        kitchenId: String(item.kitchen._id),
+        name: item.kitchen.name,
+        area: item.kitchen.area ?? null,
+        city: item.kitchen.city,
+        distanceKm: item.distanceKm,
+        isOpenNow: item.canOrder,
+        ratingAvg: item.kitchen.ratingAvg || 0,
+        ratingCount: item.kitchen.ratingCount || 0,
+      })),
   };
 }
 

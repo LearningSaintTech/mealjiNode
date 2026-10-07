@@ -3,12 +3,15 @@ import { serviceabilityForUser } from "../kitchen/kitchen.service.js";
 import * as locationService from "./location.service.js";
 
 export async function updateLocationController(req, res) {
-  const data = await locationService.updateCurrentLocation({
-    userId: req.auth.userId,
-    latitude: req.body.latitude,
-    longitude: req.body.longitude,
+  const point = { latitude: req.body.latitude, longitude: req.body.longitude };
+  const [location, serviceability] = await Promise.all([
+    locationService.updateCurrentLocation({ userId: req.auth.userId, ...point }),
+    serviceabilityForUser(req.auth.userId, point),
+  ]);
+  return sendSuccess(res, {
+    message: serviceability.serviceable ? "Location updated. We deliver here." : "Location updated. We don't deliver here yet.",
+    data: { ...location, serviceability },
   });
-  return sendSuccess(res, { message: "Current location updated.", data });
 }
 
 export async function getLocationController(req, res) {
