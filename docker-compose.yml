@@ -1,0 +1,40 @@
+# Local infrastructure for mealJiNode.
+#
+# MongoDB runs as a single-node replica set so multi-document transactions work
+# (orders + payments + points must commit together). It listens on 27018 so it
+# never clashes with another MongoDB already on 27017.
+#
+#   docker compose up -d
+#   MONGO_URI=mongodb://127.0.0.1:27018/mealji?replicaSet=rs0&directConnection=true
+#
+services:
+  mongo:
+    image: mongo:7
+    container_name: mealji-mongo
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27018:27017"
+    volumes:
+      - mealji_mongo:/data/db
+    healthcheck:
+      # Initiates the replica set on first start; afterwards it just reports status.
+      test: >
+        mongosh --quiet --eval
+        "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 5s
+
+  redis:
+    image: redis:7
+    container_name: mealji-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6381:6379"
+    volumes:
+      - mealji_redis:/data
+
+volumes:
+  mealji_mongo:
+  mealji_redis:

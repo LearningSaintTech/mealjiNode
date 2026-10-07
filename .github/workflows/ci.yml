@@ -1,0 +1,32 @@
+# Runs on every push and pull request. Assumes mealJiNode is the repository
+# root; if it lives in a monorepo, move this file to the root `.github/` and set
+# `defaults.run.working-directory: mealJiNode` and setup-node's
+# `cache-dependency-path: mealJiNode/package-lock.json`. Nothing runs until the
+# code is in a git repository on GitHub.
+name: mealJiNode CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      LOG_PRETTY: "false"
+      NODE_ENV: test
+      ACCESS_TOKEN_SECRET: ci-access-token-secret-at-least-32-chars
+      REFRESH_TOKEN_SECRET: ci-refresh-token-secret-at-least-32-chars
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Syntax check
+        run: find src scripts -name "*.js" -print0 | xargs -0 -n1 node --check
+      - name: Unit tests
+        run: npm test
+      - name: Postman collection matches the mounted routes
+        run: npm run postman:check

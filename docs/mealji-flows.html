@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MealJi user and admin flows</title>
+  <style>
+    @page { size: A4; margin: 16mm 14mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #241c16; font: 11pt/1.45 "Segoe UI", sans-serif; }
+    h1 { font-size: 22pt; line-height: 1.15; margin: 0 0 4px; }
+    h2 { font-size: 15pt; margin: 22px 0 8px; page-break-after: avoid; }
+    h3 { font-size: 12pt; margin: 14px 0 6px; page-break-after: avoid; }
+    p { margin: 0 0 8px; }
+    .meta { color: #6f655c; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; page-break-inside: avoid; }
+    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid #e4d9cb; padding: 5px 6px; }
+    th { font-size: 9pt; letter-spacing: 0.04em; text-transform: uppercase; color: #6f655c; }
+    code { font-family: Consolas, monospace; font-size: 9.5pt; }
+    ol { margin: 6px 0 10px; padding-left: 18px; }
+    li { margin: 0 0 5px; }
+    .step { page-break-inside: avoid; border: 1px solid #e4d9cb; border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; }
+    .step strong { color: #a34e12; }
+    .note { background: #f3eee6; border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; }
+    .end { page-break-before: always; }
+  </style>
+</head>
+<body>
+  <h1>MealJi user and admin flows</h1>
+  <p class="meta">Local API reference. OTP is 123456 while FIXED_OTP is set. Base URL http://localhost:4000.</p>
+
+  <h2>Demo accounts</h2>
+  <table>
+    <thead><tr><th>Who</th><th>Phone</th><th>Signs in with</th></tr></thead>
+    <tbody>
+      <tr><td>Customer Rahul Sharma</td><td>9000000031</td><td>POST /api/v1/auth/login</td></tr>
+      <tr><td>Customer Priya Nair</td><td>9000000032</td><td>POST /api/v1/auth/login</td></tr>
+      <tr><td>Super admin</td><td>9000000001</td><td>POST /api/v1/auth/staff-login</td></tr>
+      <tr><td>Platform subadmin</td><td>9000000002</td><td>POST /api/v1/auth/staff-login</td></tr>
+      <tr><td>Koramangala kitchen admin</td><td>9000000011</td><td>POST /api/v1/auth/staff-login</td></tr>
+      <tr><td>Koramangala kitchen subadmin</td><td>9000000012</td><td>POST /api/v1/auth/staff-login</td></tr>
+      <tr><td>Indiranagar kitchen admin</td><td>9000000021</td><td>POST /api/v1/auth/staff-login</td></tr>
+      <tr><td>Indiranagar kitchen subadmin</td><td>9000000022</td><td>POST /api/v1/auth/staff-login</td></tr>
+    </tbody>
+  </table>
+  <p>Every verify call needs header <code>x-device-id</code>. Keep the same value for refresh. The access token lasts 1 hour. The refresh token lasts 60 days on that device.</p>
+
+  <h2>User flow</h2>
+  <p>A customer uses one login. A new Indian mobile number creates the account. An existing number receives the same OTP. Staff and kitchen phones are not turned into customers.</p>
+  <div class="step"><strong>1. Login.</strong> <code>POST /api/v1/auth/login</code> with countryCode +91 and the phone. Optional name. Response 201 includes userId. The OTP is not in the body.</div>
+  <div class="step"><strong>2. Verify.</strong> <code>POST /api/v1/auth/verify-otp</code> with userId, otp 123456, and x-device-id. A wrong code is 400. Five wrong attempts require a new OTP. Response 201 saves accessToken, refreshToken, and expiresIn.</div>
+  <div class="step"><strong>3. Session.</strong> <code>GET /api/v1/auth/me</code> returns the customer, role user, and an empty subscription snapshot. <code>POST /api/v1/auth/refresh</code> rotates the refresh token for the same device. <code>POST /api/v1/auth/logout</code> revokes this device.</div>
+  <div class="step"><strong>4. Location.</strong> <code>PUT /api/v1/users/me/location</code> sends latitude and longitude. Google Maps stores the textual address. <code>GET /api/v1/users/me/location</code> reads it back.</div>
+  <div class="step"><strong>5. Service radius.</strong> <code>GET /api/v1/users/me/serviceability</code> uses the query coordinates, or the saved location when they are omitted. Only an active kitchen with a map pin can cover the point, and only inside its serviceRadiusKm.</div>
+
+  <h3>Outside every kitchen</h3>
+  <div class="note">
+    <p>The customer stays signed in. The check returns HTTP 200 with message <strong>Not serviceable</strong>. data.serviceable is false, data.kitchen is null, and data.distanceKm is null. No kitchen is assigned.</p>
+    <p>Koramangala is active at 3 km, so a point on that kitchen is Serviceable. Indiranagar is still in setup, so a point there is Not serviceable even though that kitchen has a 3 km radius. A paused kitchen does not cover anyone either.</p>
+    <p>If no location has been saved and the request has no coordinates, the check returns 400: Set your current location before checking service.</p>
+  </div>
+
+  <h2 class="end">Admin flow</h2>
+  <p>Console accounts use staff login. That request does not create an account. An unknown phone, and a customer phone, return 404.</p>
+  <div class="step"><strong>1. Staff login.</strong> <code>POST /api/v1/auth/staff-login</code> with the console phone. Then the same Verify OTP call, otp 123456, and the same x-device-id.</div>
+  <div class="step"><strong>2. Super admin</strong> (9000000001) can read people, invite platform staff, change a platform role between super admin and subadmin, and onboard kitchens. They cannot suspend themselves or the last active super admin.</div>
+  <div class="step"><strong>3. Platform subadmin</strong> (9000000002) can read people and suspend or activate accounts. They cannot open kitchens, invite staff, or change a super admin account.</div>
+  <div class="step"><strong>4. Invite platform staff.</strong> <code>POST /api/v1/admin/staff</code> with a new phone and roleSlug superadmin or subadmin. The phone must not already exist. They later sign in with staff login.</div>
+  <div class="step"><strong>5. Onboard a kitchen.</strong> <code>POST /api/v1/admin/kitchens</code>. Send the place, hours, status, and serviceRadiusKm from 0.5 to 25. Google Maps places the address. The contact phone becomes the kitchen admin and signs in with staff login. Pausing a kitchen, or returning it to setup, turns off accepting orders.</div>
+
+  <h3>Kitchen console</h3>
+  <div class="step"><strong>Kitchen admin.</strong> <code>GET /api/v1/kitchen/me</code> opens the desk. They can update the place, hours, and service note. Google places the address again when the place changes. Status, the admin phone, and the radius stay with the super admin. They invite kitchen subadmins with <code>POST /api/v1/kitchen/staff</code>.</div>
+  <div class="step"><strong>Orders switch.</strong> <code>PATCH /api/v1/kitchen/me/service</code> with acceptingOrders true or false. This works only after a super admin marks the kitchen active. An onboarding kitchen returns 409.</div>
+  <div class="step"><strong>Kitchen subadmin.</strong> They can open the desk and use the orders switch when the kitchen is active. They cannot edit the kitchen or manage the team.</div>
+
+  <h2>Request order in Postman</h2>
+  <ol>
+    <li>Import the collection and the local environment. Re-import both after this update so the demo phones and otp 123456 are loaded.</li>
+    <li>Customer: Login, Verify OTP, Update current location, Check serviceability, Me, Refresh, Logout.</li>
+    <li>Super admin: set staffPhone to 9000000001, Staff login, Verify OTP, then List users, List kitchens, Onboard kitchen, or Create staff.</li>
+    <li>Kitchen admin: set staffPhone to 9000000011, Staff login, Verify OTP, then My kitchen, Update service, and List kitchen team.</li>
+  </ol>
+  <p>Login and verify save userId, accessToken, and refreshToken. A kitchen response saves kitchenId.</p>
+</body>
+</html>
