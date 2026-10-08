@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import mongoose from "mongoose";
-import { rootDir } from "../src/config/env.js";
+import { env, rootDir } from "../src/config/env.js";
 import { logger } from "../src/config/logger.js";
 import { addIstDays, istDateKey, istDateTime } from "../src/common/time.js";
 import { roleRepository } from "../src/modules/role/role.repository.js";
@@ -141,23 +141,29 @@ const IMAGE_FILES = {
 const CONTENT_TYPES = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 const fileSlug = (file) => path.basename(file).toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/-+/g, "-");
 
-/** Uploads the app's images (skipping ones already stored) and returns name → URL. */
+// Where the seed images are already published (same file names as below).
+// Used whenever this machine cannot upload them itself: no S3 in .env, or no
+// MealJi app folder next to the API. Local ./uploads URLs are never used for
+// seed images, because phones and other machines cannot reach localhost.
+const HOSTED_SEED_IMAGES = String(process.env.SEED_IMAGE_BASE_URL || "https://d3bi5d5em13bi2.cloudfront.net/mealji/seed").replace(/\/$/, "");
+
+/** Returns name → URL for every seed image, uploading them first when this machine can. */
 async function seedImages() {
   const urls = {};
-  if (!fs.existsSync(APP_SRC)) {
-    logger.warn({ appSrc: APP_SRC }, "Customer app not found next to the API; seeding without images");
-    return urls;
-  }
+  const canUpload = env.storageDriver === "s3" && fs.existsSync(APP_SRC);
   for (const [name, file] of Object.entries(IMAGE_FILES)) {
     const source = path.join(APP_SRC, file);
-    if (!fs.existsSync(source)) {
-      logger.warn({ file }, "App image missing; skipped");
-      continue;
+    if (canUpload && fs.existsSync(source)) {
+      const type = CONTENT_TYPES[path.extname(source).toLowerCase()];
+      urls[name] = await putFile(storageKey(`seed/${fileSlug(file)}`), fs.readFileSync(source), type);
+    } else {
+      urls[name] = `${HOSTED_SEED_IMAGES}/${fileSlug(file)}`;
     }
-    const type = CONTENT_TYPES[path.extname(source).toLowerCase()];
-    urls[name] = await putFile(storageKey(`seed/${fileSlug(file)}`), fs.readFileSync(source), type);
   }
-  logger.info({ images: Object.keys(urls).length }, "App images are in storage");
+  // One request proves the images can actually be loaded from here.
+  const probe = await fetch(urls.butterChickenBowl, { method: "HEAD" }).then((res) => res.status, () => "unreachable");
+  if (probe !== 200) logger.warn({ url: urls.butterChickenBowl, status: probe }, "Seed images are not loading from this URL; check SEED_IMAGE_BASE_URL or S3/CDN settings");
+  logger.info({ images: Object.keys(urls).length, source: canUpload ? "uploaded to this storage" : HOSTED_SEED_IMAGES }, "Seed images ready");
   return urls;
 }
 
@@ -323,7 +329,8 @@ async function seedCatalog(kitchens, img) {
   const masterIds = {};
   const extras = new Map();
   for (const [categoryName, name, pricePaise, isVeg, image, { originalPricePaise, ...extra }] of MASTER_DISHES) {
-    extras.set(name, { originalPricePaise: originalPricePaise ?? null, image });
+    // Badge and prep time live on kitchen dishes only (the master library has no such fields).
+    extras.set(name, { originalPricePaise: originalPricePaise ?? null, image, badge: extra.badge ?? null, preparationMinutes: extra.preparationMinutes ?? null });
     const data = { name, isVeg, suggestedPricePaise: pricePaise, categoryId: masterCategories[categoryName], servesCount: 1, images: img[image] ? [img[image]] : [], ...extra };
     const found = await MasterDish.findOne({ name }).lean();
     masterIds[name] = found ? (await catalog.saveMasterDish(String(found._id), data)).masterDishId : (await catalog.saveMasterDish(null, data)).masterDishId;
@@ -352,6 +359,8 @@ async function seedCatalog(kitchens, img) {
         availableSlots: ["lunch", "dinner", "snacks"],
         isBestseller: BESTSELLERS.includes(dish.name),
         originalPricePaise: extra.originalPricePaise ?? null,
+        badge: extra.badge ?? null,
+        preparationMinutes: extra.preparationMinutes ?? null,
         ...(img[extra.image] ? { images: [img[extra.image]] } : {}),
       } });
     }
