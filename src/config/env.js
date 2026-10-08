@@ -103,6 +103,10 @@ export const env = {
   s3Region: String(process.env.S3_REGION || "ap-south-1").trim(),
   awsAccessKeyId: String(process.env.AWS_ACCESS_KEY_ID || "").trim(),
   awsSecretAccessKey: String(process.env.AWS_SECRET_ACCESS_KEY || "").trim(),
+  // Every object key starts with this folder, so a shared bucket stays tidy.
+  s3KeyPrefix: String(process.env.S3_KEY_PREFIX || "").trim().replace(/^\/+|\/+$/g, ""),
+  // Public CDN in front of the bucket. Without it, files are served through
+  // the API (/files/<key> redirects to a short-lived signed S3 link).
   cdnBaseUrl: String(process.env.CDN_BASE_URL || "").trim().replace(/\/$/, ""),
 
   // Payments. Without Razorpay keys the "test" gateway is used (development only).

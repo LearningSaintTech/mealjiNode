@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a052c980-0f60-4692-9b62-5232886f91e4",
 		"name": "mealJiNode",
-		"description": "MealJi auth, people, kitchens, location, and service radius. Local OTP is 123456 while FIXED_OTP is set. Demo phones: customer 9000000031, super admin 9000000001, platform subadmin 9000000002, Koramangala kitchen admin 9000000011, kitchen subadmin 9000000012, Indiranagar kitchen admin 9000000021. Customer flow: Login, Verify OTP, Update current location, Check serviceability. Console flow: Staff login with staffPhone, Verify OTP, then Admin or Kitchen desk. A point outside every active kitchen radius returns 200 Not serviceable.",
+		"description": "MealJi auth, people, kitchens, location, and service radius. Local OTP is 123456 while FIXED_OTP is set. Demo phones: customer 9000000031, super admin 9000000001, platform subadmin 9000000002, Koramangala kitchen admin 9000000011, kitchen subadmin 9000000012, Indiranagar kitchen admin 9000000021. Customer flow: Login, Verify OTP, then Update current location (one call: saves the GPS point and returns data.serviceability with the chosen kitchen, ETA, fees, isOpenNow and the alternatives in range; stores {{servingKitchenId}}), then home and menu without a kitchenId. Console flow: Staff login with staffPhone, Verify OTP, then Admin or Kitchen desk. A point outside every active kitchen radius returns 200 Not serviceable.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"auth": {
@@ -193,6 +193,11 @@
 		},
 		{
 			"key": "masterDishId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "servingKitchenId",
 			"value": "",
 			"type": "string"
 		}
@@ -866,7 +871,7 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/serviceability/pincode/{{pincode}}",
-						"description": "GET /api/v1/serviceability/pincode/:pincode. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated. For a manual pincode box when GPS is not available. Geocodes the 6-digit pincode centre and returns the same serviceability object as Update current location (kitchen, ETA, fees, isOpenNow, alternatives). Does not save the location."
 					},
 					"response": [],
 					"id": "5ce899aa-c530-4074-be39-b56945a9571b"
@@ -881,8 +886,16 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/serviceability",
-						"description": "GET /api/v1/serviceability. See the API reference in the backend README for permissions and fields."
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/serviceability?latitude=12.9568&longitude=77.6349",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "serviceability"],
+							"query": [
+								{ "key": "latitude", "value": "12.9568" },
+								{ "key": "longitude", "value": "77.6349" }
+							]
+						},
+						"description": "Authenticated. Checks a point without saving it, e.g. while the user drags a map pin. latitude and longitude are required. Returns the same serviceability object as Update current location, including alternatives."
 					},
 					"response": [],
 					"id": "9f991150-5351-45bd-8a8a-383905e0e335"
@@ -3221,6 +3234,32 @@
 			"item": [
 				{
 					"name": "Update current location",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const json = pm.response.json();",
+									"const s = json.data && json.data.serviceability;",
+									"pm.test('location saved and serviceability returned', function () {",
+									"  pm.response.to.have.status(200);",
+									"  pm.expect(json.data).to.have.property('latitude');",
+									"  pm.expect(s).to.be.an('object');",
+									"  pm.expect(s).to.have.property('serviceable');",
+									"});",
+									"if (s && s.serviceable) {",
+									"  pm.test('serving kitchen and alternatives present', function () {",
+									"    pm.expect(s.kitchen.kitchenId).to.be.a('string');",
+									"    pm.expect(s.alternatives).to.be.an('array');",
+									"  });",
+									"  pm.collectionVariables.set('servingKitchenId', s.kitchen.kitchenId);",
+									"  try { if (pm.environment && pm.environment.name) pm.environment.set('servingKitchenId', s.kitchen.kitchenId); } catch (e) {}",
+									"}"
+								]
+							}
+						}
+					],
 					"request": {
 						"method": "PUT",
 						"header": [
@@ -3228,11 +3267,15 @@
 								"key": "Content-Type",
 								"value": "application/json",
 								"type": "text"
+							},
+							{
+								"key": "x-device-id",
+								"value": "{{deviceId}}"
 							}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"latitude\": 19.076,\n  \"longitude\": 72.8777\n}",
+							"raw": "{\n  \"latitude\": 12.9568,\n  \"longitude\": 77.6349\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -3240,9 +3283,64 @@
 							}
 						},
 						"url": "{{baseUrl}}/api/v1/users/me/location",
-						"description": "Authenticated. The app sends GPS coordinates. The backend calls Google Maps Geocoding and stores the textual address. Requires GOOGLE_MAPS_API_KEY."
+						"description": "Authenticated. The one call the app makes for location: send the GPS point; the backend saves it (and looks up the address text with Google Maps when GOOGLE_MAPS_API_KEY is set) and returns data.serviceability in the same response.\n\nKitchen choice (all on the backend): every active kitchen whose service radius covers the point is found, nearest first. The nearest one that can take orders now (open and accepting orders) is chosen; if none can, the nearest one is chosen and isOpenNow is false. The other kitchens in range are listed in data.serviceability.alternatives (for a Switch kitchen option: send ?kitchenId= on menu calls).\n\nThe status is 200 either way; read data.serviceability.serviceable. Outside every radius: serviceable false, kitchen null, and the point is logged as demand.\n\nSample point 12.9568, 77.6349 lies between Indiranagar and Koramangala (both 3 km radius), so both cover it. The test script stores the chosen kitchen in {{servingKitchenId}}."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Serviceable (two kitchens in range)",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"latitude\": 12.9568,\n  \"longitude\": 77.6349\n}"
+								},
+								"url": "{{baseUrl}}/api/v1/users/me/location"
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Location updated. We deliver here.\",\n  \"data\": {\n    \"latitude\": 12.9568,\n    \"longitude\": 77.6349,\n    \"serviceability\": {\n      \"serviceable\": true,\n      \"distanceKm\": 2.33,\n      \"etaMinutes\": 34,\n      \"etaLabel\": \"29-39 min\",\n      \"deliveryFeePaise\": 3000,\n      \"deliveryFeeMode\": \"flat\",\n      \"freeDeliveryAbovePaise\": 29900,\n      \"minOrderPaise\": 0,\n      \"codEnabled\": true,\n      \"pickupEnabled\": true,\n      \"isOpenNow\": true,\n      \"opensAt\": null,\n      \"message\": null,\n      \"kitchen\": {\n        \"kitchenId\": \"66f000000000000000000001\",\n        \"name\": \"Indiranagar Kitchen\",\n        \"serviceRadiusKm\": 3,\n        \"acceptingOrders\": true,\n        \"opensAt\": \"08:00\",\n        \"closesAt\": \"23:00\",\n        \"area\": \"Indiranagar\",\n        \"city\": \"Bengaluru\",\n        \"ratingAvg\": 4.5,\n        \"ratingCount\": 120\n      },\n      \"alternatives\": [\n        {\n          \"kitchenId\": \"66f000000000000000000002\",\n          \"name\": \"Koramangala Kitchen\",\n          \"area\": \"Koramangala\",\n          \"city\": \"Bengaluru\",\n          \"distanceKm\": 2.33,\n          \"isOpenNow\": true,\n          \"ratingAvg\": 4.3,\n          \"ratingCount\": 98\n        }\n      ]\n    }\n  }\n}"
+						},
+						{
+							"name": "Not serviceable",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"latitude\": 13.1,\n  \"longitude\": 77.5\n}"
+								},
+								"url": "{{baseUrl}}/api/v1/users/me/location"
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Location updated. We don't deliver here yet.\",\n  \"data\": {\n    \"latitude\": 13.1,\n    \"longitude\": 77.5,\n    \"serviceability\": {\n      \"serviceable\": false,\n      \"kitchen\": null,\n      \"distanceKm\": null,\n      \"message\": \"We don't deliver here yet. We'll let you know when we do.\"\n    }\n  }\n}"
+						}
+					],
 					"id": "c1a7e4b2-6d30-4f18-9a55-0e2b7c8d9f10"
 				},
 				{
@@ -3262,7 +3360,7 @@
 						"method": "GET",
 						"header": [],
 						"url": "{{baseUrl}}/api/v1/users/me/serviceability?latitude=12.9352&longitude=77.6245",
-						"description": "Authenticated. Uses these coordinates, or the saved location when latitude and longitude are omitted. Inside an active kitchen radius the message is Serviceable and data.kitchen is set. Outside every active kitchen the status is still 200, the message is Not serviceable, and data.kitchen is null. Indiranagar 12.9719, 77.6412 is outside Koramangala's 3 km radius while that kitchen is still in setup."
+						"description": "Authenticated. Optional: Update current location already returns the same result. Use this to re-check without saving: it uses these coordinates, or the saved location when latitude and longitude are omitted. Same kitchen choice as Update current location (nearest kitchen that can order now, else nearest), with data.alternatives listing the other kitchens in range. Inside a radius the message is Serviceable and data.kitchen is set; outside every radius the status is still 200, the message is Not serviceable, and data.kitchen is null."
 					},
 					"response": [],
 					"id": "e4d1a8b6-2c55-4f70-9a18-6b3c0d7e1f90"

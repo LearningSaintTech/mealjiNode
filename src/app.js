@@ -30,7 +30,7 @@ import { adminPaymentRouter, paymentRouter, webhookRouter } from "./modules/paym
 import profileRoutes from "./modules/profile/profile.routes.js";
 import { adminReportRouter, kitchenReportRouter } from "./modules/report/report.routes.js";
 import uploadRoutes from "./modules/upload/upload.routes.js";
-import { LOCAL_DIR } from "./modules/upload/upload.service.js";
+import { LOCAL_DIR, signedFileUrl } from "./modules/upload/upload.service.js";
 import { adminKitchenExtrasRouter, kitchenExtrasRouter } from "./modules/kitchen/kitchen.extras.routes.js";
 import { mountPhaseRoutes } from "./routes.phases.js";
 
@@ -103,6 +103,19 @@ export function createApp() {
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       next();
     }, express.static(LOCAL_DIR, { maxAge: "7d", fallthrough: false }));
+  } else if (env.storageDriver === "s3" && !env.cdnBaseUrl) {
+    // S3 without a public CDN: redirect to a short-lived signed link. Clients
+    // cache the redirect for a while; the signed link outlives that.
+    app.get("/files/*", (req, res, next) => {
+      try {
+        const key = decodeURIComponent(req.path.replace(/^\/files\//, ""));
+        res.setHeader("Cache-Control", "public, max-age=1800");
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        return res.redirect(302, signedFileUrl(key, 3600));
+      } catch (err) {
+        return next(err);
+      }
+    });
   }
   app.use("/", publicNotificationRouter);
 

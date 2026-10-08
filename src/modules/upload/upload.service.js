@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "../../common/errors/AppError.js";
 import { env, rootDir } from "../../config/env.js";
-import { presignS3Put } from "../../infrastructure/awsSigV4.js";
+import { presignS3, presignS3Put } from "../../infrastructure/awsSigV4.js";
 
 // Uploads go straight from the client to storage: the API hands out a
 // short-lived, single-purpose upload URL and the final public URL.
@@ -26,10 +26,41 @@ function token(key, contentType, expiresAt) {
 }
 
 export function publicUrl(key) {
-  if (env.storageDriver === "s3") {
-    return env.cdnBaseUrl ? `${env.cdnBaseUrl}/${key}` : `https://${env.s3Bucket}.s3.${env.s3Region}.amazonaws.com/${key}`;
-  }
+  if (env.storageDriver === "s3" && env.cdnBaseUrl) return `${env.cdnBaseUrl}/${key}`;
   return `${env.publicBaseUrl}/files/${key}`;
+}
+
+/** The storage key for a path inside MealJi's folder (S3_KEY_PREFIX on S3). */
+export function storageKey(relativeKey) {
+  return env.storageDriver === "s3" && env.s3KeyPrefix ? `${env.s3KeyPrefix}/${relativeKey}` : relativeKey;
+}
+
+/** A short-lived link that serves a stored file (the /files route on S3 without a CDN). */
+export function signedFileUrl(key, expiresSec = 3600) {
+  if (key.includes("..")) throw new AppError(400, "Invalid key");
+  if (env.s3KeyPrefix && !key.startsWith(`${env.s3KeyPrefix}/`)) throw new AppError(404, "Not found");
+  return presignS3({ method: "GET", key, expiresSec });
+}
+
+/**
+ * Server-side upload (seed data, imports): stores `body` at `key` unless an
+ * object is already there. Returns the public URL.
+ */
+export async function putFile(key, body, contentType, { overwrite = false } = {}) {
+  if (env.storageDriver === "s3") {
+    if (!overwrite) {
+      const head = await fetch(presignS3({ method: "HEAD", key, expiresSec: 120 }), { method: "HEAD" });
+      if (head.ok) return publicUrl(key);
+    }
+    const res = await fetch(presignS3Put({ key, contentType, expiresSec: 600 }), { method: "PUT", headers: { "Content-Type": contentType }, body });
+    if (!res.ok) throw new AppError(502, `Storage upload failed (${res.status}) for ${key}`);
+    return publicUrl(key);
+  }
+  const target = path.join(LOCAL_DIR, ...key.split("/"));
+  if (!overwrite && await fs.stat(target).then(() => true, () => false)) return publicUrl(key);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, body);
+  return publicUrl(key);
 }
 
 export function presignUpload({ purpose, contentType, size, ownerId }) {
@@ -39,7 +70,7 @@ export function presignUpload({ purpose, contentType, size, ownerId }) {
   if (!Number.isInteger(size) || size <= 0 || size > rule.maxBytes) {
     throw new AppError(422, `File must be under ${Math.round(rule.maxBytes / 1024 / 1024)} MB`);
   }
-  const key = `${purpose}/${String(ownerId || "anon")}/${Date.now().toString(36)}-${crypto.randomBytes(6).toString("hex")}.${EXT[contentType]}`;
+  const key = storageKey(`${purpose}/${String(ownerId || "anon")}/${Date.now().toString(36)}-${crypto.randomBytes(6).toString("hex")}.${EXT[contentType]}`);
   const expiresAt = Date.now() + 10 * 60 * 1000;
   const uploadUrl = env.storageDriver === "s3"
     ? presignS3Put({ key, contentType, expiresSec: 600 })

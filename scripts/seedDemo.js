@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import mongoose from "mongoose";
+import { rootDir } from "../src/config/env.js";
 import { logger } from "../src/config/logger.js";
 import { addIstDays, istDateKey, istDateTime } from "../src/common/time.js";
 import { roleRepository } from "../src/modules/role/role.repository.js";
@@ -48,6 +49,7 @@ import { Order } from "../src/modules/order/order.model.js";
 import { invoiceOrder, onPaymentCaptured } from "../src/modules/payment/payment.service.js";
 import { Payment, Refund } from "../src/modules/payment/payment.model.js";
 import { rollupDay } from "../src/modules/analytics/analytics.service.js";
+import { putFile, storageKey } from "../src/modules/upload/upload.service.js";
 
 const DEMO_PHONE = /^90000000\d\d$/;
 
@@ -73,76 +75,163 @@ const DEMO_CUSTOMERS = [
   { name: "Divya Pillai", phone: "9000000040", kitchen: "Indiranagar", at: [-0.003, -0.008], house: "No. 31", street: "6th Cross, Defence Colony", locality: "Indiranagar", pincode: "560038", days: 4, orders: 0 },
 ];
 
-// ------------------------------------------------------------------ menu
+// ------------------------------------------------------------------ images
 
+// Images come from the customer app (MealJi/src), so the seeded data looks
+// exactly like the app's design. They are uploaded once to storage (S3 under
+// S3_KEY_PREFIX, or ./uploads locally) at seed/<file> and reused afterwards.
+const APP_SRC = path.resolve(rootDir, "..", "MealJi", "src");
+const MENU = "design/assets/menu-v4";
+const IMAGE_FILES = {
+  // Dishes
+  butterChickenBowl: `${MENU}/butter-chicken-bowl.jpg`,
+  butterChickenDark: `${MENU}/butter-chicken-dark.jpg`,
+  paneerBao: `${MENU}/paneer-bao.jpg`,
+  dalRamen: `${MENU}/dal-ramen.jpg`,
+  tikkaWrap: `${MENU}/tikka-wrap.jpg`,
+  biryaniArancini: `${MENU}/biryani-arancini.jpg`,
+  masalaFries: `${MENU}/masala-fries.jpg`,
+  cauliflowerBowl: `${MENU}/cauliflower-bowl.jpg`,
+  gulabCheesecake: `${MENU}/gulab-cheesecake.jpg`,
+  kulfiShake: `${MENU}/kulfi-shake.jpg`,
+  mealJiMeal: `${MENU}/meal-ji-meal.jpg`,
+  paneerTikkaMasala: `${MENU}/paneer-tikka-masala.jpg`,
+  chickenBiryani: `${MENU}/chicken-biryani.jpg`,
+  muttonBiryani: `${MENU}/mutton-biryani.jpg`,
+  paneerBiryani: `${MENU}/paneer-biryani.jpg`,
+  eggBiryani: `${MENU}/egg-biryani.jpg`,
+  butterNaan: `${MENU}/butter-naan.jpg`,
+  garlicNaan: `${MENU}/rewards-garlic-naan.jpg`,
+  jeeraRice: `${MENU}/jeera-rice.jpg`,
+  coldDrink: `${MENU}/cold-drink.jpg`,
+  coldCoffee: `${MENU}/rewards-cold-coffee.jpg`,
+  chocolateCake: `${MENU}/chocolate-cake.jpg`,
+  masalaPapad: `${MENU}/masala-papad.jpg`,
+  gulabJamun: `${MENU}/rewards-gulab-jamun.jpg`,
+  rewardsButterChicken: `${MENU}/rewards-butter-chicken.jpg`,
+  // Combos
+  comboSpread: `${MENU}/combo-spread.jpg`,
+  completeMeal: `${MENU}/complete-meal.jpg`,
+  mealWrapSolo: `${MENU}/meal-wrap-solo.jpg`,
+  mealSharingPlate: `${MENU}/meal-sharing-plate.jpg`,
+  mealBaoBowl: `${MENU}/meal-bao-bowl.jpg`,
+  // Heroes, banners and the kitchen
+  heroChickenBiryani: `${MENU}/hero-chicken-biryani.jpg`,
+  heroButterChicken: `${MENU}/hero-butter-chicken.jpg`,
+  heroButterChickenRice: `${MENU}/hero-butter-chicken-rice.jpg`,
+  heroKitchenChef: `${MENU}/hero-kitchen-chef.jpg`,
+  mealsHeroKitchen: `${MENU}/meals-hero-kitchen.jpg`,
+  kitchenFlame: `${MENU}/kitchen-flame.jpg`,
+  kitchenPrep: `${MENU}/kitchen-prep.jpg`,
+  kitchenFresh: `${MENU}/kitchen-fresh.jpg`,
+  liveKitchenChef: `${MENU}/live-kitchen-chef-3d.jpg`,
+  dealsGiftbox: `${MENU}/deals-giftbox.webp`,
+  dealsScooter: `${MENU}/deals-scooter.webp`,
+  dealsChefKiss: `${MENU}/deals-chef-kiss.webp`,
+  rewardsChefGift: `${MENU}/rewards-chef-gift.webp`,
+  profileAvatar: `${MENU}/profile-avatar.jpg`,
+  promoTaco: "assets/images/taco 1.png",
+  mealCombos: "assets/images/Meal combos.png",
+  howWeCook: "assets/images/Frame copy.png",
+  onboardMenu: "assets/images/onboard2.png",
+  onboardFresh: "assets/images/onboard3.png",
+  mascot: "design/assets/brand-official/mascot-1024.png",
+  logo: "design/assets/brand-official/logo-full.png",
+};
+const CONTENT_TYPES = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
+const fileSlug = (file) => path.basename(file).toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/-+/g, "-");
+
+/** Uploads the app's images (skipping ones already stored) and returns name → URL. */
+async function seedImages() {
+  const urls = {};
+  if (!fs.existsSync(APP_SRC)) {
+    logger.warn({ appSrc: APP_SRC }, "Customer app not found next to the API; seeding without images");
+    return urls;
+  }
+  for (const [name, file] of Object.entries(IMAGE_FILES)) {
+    const source = path.join(APP_SRC, file);
+    if (!fs.existsSync(source)) {
+      logger.warn({ file }, "App image missing; skipped");
+      continue;
+    }
+    const type = CONTENT_TYPES[path.extname(source).toLowerCase()];
+    urls[name] = await putFile(storageKey(`seed/${fileSlug(file)}`), fs.readFileSync(source), type);
+  }
+  logger.info({ images: Object.keys(urls).length }, "App images are in storage");
+  return urls;
+}
+
+// ------------------------------------------------------------------ menu (from the customer app)
+
+// Today's Menu on the app's home shows Paneer, Daal and Roti first.
 const MASTER_CATEGORIES = [
-  { name: "Thalis & Meals", icon: "thali", subtitle: "Complete home-style meals", sortOrder: 0 },
-  { name: "Curries", icon: "curry", subtitle: "Dals, sabzis and gravies", sortOrder: 1 },
-  { name: "Rice & Biryani", icon: "rice", subtitle: "Pulao, biryani and rice bowls", sortOrder: 2 },
-  { name: "Breads", icon: "roti", subtitle: "Fresh off the tawa", sortOrder: 3 },
-  { name: "Breakfast", icon: "breakfast", subtitle: "Morning favourites", sortOrder: 4 },
-  { name: "Sides & Salads", icon: "salad", subtitle: "Raita, salads and more", sortOrder: 5 },
-  { name: "Desserts", icon: "dessert", subtitle: "Something sweet", sortOrder: 6 },
-  { name: "Beverages", icon: "drink", subtitle: "Chai, buttermilk and coolers", sortOrder: 7 },
+  { name: "Paneer", subtitle: "Paneer, every way you like it", image: "paneerBao", sortOrder: 0 },
+  { name: "Daal & Curries", subtitle: "Slow-simmered comfort", image: "dalRamen", sortOrder: 1 },
+  { name: "Roti & Rice", subtitle: "Fresh off the tawa", image: "butterNaan", sortOrder: 2 },
+  { name: "Meal Ji Meals", subtitle: "The complete feast", image: "mealJiMeal", sortOrder: 3 },
+  { name: "Signature Bowls", subtitle: "Our chef's signature bowls", image: "butterChickenBowl", sortOrder: 4 },
+  { name: "Biryani", subtitle: "Dum-cooked, layered, fragrant", image: "chickenBiryani", sortOrder: 5 },
+  { name: "Small Bites", subtitle: "Bao, wraps and street snacks", image: "biryaniArancini", sortOrder: 6 },
+  { name: "Desserts & Shakes", subtitle: "Something sweet", image: "gulabCheesecake", sortOrder: 7 },
+  { name: "Drinks", subtitle: "Chilled and refreshing", image: "coldDrink", sortOrder: 8 },
 ];
 
-const SPICE = { name: "Spice level", minSelect: 1, maxSelect: 1, options: [{ name: "Mild" }, { name: "Medium" }, { name: "Hot" }] };
-const EXTRAS = { name: "Add extra", minSelect: 0, maxSelect: 3, options: [{ name: "Extra roti", pricePaise: 1500 }, { name: "Extra rice", pricePaise: 2500 }, { name: "Papad", pricePaise: 1000 }] };
+const RICE_PORTION = { name: "Choose Rice Portion", minSelect: 1, maxSelect: 1, options: [{ name: "Regular Jeera Rice" }, { name: "Extra Butter Jeera Rice", pricePaise: 4000 }, { name: "Fragrant Biryani Rice", pricePaise: 6000 }] };
+const ADD_SIDE = { name: "Add a Side", minSelect: 0, maxSelect: 3, options: [{ name: "Crispy Masala Papad", pricePaise: 3900 }, { name: "Butter Garlic Naan (1 pc)", pricePaise: 6500 }, { name: "Cold Badam Drink", pricePaise: 7900 }] };
+const EXTRA_DIP = { name: "Extra Dip", minSelect: 0, maxSelect: 2, options: [{ name: "Smoked Chilli Mayo", pricePaise: 2900 }, { name: "Pudina Chutney", pricePaise: 1900 }] };
+const CHOOSE_BOWL = { name: "Choose your bowl", minSelect: 1, maxSelect: 1, options: [{ name: "Butter Chicken Bowl", isVeg: false }, { name: "Paneer Tikka Bowl" }] };
 
-// [category, name, pricePaise, veg, extra fields]
+// [category, name, pricePaise, veg, image, extra fields]. The first ten are the app's own menu (menuData.ts).
 const MASTER_DISHES = [
-  ["Thalis & Meals", "Ghar Ka Veg Thali", 18900, true, { description: "Dal tadka, seasonal sabzi, jeera rice, 3 phulkas, salad and a sweet.", calories: 780, tags: ["thali", "bestseller"], cuisine: "North Indian", highlights: ["Changes daily", "No preservatives"], customizationGroups: [SPICE, EXTRAS], mealUpgrade: { label: "Make it a feast", description: "Add paneer sabzi and gulab jamun", pricePaise: 6000 }, preparationMinutes: 20 }],
-  ["Thalis & Meals", "Rajma Chawal Bowl", 14900, true, { description: "Slow-cooked Kashmiri rajma over steamed basmati with pickled onions.", calories: 620, tags: ["bowl", "comfort"], cuisine: "North Indian", customizationGroups: [SPICE], preparationMinutes: 15 }],
-  ["Thalis & Meals", "Chole Kulche Meal", 15900, true, { description: "Amritsari chole with two butter kulchas and onion salad.", calories: 710, tags: ["punjabi"], cuisine: "North Indian", customizationGroups: [SPICE], preparationMinutes: 15 }],
-  ["Thalis & Meals", "Home-style Chicken Thali", 23900, false, { description: "Chicken curry, dal, rice, 3 phulkas, salad and raita.", calories: 890, tags: ["thali", "protein"], cuisine: "North Indian", spicyLevel: 2, customizationGroups: [SPICE, EXTRAS], mealUpgrade: { label: "Add a dessert", description: "Gulab jamun (2 pcs)", pricePaise: 4000 }, preparationMinutes: 25 }],
-  ["Thalis & Meals", "South Indian Meals", 17900, true, { description: "Sambar, rasam, poriyal, kootu, curd rice, rice and appalam.", calories: 740, tags: ["thali", "south indian"], cuisine: "South Indian", preparationMinutes: 20 }],
-  ["Curries", "Dal Tadka", 11900, true, { description: "Yellow dal tempered with ghee, cumin and garlic.", calories: 260, tags: ["dal", "protein"], cuisine: "North Indian", portions: [{ label: "Half", pricePaise: 7900 }, { label: "Full", pricePaise: 11900, isDefault: true }] }],
-  ["Curries", "Paneer Butter Masala", 19900, true, { description: "Soft paneer in a velvety tomato and cashew gravy.", calories: 450, tags: ["paneer", "bestseller"], cuisine: "North Indian", spicyLevel: 1, portions: [{ label: "Half", pricePaise: 12900 }, { label: "Full", pricePaise: 19900, isDefault: true }] }],
-  ["Curries", "Aloo Gobi", 12900, true, { description: "Dry-tossed potato and cauliflower with turmeric and ginger.", calories: 230, tags: ["sabzi"], cuisine: "North Indian" }],
-  ["Curries", "Homestyle Chicken Curry", 21900, false, { description: "Bone-in chicken simmered the way it's made at home.", calories: 480, tags: ["chicken"], cuisine: "North Indian", spicyLevel: 2, customizationGroups: [SPICE] }],
-  ["Curries", "Egg Curry", 15900, false, { description: "Two boiled eggs in an onion-tomato masala.", calories: 340, tags: ["egg", "protein"], cuisine: "North Indian", spicyLevel: 1 }],
-  ["Rice & Biryani", "Veg Dum Biryani", 18900, true, { description: "Basmati layered with vegetables, saffron and fried onions. With raita.", calories: 640, tags: ["biryani"], cuisine: "Hyderabadi", spicyLevel: 1 }],
-  ["Rice & Biryani", "Chicken Dum Biryani", 24900, false, { description: "Hyderabadi-style dum biryani with salan and raita.", calories: 820, tags: ["biryani", "bestseller"], cuisine: "Hyderabadi", spicyLevel: 2 }],
-  ["Rice & Biryani", "Jeera Rice", 8900, true, { description: "Basmati tossed with cumin and ghee.", calories: 310, tags: ["rice"], cuisine: "North Indian" }],
-  ["Rice & Biryani", "Curd Rice", 9900, true, { description: "Creamy curd rice with tempering and pomegranate.", calories: 290, tags: ["south indian", "light"], cuisine: "South Indian" }],
-  ["Breads", "Phulka (2 pcs)", 3900, true, { description: "Whole-wheat phulkas, lightly ghee brushed.", calories: 160, tags: ["roti"], cuisine: "North Indian" }],
-  ["Breads", "Butter Naan", 5900, true, { description: "Tandoor-style naan with butter.", calories: 260, tags: ["naan"], cuisine: "North Indian" }],
-  ["Breads", "Aloo Paratha", 8900, true, { description: "Stuffed paratha with curd and pickle.", calories: 380, tags: ["paratha"], cuisine: "North Indian" }],
-  ["Breakfast", "Poha", 6900, true, { description: "Flattened rice with peanuts, curry leaves and lemon.", calories: 270, tags: ["breakfast", "light"], cuisine: "Maharashtrian" }],
-  ["Breakfast", "Idli Sambar (3 pcs)", 7900, true, { description: "Soft idlis with sambar and coconut chutney.", calories: 300, tags: ["breakfast", "south indian"], cuisine: "South Indian" }],
-  ["Breakfast", "Masala Dosa", 9900, true, { description: "Crisp dosa with potato masala, sambar and chutneys.", calories: 420, tags: ["breakfast", "south indian", "bestseller"], cuisine: "South Indian" }],
-  ["Breakfast", "Upma", 6900, true, { description: "Rava upma with vegetables and cashews.", calories: 280, tags: ["breakfast"], cuisine: "South Indian" }],
-  ["Sides & Salads", "Boondi Raita", 4900, true, { description: "Chilled curd with boondi and roasted cumin.", calories: 120, tags: ["side"], cuisine: "North Indian" }],
-  ["Sides & Salads", "Kachumber Salad", 4900, true, { description: "Cucumber, tomato and onion with lemon.", calories: 60, tags: ["side", "healthy"], cuisine: "North Indian" }],
-  ["Desserts", "Gulab Jamun (2 pcs)", 5900, true, { description: "Warm khoya dumplings in cardamom syrup.", calories: 300, tags: ["dessert"], cuisine: "North Indian" }],
-  ["Desserts", "Rice Kheer", 6900, true, { description: "Slow-cooked rice pudding with saffron and nuts.", calories: 280, tags: ["dessert"], cuisine: "North Indian" }],
-  ["Beverages", "Masala Chai", 3900, true, { description: "Ginger-cardamom chai.", calories: 90, tags: ["drink", "hot"], cuisine: "Indian" }],
-  ["Beverages", "Masala Chaas", 4900, true, { description: "Spiced buttermilk with mint.", calories: 70, tags: ["drink", "cold"], cuisine: "Indian" }],
-  ["Beverages", "Filter Coffee", 4900, true, { description: "South Indian decoction coffee.", calories: 110, tags: ["drink", "hot"], cuisine: "South Indian" }],
+  ["Signature Bowls", "Butter Chicken Bowl", 34900, false, "butterChickenBowl", { originalPricePaise: 39900, badge: "Chef’s Kiss", description: "24-hr simmered makhani sauce, tender boneless chicken, fragrant cumin jeera rice.", story: "Chef Mujahid’s signature bowl, cooked over low flame with house-ground cardamom & churned cream.", calories: 620, spicyLevel: 1, preparationMinutes: 20, tags: ["bowl", "chicken", "bestseller"], cuisine: "North Indian", customizationGroups: [RICE_PORTION, ADD_SIDE] }],
+  ["Paneer", "Paneer Bao (3 pcs)", 28900, true, "paneerBao", { originalPricePaise: 32900, badge: "Most Loved", description: "Puffy steamed bao buns stuffed with smoky clay-oven paneer, pickled onions & fresh mint mayo.", story: "East Asian technique meets Old Delhi tandoor mastery. Fluffy, spicy, tangy in every bite.", calories: 480, spicyLevel: 2, preparationMinutes: 15, tags: ["bao", "paneer", "bestseller"], cuisine: "Indo-Asian", customizationGroups: [EXTRA_DIP] }],
+  ["Daal & Curries", "Dal Ramen", 29900, true, "dalRamen", { badge: "Trending", description: "Black dal simmered for 18 hours transformed into a rich velvety broth with handmade noodles & burnt garlic oil.", story: "An Indian food-lover’s ultimate comfort bowl. Deep, aromatic, finished with cilantro & butter swirls.", calories: 550, spicyLevel: 1, preparationMinutes: 18, tags: ["dal", "bowl", "noodles"], cuisine: "Indo-Asian" }],
+  ["Small Bites", "Chicken Tikka Wrap", 27900, false, "tikkaWrap", { description: "Charcoal grilled chicken basted in mustard oil, wrapped in thin roomali with roasted peppers.", story: "Wrapped fresh off the tawa, served with charred green chilli dip.", calories: 510, spicyLevel: 2, preparationMinutes: 12, tags: ["wrap", "chicken"], cuisine: "North Indian" }],
+  ["Small Bites", "Biryani Arancini (4 pcs)", 24900, true, "biryaniArancini", { description: "Golden spiced biryani croquettes with melted aged mozzarella centers & fiery salan glaze.", story: "Crisp outside, molten cheesy center bursting with saffron spices.", calories: 440, spicyLevel: 1, preparationMinutes: 14, tags: ["snack", "biryani"], cuisine: "Fusion" }],
+  ["Meal Ji Meals", "The Meal Ji Meal (Signature)", 49900, false, "mealJiMeal", { originalPricePaise: 59900, badge: "Best Value", description: "The complete feast: Choice of Butter Chicken/Paneer Bowl + Masala Fries + Kulfi Shake + Garlic Naan.", story: "Designed for the hungriest. Everything you love about Meal Ji in one box.", calories: 950, preparationMinutes: 25, tags: ["meal", "signature", "bestseller"], cuisine: "North Indian", customizationGroups: [CHOOSE_BOWL] }],
+  ["Signature Bowls", "Tandoori Cauliflower Bowl", 29900, true, "cauliflowerBowl", { description: "Whole spiced roasted florets on spiced quinoa pilaf with garlic labneh & pomegranate seeds.", story: "Wholesome, vibrant, gluten-friendly with immense smoky depth.", calories: 410, spicyLevel: 1, preparationMinutes: 18, tags: ["bowl", "healthy"], cuisine: "Modern Indian" }],
+  ["Small Bites", "Masala Gunpowder Fries", 16900, true, "masalaFries", { description: "Hand-cut russet potatoes dusted with South Indian gunpowder spice and curry leaf salt.", story: "Crunchy hot fries that never stay in the box for long.", calories: 340, spicyLevel: 1, preparationMinutes: 10, tags: ["snack", "fries"], cuisine: "South Indian" }],
+  ["Desserts & Shakes", "Gulab Cheesecake", 21900, true, "gulabCheesecake", { badge: "Must Try", description: "Velvety New York style cheesecake studded with miniature warm gulab jamuns & saffron glaze.", story: "The dessert that broke the internet. Sweet, decadent and unforgettable.", calories: 380, preparationMinutes: 5, tags: ["dessert", "bestseller"], cuisine: "Fusion" }],
+  ["Desserts & Shakes", "Royal Kulfi Shake", 18900, true, "kulfiShake", { description: "Chilled thick shake spun with malai kulfi, toasted Iranian pistachios and green cardamom.", story: "Pure liquid gold served ice cold.", calories: 320, preparationMinutes: 8, tags: ["shake", "drink"], cuisine: "Indian" }],
+  ["Paneer", "Paneer Tikka Masala", 29900, true, "paneerTikkaMasala", { description: "Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.", calories: 520, spicyLevel: 2, preparationMinutes: 18, tags: ["paneer", "curry"], cuisine: "North Indian" }],
+  ["Daal & Curries", "Butter Chicken", 32900, false, "butterChickenDark", { description: "Our 24-hour makhani with tandoori chicken. Real butter, no cornstarch, no fillers.", calories: 580, spicyLevel: 1, preparationMinutes: 18, tags: ["chicken", "curry"], cuisine: "North Indian" }],
+  ["Biryani", "Chicken Biryani", 32900, false, "chickenBiryani", { badge: "Signature", description: "Our signature dum biryani: aged basmati, bone-in chicken, saffron and fried onions. With salan and raita.", calories: 780, spicyLevel: 2, preparationMinutes: 22, tags: ["biryani", "chicken", "bestseller"], cuisine: "Hyderabadi" }],
+  ["Biryani", "Mutton Biryani", 39900, false, "muttonBiryani", { description: "Tender mutton slow-cooked on dum with whole spices and aged basmati.", calories: 850, spicyLevel: 2, preparationMinutes: 25, tags: ["biryani", "mutton"], cuisine: "Hyderabadi" }],
+  ["Biryani", "Paneer Biryani", 29900, true, "paneerBiryani", { description: "Paneer tikka layered with saffron basmati and mint.", calories: 690, spicyLevel: 1, preparationMinutes: 20, tags: ["biryani", "paneer"], cuisine: "Hyderabadi" }],
+  ["Biryani", "Egg Biryani", 26900, false, "eggBiryani", { description: "Masala-roasted eggs on fragrant dum biryani rice.", calories: 640, spicyLevel: 2, preparationMinutes: 18, tags: ["biryani", "egg"], cuisine: "Hyderabadi" }],
+  ["Roti & Rice", "Butter Naan", 5900, true, "butterNaan", { description: "Soft tandoor naan brushed with butter.", calories: 260, preparationMinutes: 6, tags: ["naan", "bread"], cuisine: "North Indian" }],
+  ["Roti & Rice", "Garlic Naan", 6900, true, "garlicNaan", { description: "Naan topped with burnt garlic and coriander.", calories: 280, preparationMinutes: 6, tags: ["naan", "bread"], cuisine: "North Indian" }],
+  ["Roti & Rice", "Jeera Rice", 14900, true, "jeeraRice", { description: "Aged basmati tossed with cumin and ghee.", calories: 310, preparationMinutes: 8, tags: ["rice"], cuisine: "North Indian" }],
+  ["Small Bites", "Masala Papad", 7900, true, "masalaPapad", { description: "Crisp papad topped with onion, tomato and chaat masala.", calories: 120, preparationMinutes: 4, tags: ["snack"], cuisine: "North Indian" }],
+  ["Desserts & Shakes", "Chocolate Truffle Cake", 19900, true, "chocolateCake", { description: "Rich dark chocolate truffle slice.", calories: 420, preparationMinutes: 3, tags: ["dessert", "cake"], cuisine: "Bakery" }],
+  ["Desserts & Shakes", "Gulab Jamun (2 pcs)", 9900, true, "gulabJamun", { description: "Warm khoya gulab jamuns in cardamom syrup.", calories: 300, preparationMinutes: 3, tags: ["dessert"], cuisine: "North Indian" }],
+  ["Drinks", "Chilled Soft Drink", 5900, true, "coldDrink", { description: "Ice-cold fizzy drink (300 ml).", calories: 140, preparationMinutes: 1, tags: ["drink", "cold"], cuisine: "Beverages" }],
+  ["Drinks", "Cold Coffee", 14900, true, "coldCoffee", { description: "Thick cold coffee blended with vanilla ice cream.", calories: 260, preparationMinutes: 5, tags: ["drink", "coffee"], cuisine: "Beverages" }],
 ];
 
-const BREAKFAST = ["Poha", "Idli Sambar (3 pcs)", "Masala Dosa", "Upma", "Aloo Paratha", "Masala Chai", "Filter Coffee"];
-const BESTSELLERS = ["Ghar Ka Veg Thali", "Paneer Butter Masala", "Chicken Dum Biryani", "Masala Dosa"];
+const BESTSELLERS = ["Butter Chicken Bowl", "Paneer Bao (3 pcs)", "The Meal Ji Meal (Signature)", "Chicken Biryani", "Gulab Cheesecake"];
 
 const KITCHEN_SETUP = {
   Koramangala: {
     skip: [],
     combos: [
-      { title: "Lunch for two", subtitle: "2 veg thalis + 2 gulab jamun", items: [["Ghar Ka Veg Thali", 2], ["Gulab Jamun (2 pcs)", 1]], pricePaise: 39900, isSignature: true, serves: 2, badge: "Save ₹38" },
-      { title: "Paneer meal box", subtitle: "Paneer butter masala, jeera rice, 2 phulkas", items: [["Paneer Butter Masala", 1], ["Jeera Rice", 1], ["Phulka (2 pcs)", 1]], pricePaise: 27900, isSignature: true },
-      { title: "Biryani feast", subtitle: "Chicken biryani, raita and kheer", items: [["Chicken Dum Biryani", 1], ["Boondi Raita", 1], ["Rice Kheer", 1]], pricePaise: 32900 },
+      { title: "Biryani Feast for 4", subtitle: "2 chicken, 1 mutton and 1 paneer biryani", image: "comboSpread", items: [["Chicken Biryani", 2], ["Mutton Biryani", 1], ["Paneer Biryani", 1]], pricePaise: 119900, originalPricePaise: 135600, isSignature: true, serves: 4, badge: "Party pack" },
+      { title: "Sharing Platter for 2", subtitle: "2 butter chicken bowls, arancini and cheesecake", image: "mealSharingPlate", items: [["Butter Chicken Bowl", 2], ["Biryani Arancini (4 pcs)", 1], ["Gulab Cheesecake", 1]], pricePaise: 99900, originalPricePaise: 116600, isSignature: true, serves: 2, badge: "Save ₹167" },
+      { title: "Complete Meal", subtitle: "Butter chicken, garlic naan, jeera rice and gulab jamun", image: "completeMeal", items: [["Butter Chicken", 1], ["Garlic Naan", 1], ["Jeera Rice", 1], ["Gulab Jamun (2 pcs)", 1]], pricePaise: 54900, originalPricePaise: 64600 },
+      { title: "Bao & Bowl", subtitle: "Paneer bao with a dal ramen", image: "mealBaoBowl", items: [["Paneer Bao (3 pcs)", 1], ["Dal Ramen", 1]], pricePaise: 49900, originalPricePaise: 58800 },
+      { title: "Solo Wrap Meal", subtitle: "Chicken tikka wrap, gunpowder fries and a drink", image: "mealWrapSolo", items: [["Chicken Tikka Wrap", 1], ["Masala Gunpowder Fries", 1], ["Chilled Soft Drink", 1]], pricePaise: 44900, originalPricePaise: 50700 },
     ],
-    about: { chefName: "Anita Rao", title: "Cooking like it's for family since 2009", story: "Anita started cooking lunch boxes for her neighbours in Koramangala. Every thali still follows her mother's recipes: fresh masalas ground each morning, cold-pressed oils and no preservatives." },
-    hours: { opensAt: "08:00", closesAt: "21:00" },
+    about: { chefName: "Chef Mujahid Khan", title: "The man behind the flame", story: "Every Meal Ji dish follows one standard. Our makhani simmers for 24 hours with real butter, ripe tomatoes and whole green cardamom, no cornstarch and no fillers. Baos and breads are puffed to order off the iron tawa and steam baskets, never reheated. And there are zero preservatives, so it's food you can enjoy four times a week.", image: "mealsHeroKitchen", gallery: ["heroKitchenChef", "kitchenFlame", "kitchenPrep", "kitchenFresh"] },
+    hours: { opensAt: "08:00", closesAt: "23:00" },
   },
   Indiranagar: {
-    skip: ["Home-style Chicken Thali", "Egg Curry"],
+    skip: ["Mutton Biryani", "Egg Biryani"],
     combos: [
-      { title: "South Indian breakfast", subtitle: "Masala dosa, 2 idlis and filter coffee", items: [["Masala Dosa", 1], ["Idli Sambar (3 pcs)", 1], ["Filter Coffee", 1]], pricePaise: 19900, isSignature: true },
-      { title: "Thali + chaas", subtitle: "South Indian meals with masala chaas", items: [["South Indian Meals", 1], ["Masala Chaas", 1]], pricePaise: 20900 },
+      { title: "Bao & Bowl", subtitle: "Paneer bao with a dal ramen", image: "mealBaoBowl", items: [["Paneer Bao (3 pcs)", 1], ["Dal Ramen", 1]], pricePaise: 49900, originalPricePaise: 58800, isSignature: true },
+      { title: "Solo Wrap Meal", subtitle: "Chicken tikka wrap, gunpowder fries and a drink", image: "mealWrapSolo", items: [["Chicken Tikka Wrap", 1], ["Masala Gunpowder Fries", 1], ["Chilled Soft Drink", 1]], pricePaise: 44900, originalPricePaise: 50700 },
     ],
-    about: { chefName: "Meera Shah", title: "Breakfasts and meals from a Gujarati-Tamil kitchen", story: "Meera's kitchen mixes the two homes she grew up between: soft idlis, crisp dosas and a comforting daily meal. Everything is made in small batches through the day." },
-    hours: { opensAt: "07:00", closesAt: "22:00" },
+    about: { chefName: "Chef Meera Shah", title: "Same kitchen, same love", story: "Meera runs the Indiranagar kitchen with the same Meal Ji recipes: the 24-hour makhani, hand-made baos and breads, and nothing reheated. Every order is cooked and packed by the same small team.", image: "liveKitchenChef", gallery: ["kitchenPrep", "kitchenFresh"] },
+    hours: { opensAt: "08:00", closesAt: "23:00" },
   },
 };
 
@@ -224,24 +313,29 @@ async function seedAccounts() {
 
 // ------------------------------------------------------------------ catalog
 
-async function seedCatalog(kitchens) {
+async function seedCatalog(kitchens, img) {
   const masterCategories = {};
-  for (const category of MASTER_CATEGORIES) {
+  for (const { image, ...category } of MASTER_CATEGORIES) {
+    const data = { ...category, imageUrl: img[image] || null };
     const found = await MasterCategory.findOne({ name: category.name }).lean();
-    masterCategories[category.name] = found ? String(found._id) : (await catalog.saveMasterCategory(null, category)).categoryId;
+    masterCategories[category.name] = found ? (await catalog.saveMasterCategory(String(found._id), data)).categoryId : (await catalog.saveMasterCategory(null, data)).categoryId;
   }
   const masterIds = {};
-  for (const [categoryName, name, pricePaise, isVeg, extra] of MASTER_DISHES) {
+  const extras = new Map();
+  for (const [categoryName, name, pricePaise, isVeg, image, { originalPricePaise, ...extra }] of MASTER_DISHES) {
+    extras.set(name, { originalPricePaise: originalPricePaise ?? null, image });
+    const data = { name, isVeg, suggestedPricePaise: pricePaise, categoryId: masterCategories[categoryName], servesCount: 1, images: img[image] ? [img[image]] : [], ...extra };
     const found = await MasterDish.findOne({ name }).lean();
-    masterIds[name] = found ? String(found._id) : (await catalog.saveMasterDish(null, { name, isVeg, suggestedPricePaise: pricePaise, categoryId: masterCategories[categoryName], servesCount: 1, ...extra })).masterDishId;
+    masterIds[name] = found ? (await catalog.saveMasterDish(String(found._id), data)).masterDishId : (await catalog.saveMasterDish(null, data)).masterDishId;
   }
 
   for (const [key, kitchen] of Object.entries(kitchens)) {
     const setup = KITCHEN_SETUP[key];
     const kitchenId = kitchen._id;
-    for (const category of MASTER_CATEGORIES) {
+    for (const { image, ...category } of MASTER_CATEGORIES) {
       let row = await KitchenCategory.findOne({ kitchen: kitchenId, name: category.name }).lean();
-      if (!row) row = { _id: (await catalog.createCategory(kitchenId, category)).categoryId };
+      if (!row) row = { _id: (await catalog.createCategory(kitchenId, { ...category, imageUrl: img[image] || null })).categoryId };
+      else await KitchenCategory.updateOne({ _id: row._id }, { $set: { imageUrl: img[image] || null, sortOrder: category.sortOrder, subtitle: category.subtitle } });
       const wanted = MASTER_DISHES.filter(([categoryName, name]) => categoryName === category.name && !setup.skip.includes(name)).map(([, name]) => masterIds[name]);
       if (wanted.length) {
         const missing = [];
@@ -249,22 +343,23 @@ async function seedCatalog(kitchens) {
         if (missing.length) await catalog.importMasterDishes(kitchenId, { masterDishIds: missing, categoryId: String(row._id) }, { platform: true });
       }
     }
-    // Slots, bestsellers and stock for imported dishes.
+    // Slots, bestsellers, MRP and the app's photo on every dish.
     const dishes = await KitchenDish.find({ kitchen: kitchenId }).lean();
     const byName = new Map(dishes.map((dish) => [dish.name, dish]));
     for (const dish of dishes) {
-      const isBreakfast = BREAKFAST.includes(dish.name);
-      const update = {
-        availableSlots: isBreakfast ? ["breakfast", "snacks"] : ["lunch", "dinner"],
+      const extra = extras.get(dish.name) || {};
+      await KitchenDish.updateOne({ _id: dish._id }, { $set: {
+        availableSlots: ["lunch", "dinner", "snacks"],
         isBestseller: BESTSELLERS.includes(dish.name),
-        originalPricePaise: BESTSELLERS.includes(dish.name) ? Math.round(dish.pricePaise * 1.15 / 100) * 100 : null,
-      };
-      if (key === "Indiranagar" && isBreakfast) update.availableSlots = ["breakfast", "lunch", "snacks"];
-      await KitchenDish.updateOne({ _id: dish._id }, { $set: update });
+        originalPricePaise: extra.originalPricePaise ?? null,
+        ...(img[extra.image] ? { images: [img[extra.image]] } : {}),
+      } });
     }
-    for (const combo of setup.combos) {
-      if (await KitchenCombo.exists({ kitchen: kitchenId, title: combo.title })) continue;
-      await catalog.createCombo(kitchenId, { ...combo, items: combo.items.map(([name, qty]) => ({ dishId: String(byName.get(name)._id), qty })) }, { platform: true });
+    for (const { image, ...combo } of setup.combos) {
+      const data = { ...combo, imageUrl: img[image] || null, items: combo.items.map(([name, qty]) => ({ dishId: String(byName.get(name)._id), qty })) };
+      const found = await KitchenCombo.findOne({ kitchen: kitchenId, title: combo.title }).lean();
+      if (found) await KitchenCombo.updateOne({ _id: found._id }, { $set: { imageUrl: data.imageUrl } });
+      else await catalog.createCombo(kitchenId, data, { platform: true });
     }
     await catalog.invalidateMenu(kitchenId, "seed");
   }
@@ -275,27 +370,27 @@ async function seedCatalog(kitchens) {
 const SLOT_TIMES = {
   breakfast: { windowStart: "07:30", windowEnd: "09:30", cutoffDay: "previous_day", cutoffTime: "21:00", prepStart: "06:30", dispatchTime: "07:15", capacity: 80 },
   lunch: { windowStart: "12:30", windowEnd: "14:30", cutoffDay: "same_day", cutoffTime: "10:00", prepStart: "10:30", dispatchTime: "12:00", capacity: 150 },
-  dinner: { windowStart: "19:30", windowEnd: "21:30", cutoffDay: "same_day", cutoffTime: "17:00", prepStart: "17:30", dispatchTime: "19:00", capacity: 120, activeDays: [1, 2, 3, 4, 5, 6] },
+  dinner: { windowStart: "19:30", windowEnd: "21:30", cutoffDay: "same_day", cutoffTime: "17:00", prepStart: "17:30", dispatchTime: "19:00", capacity: 120 },
 };
 
 // Weekly rotation for subscription menus (index = weekday, 0 = Sunday).
 const LUNCH_ROTATION = [
-  ["Rajma Chawal Bowl", "Chole Kulche Meal", "Veg Dum Biryani"],
-  ["Ghar Ka Veg Thali", "Dal Tadka", "Jeera Rice", "Aloo Gobi"],
-  ["Rajma Chawal Bowl", "Paneer Butter Masala", "Phulka (2 pcs)"],
-  ["South Indian Meals", "Curd Rice", "Dal Tadka"],
-  ["Ghar Ka Veg Thali", "Veg Dum Biryani", "Boondi Raita"],
-  ["Chole Kulche Meal", "Paneer Butter Masala", "Jeera Rice"],
-  ["Ghar Ka Veg Thali", "Rajma Chawal Bowl", "Rice Kheer"],
+  ["Butter Chicken Bowl", "Dal Ramen", "Paneer Biryani"],
+  ["Chicken Biryani", "Tandoori Cauliflower Bowl", "Paneer Tikka Masala"],
+  ["Butter Chicken", "Dal Ramen", "Jeera Rice"],
+  ["The Meal Ji Meal (Signature)", "Paneer Bao (3 pcs)", "Tandoori Cauliflower Bowl"],
+  ["Chicken Biryani", "Paneer Tikka Masala", "Garlic Naan"],
+  ["Butter Chicken Bowl", "Paneer Biryani", "Dal Ramen"],
+  ["Egg Biryani", "Paneer Tikka Masala", "Butter Naan"],
 ];
+const BREAKFAST_ROTATION = ["Paneer Bao (3 pcs)", "Chicken Tikka Wrap", "Royal Kulfi Shake", "Cold Coffee", "Biryani Arancini (4 pcs)"];
 
-async function seedKitchenOps(kitchens) {
+async function seedKitchenOps(kitchens, img) {
   for (const [key, kitchen] of Object.entries(kitchens)) {
-    const setup = KITCHEN_SETUP[key];
-    const update = {};
-    if (!kitchen.about?.chefName) update.about = { ...setup.about, gallery: [] };
+    const { about } = KITCHEN_SETUP[key];
+    const update = { about: { chefName: about.chefName, title: about.title, story: about.story, imageUrl: img[about.image] || null, gallery: about.gallery.map((name) => img[name]).filter(Boolean) } };
     if (kitchen.status !== "active") Object.assign(update, { status: "active", acceptingOrders: true });
-    if (Object.keys(update).length) await Kitchen.updateOne({ _id: kitchen._id }, { $set: update });
+    await Kitchen.updateOne({ _id: kitchen._id }, { $set: update });
 
     for (const [slot, times] of Object.entries(SLOT_TIMES)) await slots.saveSlot(kitchen._id, slot, times);
     const dishes = new Map((await KitchenDish.find({ kitchen: kitchen._id, isActive: true }).lean()).map((dish) => [dish.name, String(dish._id)]));
@@ -305,56 +400,87 @@ async function seedKitchenOps(kitchens) {
       if (lunch.length) await slots.saveSlotMenu(kitchen._id, { slot: "lunch", weekday, dishIds: lunch, defaultDishIds: lunch.slice(0, 1), note: null });
       const dinner = ids(LUNCH_ROTATION[(weekday + 3) % 7]);
       if (dinner.length) await slots.saveSlotMenu(kitchen._id, { slot: "dinner", weekday, dishIds: dinner, defaultDishIds: dinner.slice(0, 1) });
-      const breakfast = ids([BREAKFAST[weekday % 4], BREAKFAST[(weekday + 1) % 4], "Masala Chai"]);
+      const breakfast = ids([0, 1, 2].map((offset) => BREAKFAST_ROTATION[(weekday + offset) % BREAKFAST_ROTATION.length]));
       if (breakfast.length) await slots.saveSlotMenu(kitchen._id, { slot: "breakfast", weekday, dishIds: breakfast, defaultDishIds: breakfast.slice(0, 1) });
     }
   }
 }
 
-// ------------------------------------------------------------------ plans
+// ------------------------------------------------------------------ plans (the app's MealJi Plus cards)
 
+const PLAN_BASE = { cycleDays: 30, cycleLabel: "Monthly", slots: ["breakfast", "lunch", "dinner"], activeDays: [1, 2, 3, 4, 5, 6], mealsPerDay: 3, minItemsPerMeal: 1, billingMethods: ["autopay", "link"], noSelectionPolicy: "auto_shift", autoShiftFallback: "chef_default", maxShiftsPerCycle: 4, maxAutoShiftsPerCycle: 6, deliveryIncluded: true };
 const PLANS = [
-  { code: "LUNCH_WEEKLY", name: "Lunch Weekly", subtitle: "6 home-style lunches", badge: null, pricePaise: 99900, mrpPaise: 119400, cycleDays: 7, cycleLabel: "Weekly", slots: ["lunch"], activeDays: [1, 2, 3, 4, 5, 6], mealsPerDay: 1, minItemsPerMeal: 1, maxItemsPerMeal: 2, billingMethods: ["autopay", "link"], noSelectionPolicy: "auto_shift", autoShiftFallback: "chef_default", maxShiftsPerCycle: 2, maxAutoShiftsPerCycle: 2, deliveryIncluded: true, benefits: ["Free delivery on every meal", "Pick your meal by 10 AM", "Pause anytime"], sortOrder: 1 },
-  { code: "LUNCH_MONTHLY", name: "Lunch Monthly", subtitle: "26 lunches, best value", badge: "Most popular", pricePaise: 349900, mrpPaise: 399900, cycleDays: 30, cycleLabel: "Monthly", slots: ["lunch"], activeDays: [1, 2, 3, 4, 5, 6], mealsPerDay: 1, minItemsPerMeal: 1, maxItemsPerMeal: 2, billingMethods: ["autopay", "link"], noSelectionPolicy: "auto_shift", autoShiftFallback: "chef_default", maxShiftsPerCycle: 4, maxAutoShiftsPerCycle: 4, deliveryIncluded: true, isPopular: true, benefits: ["Free delivery on every meal", "10% off on regular orders", "Pause up to 3 months"], perks: { freeDeliveryOnOrders: true, orderDiscountPercent: 10 }, sortOrder: 2 },
-  { code: "LUNCH_DINNER_MONTHLY", name: "Lunch + Dinner Monthly", subtitle: "Two meals a day, sorted", badge: "Family favourite", pricePaise: 649900, mrpPaise: 759900, cycleDays: 30, cycleLabel: "Monthly", slots: ["lunch", "dinner"], activeDays: [1, 2, 3, 4, 5, 6], mealsPerDay: 2, minItemsPerMeal: 1, maxItemsPerMeal: 2, billingMethods: ["autopay"], noSelectionPolicy: "auto_shift", autoShiftFallback: "chef_default", maxShiftsPerCycle: 6, maxAutoShiftsPerCycle: 6, deliveryIncluded: true, benefits: ["Lunch and dinner every weekday", "Free delivery", "15% off on regular orders"], perks: { freeDeliveryOnOrders: true, orderDiscountPercent: 15 }, sortOrder: 3 },
-  { code: "BREAKFAST_MONTHLY", name: "Breakfast Monthly", subtitle: "Start every day right", pricePaise: 199900, mrpPaise: 239900, cycleDays: 30, cycleLabel: "Monthly", slots: ["breakfast"], activeDays: [1, 2, 3, 4, 5, 6], mealsPerDay: 1, billingMethods: ["autopay", "link"], noSelectionPolicy: "auto_shift", autoShiftFallback: "skip", deliveryIncluded: true, benefits: ["Breakfast by 9:30 AM"], sortOrder: 4, draft: true },
+  { ...PLAN_BASE, code: "BASIC_MONTHLY", name: "Basic Monthly", subtitle: "Simple and light meals", image: "mealsHeroKitchen", pricePaise: 349900, maxItemsPerMeal: 1, benefits: ["3+ Food Categories", "3 meals / Day", "Free doorstep delivery", "2 vegetable dishes", "Fresh salad", "4 chapatis", "1 sweet"], sortOrder: 1 },
+  { ...PLAN_BASE, code: "STANDARD_MONTHLY", name: "Standard Monthly", subtitle: "Everyday healthy home meals", image: "completeMeal", badge: "Most popular", isPopular: true, pricePaise: 449900, maxItemsPerMeal: 2, benefits: ["5+ Food Categories", "3 meals / Day", "Free doorstep delivery", "2 vegetable dishes", "Fresh salad", "4 chapatis", "1 sweet"], perks: { freeDeliveryOnOrders: true, orderDiscountPercent: 10 }, sortOrder: 2 },
+  // The app's card says "4 meals / Day"; plans support up to 3 slots, so Premium is 3 larger meals.
+  { ...PLAN_BASE, code: "PREMIUM_MONTHLY", name: "Premium Monthly", subtitle: "Gourmet meals for foodies", image: "comboSpread", pricePaise: 549900, maxItemsPerMeal: 3, benefits: ["7+ Food Categories", "3 meals / Day", "Free doorstep delivery", "3 vegetable dishes", "Fresh salad", "5 chapatis", "2 sweets"], perks: { freeDeliveryOnOrders: true, orderDiscountPercent: 15 }, sortOrder: 3 },
 ];
 
-async function seedPlans() {
-  for (const { draft, ...plan } of PLANS) {
-    let row = await SubscriptionPlan.findOne({ code: plan.code }).lean();
+async function seedPlans(img) {
+  for (const { image, ...plan } of PLANS) {
+    const data = { ...plan, imageUrl: img[image] || null, cities: ["Bengaluru"] };
+    const row = await SubscriptionPlan.findOne({ code: plan.code }).lean();
     if (!row) {
-      const created = await plans.savePlan(null, { ...plan, cities: ["Bengaluru"] });
-      row = { _id: created.planId, status: "draft" };
+      const created = await plans.savePlan(null, data);
+      await plans.setPlanStatus(created.planId, "active");
+    } else if (row.status !== "retired") {
+      await SubscriptionPlan.updateOne({ _id: row._id }, { $set: { imageUrl: data.imageUrl } });
     }
-    if (!draft && row.status === "draft") await plans.setPlanStatus(String(row._id), "active");
   }
 }
 
-// ------------------------------------------------------------------ content & offers
+// ------------------------------------------------------------------ content & offers (start → home)
 
-async function seedContent(kitchens) {
+async function seedContent(kitchens, img) {
+  // Placements follow the app's home: promo strip in the header, the
+  // signature carousel (4 slides), the Meal Combos card and How we cook.
   const banners = [
-    { placement: "home_hero", eyebrow: "New here?", title: "Flat ₹50 off your first meal", highlight: "₹50 off", subtitle: "Use code WELCOME50 on orders above ₹199", ctaLabel: "Order now", deepLink: "mealji://menu", couponCode: "WELCOME50", sortOrder: 0 },
-    { placement: "home_hero", eyebrow: "MealJi Plus", title: "Lunch sorted for the month", highlight: "from ₹134/meal", subtitle: "26 home-style lunches with free delivery", ctaLabel: "See plans", deepLink: "mealji://plus", sortOrder: 1 },
-    { placement: "home_promo", title: "Weekend thali specials", subtitle: "Feast thalis every Saturday and Sunday", ctaLabel: "Explore", deepLink: "mealji://menu?tag=thali", sortOrder: 0 },
-    { placement: "home_how_we_cook", title: "Cooked fresh, every single day", subtitle: "Masalas ground each morning, cold-pressed oils, no preservatives", sortOrder: 0 },
-    { placement: "menu_hero", title: "Today's bestsellers", subtitle: "What Bengaluru is ordering right now", deepLink: "mealji://menu?sort=popular", sortOrder: 0 },
-    { placement: "offers", title: "20% off on orders above ₹299", subtitle: "Code MEALJI20, up to ₹100 off", couponCode: "MEALJI20", sortOrder: 0 },
+    { placement: "home_promo", title: "Foodie Weekend", subtitle: "Flat ₹150 OFF on delights!", ctaLabel: "ORDER NOW", couponCode: "FOODIE150", deepLink: "mealji://offers", image: "promoTaco", sortOrder: 0 },
+    { placement: "home_hero", eyebrow: "OUR SIGNATURE CHICKEN BIRYANI", title: "A BOWL OF HAPPINESS", highlight: "HAPPINESS", subtitle: "Rich flavours. Freshly cooked. Always for you.", ctaLabel: "Order Now", deepLink: "mealji://menu?category=biryani", image: "heroChickenBiryani", sortOrder: 0 },
+    { placement: "home_hero", eyebrow: "24-HOUR MAKHANI", title: "BUTTER CHICKEN, DONE RIGHT", highlight: "DONE RIGHT", subtitle: "Real butter. No cornstarch. No shortcuts.", ctaLabel: "Order Now", deepLink: "mealji://menu?category=signature-bowls", image: "heroButterChicken", sortOrder: 1 },
+    { placement: "home_hero", eyebrow: "NEW HERE?", title: "₹100 OFF YOUR FIRST ORDER", highlight: "₹100 OFF", subtitle: "Use code WELCOME100 on orders above ₹299.", ctaLabel: "Order Now", couponCode: "WELCOME100", deepLink: "mealji://menu", image: "heroButterChickenRice", sortOrder: 2 },
+    { placement: "home_hero", eyebrow: "MEAL JI PLUS", title: "MEALS SORTED FOR THE MONTH", highlight: "SORTED", subtitle: "Plans from ₹3,499 a month with free delivery.", ctaLabel: "See plans", deepLink: "mealji://plus", image: "heroKitchenChef", sortOrder: 3 },
+    { placement: "home_combos", title: "MEAL COMBOS", highlight: "COMBOS", subtitle: "Great food. Better together.", ctaLabel: "Explore Combos", deepLink: "mealji://menu?tab=combos", image: "mealCombos", sortOrder: 0 },
+    { placement: "home_how_we_cook", title: "How we cook", subtitle: "24-hour makhani, breads puffed to order, zero preservatives.", deepLink: "mealji://about-chef", image: "howWeCook", sortOrder: 0 },
+    { placement: "menu_hero", title: "Today's bestsellers", subtitle: "What Bengaluru is ordering right now", deepLink: "mealji://menu?sort=popular", image: "comboSpread", sortOrder: 0 },
+    { placement: "offers", title: "Flat ₹150 off this weekend", subtitle: "Code FOODIE150 on orders above ₹599", couponCode: "FOODIE150", image: "dealsGiftbox", sortOrder: 0 },
+    { placement: "offers", title: "Free delivery above ₹249", subtitle: "Code FREEDEL", couponCode: "FREEDEL", image: "dealsScooter", sortOrder: 1 },
+    { placement: "offers", title: "20% off up to ₹100", subtitle: "Code MEALJI20 on orders above ₹299", couponCode: "MEALJI20", image: "dealsChefKiss", sortOrder: 2 },
   ];
-  for (const banner of banners) {
-    if (!(await Banner.exists({ title: banner.title }))) await content.saveBanner(null, { ...banner, cities: ["Bengaluru"], isActive: true });
+  for (const { image, ...banner } of banners) {
+    const data = { ...banner, imageUrl: img[image] || null, cities: ["Bengaluru"], isActive: true };
+    const found = await Banner.findOne({ placement: banner.placement, title: banner.title }).lean();
+    await content.saveBanner(found ? String(found._id) : null, data);
   }
+
+  // The app's three onboarding steps.
   const slides = [
-    { title: "Home-style food, delivered", subtitle: "Real kitchens, real home cooks, cooking the food you grew up on.", sortOrder: 0 },
-    { title: "Fresh every day", subtitle: "Menus change daily. Nothing is frozen, nothing is reheated.", sortOrder: 1 },
-    { title: "Lunch on autopilot", subtitle: "Subscribe to MealJi Plus and never think about lunch again.", sortOrder: 2 },
+    { title: "Hey. I'm the chef at Meal Ji.", subtitle: "One kitchen. One menu. Cooked and packed by the same people every time.", image: "mascot", sortOrder: 0 },
+    { title: "A short menu. Every dish, a hero.", subtitle: "Nine signature bowls, bao, wraps and desserts. No filler. No maybes.", image: "onboardMenu", sortOrder: 1 },
+    { title: "Made in the last hour. Delivered warm.", subtitle: "Every dish is fresh out the pan. We deliver in 25–35 minutes, or you pick it up in 15.", image: "onboardFresh", sortOrder: 2 },
   ];
-  for (const slide of slides) if (!(await OnboardingSlide.exists({ title: slide.title }))) await content.saveSlide(null, { ...slide, isActive: true });
+  for (const { image, ...slide } of slides) {
+    const found = await OnboardingSlide.findOne({ title: slide.title }).lean();
+    await content.saveSlide(found ? String(found._id) : null, { ...slide, imageUrl: img[image] || null, isActive: true });
+  }
+
+  // Home layout in the app's order.
+  await content.saveSections([
+    { key: "promo", type: "banners", config: { placement: "home_promo" } },
+    { key: "hero", type: "banners", config: { placement: "home_hero" } },
+    { key: "categories", type: "categories", title: "Today's Menu" },
+    { key: "combos", type: "combos", title: "Meal Combos", config: { placement: "home_combos" } },
+    { key: "features", type: "features", config: { items: [{ icon: "fast_delivery", title: "Fast Delivery", subtitle: "25—35 mins" }, { icon: "fresh_ingredients", title: "Fresh Ingredients", subtitle: "Locally sourced" }, { icon: "hygienic_kitchen", title: "Hygienic Kitchen", subtitle: "100% safe" }] } },
+    { key: "usual", type: "usual", title: "Your usual?", subtitle: "Order again in one tap", config: { limit: 6 } },
+    { key: "plus", type: "subscription_promo", title: "Meal Ji Plus" },
+    { key: "how_we_cook", type: "how_we_cook", title: "How we cook", config: { placement: "home_how_we_cook" } },
+    { key: "popular", type: "popular", title: "Popular today", config: { limit: 8 } },
+  ]);
 
   const now = Date.now();
   const offers = [
-    { code: "WELCOME50", title: "₹50 off your first order", description: "For your first MealJi order", type: "flat", value: 5000, minOrderPaise: 19900, firstOrderOnly: true, perUserLimit: 1, terms: ["Valid on your first order only", "Minimum order ₹199"] },
+    { code: "WELCOME100", title: "₹100 off your first order", description: "For your first Meal Ji order", type: "flat", value: 10000, minOrderPaise: 29900, firstOrderOnly: true, perUserLimit: 1, terms: ["Valid on your first order only", "Minimum order ₹299"] },
+    { code: "FOODIE150", title: "Foodie Weekend: flat ₹150 off", description: "On orders above ₹599", type: "flat", value: 15000, minOrderPaise: 59900, perUserLimit: 2, terms: ["Minimum order ₹599", "Up to 2 times per customer"] },
     { code: "MEALJI20", title: "20% off up to ₹100", description: "On orders above ₹299", type: "percent", value: 20, maxDiscountPaise: 10000, minOrderPaise: 29900, perUserLimit: 3, terms: ["Up to 3 times per customer"] },
     { code: "FREEDEL", title: "Free delivery", description: "On orders above ₹249", type: "free_delivery", value: 0, minOrderPaise: 24900, perUserLimit: 5 },
     { code: "UPI25", title: "₹25 off with UPI", description: "Pay with any UPI app", type: "flat", value: 2500, minOrderPaise: 14900, paymentMethods: ["upi"], perUserLimit: 2 },
@@ -366,8 +492,10 @@ async function seedContent(kitchens) {
   // Invoicing entity (GST) and delivery partner accounts.
   let entity = await BillingEntity.findOne({ invoicePrefix: "MJ" }).lean();
   if (!entity) {
-    const created = await billing.createEntity({ legalName: "MealJi Foods Private Limited", tradeName: "MealJi", gstin: "29AAQCM4821K1Z7", fssai: "11225999000123", pan: "AAQCM4821K", addressLine: "3rd Floor, 80 Feet Road, 4th Block, Koramangala", city: "Bengaluru", state: "Karnataka", stateCode: "29", pincode: "560034", email: "billing@mealji.example", phone: "08040001234", invoicePrefix: "MJ", signatory: "Authorised signatory", isDefault: true, isActive: true });
+    const created = await billing.createEntity({ legalName: "MealJi Foods Private Limited", tradeName: "Meal Ji", gstin: "29AAQCM4821K1Z7", fssai: "11225999000123", pan: "AAQCM4821K", addressLine: "3rd Floor, 80 Feet Road, 4th Block, Koramangala", city: "Bengaluru", state: "Karnataka", stateCode: "29", pincode: "560034", email: "billing@mealji.example", phone: "08040001234", invoicePrefix: "MJ", logoUrl: img.logo || null, signatory: "Authorised signatory", isDefault: true, isActive: true });
     entity = { _id: created.entityId };
+  } else if (img.logo) {
+    await BillingEntity.updateOne({ _id: entity._id }, { $set: { logoUrl: img.logo } });
   }
   for (const kitchen of Object.values(kitchens)) if (!kitchen.billingEntity) await billing.mapKitchen(String(kitchen._id), String(entity._id));
   if (!(await DeliveryProviderAccount.exists({ name: "MealJi riders (manual dispatch)" }))) {
@@ -377,7 +505,7 @@ async function seedContent(kitchens) {
 
 // ------------------------------------------------------------------ support & loyalty
 
-async function seedSupportAndRewards(kitchens) {
+async function seedSupportAndRewards(kitchens, img) {
   for (const [index, category] of (await support.listCategories({ all: true })).entries()) {
     await support.saveCategory(category.key, { name: category.name, icon: category.icon, issueTypes: category.issueTypes, context: category.context || "both", slaHours: category.key === "order" ? 2 : category.key === "payment" ? 12 : 24, sortOrder: index, isActive: true });
   }
@@ -387,7 +515,7 @@ async function seedSupportAndRewards(kitchens) {
     ["payment", "When will I get my refund?", "Refunds reach UPI within 1-3 working days and cards within 5-7 working days."],
     ["payment", "Is cash on delivery available?", "Yes, for orders up to the limit shown at checkout."],
     ["account", "How do I change my phone number?", "Go to Profile, then Phone number, and verify the new number with an OTP."],
-    ["subscription", "How do I pause MealJi Plus?", "Open MealJi Plus, tap Manage, then Pause. You can pause for 1 to 3 months.", "subscription"],
+    ["subscription", "How do I pause Meal Ji Plus?", "Open Meal Ji Plus, tap Manage, then Pause. You can pause for 1 to 3 months.", "subscription"],
     ["subscription", "What if I forget to pick my meal?", "If you don't choose by the cutoff, we send the chef's pick for the day, so you never miss a meal.", "subscription"],
   ];
   for (const [index, [category, question, answer, context]] of faqs.entries()) {
@@ -397,20 +525,31 @@ async function seedSupportAndRewards(kitchens) {
     ["Apology – late delivery", "We're sorry your order arrived late. We've shared this with the kitchen and our delivery team so it doesn't happen again.", "order"],
     ["Refund initiated", "We've started your refund. It reaches UPI within 1-3 working days and cards within 5-7 working days.", "payment"],
     ["Missing item – refund", "Sorry about the missing item. We've refunded it to your original payment method.", "order"],
-    ["Pause instructions", "You can pause MealJi Plus from the app: MealJi Plus → Manage → Pause. Choose 1 to 3 months.", "subscription"],
+    ["Pause instructions", "You can pause Meal Ji Plus from the app: Meal Ji Plus → Manage → Pause. Choose 1 to 3 months.", "subscription"],
     ["Closing – resolved", "Glad we could sort this out! We're closing this ticket; reply anytime if you need more help.", null],
   ];
   for (const [title, body, category] of canned) if (!(await CannedReply.exists({ title }))) await support.saveCanned(null, { title, body, category });
 
-  const jamun = await KitchenDish.findOne({ kitchen: kitchens.Koramangala?._id, name: "Gulab Jamun (2 pcs)" }).lean();
+  // The app's rewards screen shows dish rewards (garlic naan, gulab jamun, cold coffee, butter chicken).
+  const dish = async (name) => (await KitchenDish.findOne({ kitchen: kitchens.Koramangala?._id, name }).lean())?._id;
   const catalogRewards = [
-    { name: "₹50 off your next order", description: "Minimum order ₹199", points: 500, kind: "flat", value: 5000, minOrderPaise: 19900, validDays: 30, sortOrder: 0 },
-    { name: "Free delivery", description: "On any one order", points: 300, kind: "free_delivery", value: 0, validDays: 30, sortOrder: 1 },
-    { name: "15% off up to ₹120", points: 800, kind: "percent", value: 15, maxDiscountPaise: 12000, minOrderPaise: 29900, validDays: 30, sortOrder: 2 },
-    jamun ? { name: "Free Gulab Jamun", description: "Added to your next Koramangala order", points: 400, kind: "dish", value: 0, dishId: String(jamun._id), validDays: 15, sortOrder: 3 } : null,
-    { name: "₹150 off (Gold Kadai & above)", points: 1200, kind: "flat", value: 15000, minOrderPaise: 49900, validDays: 30, tiers: ["Gold Kadai", "Black Makhani"], sortOrder: 4 },
-  ].filter(Boolean);
-  for (const reward of catalogRewards) if (!(await Reward.exists({ name: reward.name }))) await rewards.saveReward(null, { ...reward, isActive: true });
+    { name: "Free Garlic Naan", description: "Added to your next order", points: 300, kind: "dish", value: 0, dishName: "Garlic Naan", image: "garlicNaan", validDays: 15, sortOrder: 0 },
+    { name: "Free Gulab Jamun", description: "Added to your next order", points: 400, kind: "dish", value: 0, dishName: "Gulab Jamun (2 pcs)", image: "gulabJamun", validDays: 15, sortOrder: 1 },
+    { name: "Free Cold Coffee", description: "Added to your next order", points: 600, kind: "dish", value: 0, dishName: "Cold Coffee", image: "coldCoffee", validDays: 15, sortOrder: 2 },
+    { name: "₹50 off your next order", description: "Minimum order ₹199", points: 500, kind: "flat", value: 5000, minOrderPaise: 19900, image: "rewardsChefGift", validDays: 30, sortOrder: 3 },
+    { name: "Free delivery", description: "On any one order", points: 300, kind: "free_delivery", value: 0, image: "dealsScooter", validDays: 30, sortOrder: 4 },
+    { name: "Free Butter Chicken (Gold Kadai & above)", description: "Our 24-hour makhani, on us", points: 1500, kind: "dish", value: 0, dishName: "Butter Chicken", image: "rewardsButterChicken", validDays: 30, tiers: ["Gold Kadai", "Black Makhani"], sortOrder: 5 },
+  ];
+  for (const { dishName, image, ...reward } of catalogRewards) {
+    const data = { ...reward, imageUrl: img[image] || null, isActive: true };
+    if (dishName) {
+      const dishId = await dish(dishName);
+      if (!dishId) continue;
+      data.dishId = String(dishId);
+    }
+    const found = await Reward.findOne({ name: reward.name }).lean();
+    await rewards.saveReward(found ? String(found._id) : null, data);
+  }
 }
 
 // ------------------------------------------------------------------ engagement
@@ -432,8 +571,8 @@ async function seedEngagement(actor) {
     const found = await segments.Segment.findOne({ name: segment.name }).lean();
     ids[segment.name] = found ? String(found._id) : (await segments.saveSegment(null, segment, actor)).segmentId;
   }
-  if (!(await Campaign.exists({ name: "Weekend thali offer" }))) {
-    await campaigns.saveCampaign(null, { name: "Weekend thali offer", objective: "Bring lapsed customers back with the weekend thali", channels: ["inapp", "push"], audience: "segment", segmentId: ids["Lapsed 14+ days"], variants: [{ key: "A", templateKey: "campaign.generic", weight: 1 }], holdoutPercent: 10, data: { title: "Your weekend thali is waiting", body: "Get 20% off with MEALJI20 this weekend." }, couponCode: "MEALJI20", deepLink: "mealji://menu?tag=thali" }, actor);
+  if (!(await Campaign.exists({ name: "Foodie Weekend comeback" }))) {
+    await campaigns.saveCampaign(null, { name: "Foodie Weekend comeback", objective: "Bring lapsed customers back with the Foodie Weekend offer", channels: ["inapp", "push"], audience: "segment", segmentId: ids["Lapsed 14+ days"], variants: [{ key: "A", templateKey: "campaign.generic", weight: 1 }], holdoutPercent: 10, data: { title: "Foodie Weekend is here", body: "Flat ₹150 off with FOODIE150 on orders above ₹599." }, couponCode: "FOODIE150", deepLink: "mealji://offers" }, actor);
   }
   if (!(await Campaign.exists({ name: "Try MealJi Plus" }))) {
     await campaigns.saveCampaign(null, { name: "Try MealJi Plus", objective: "Convert regulars to Plus", channels: ["inapp"], audience: "segment", segmentId: ids["Plus prospects"], variants: [{ key: "A", templateKey: "campaign.generic", weight: 1 }, { key: "B", templateKey: "journey.plus_upsell", weight: 1 }], holdoutPercent: 0, data: { title: "Lunch, sorted for the month", body: "26 lunches with free delivery from ₹134 a meal." }, deepLink: "mealji://plus" }, actor);
@@ -468,6 +607,9 @@ async function seedAddresses(kitchens) {
       });
       address = { _id: created.addressId };
     }
+    // The app's "Deliver to" pin: the customer's own address (never a stale test location).
+    const pin = await Address.findById(address._id).lean();
+    await User.updateOne({ _id: user._id }, { $set: { currentLocation: { latitude: pin.latitude, longitude: pin.longitude, locationText: `${pin.houseFlat}, ${pin.locality}`, area: pin.locality, city: pin.city, state: pin.state, postalCode: pin.pincode } } });
     out[customer.phone] = { user, addressId: String(address._id), kitchen };
   }
   return out;
@@ -560,7 +702,7 @@ async function seedOrders(customers) {
       const plan = {
         slot: dinner ? "dinner" : "lunch",
         payment: ["upi", "upi", "upi", "card", "cod", "cod"][Math.floor(random() * 6)],
-        coupon: index === 0 ? "WELCOME50" : random() < 0.15 ? "MEALJI20" : null,
+        coupon: index === 0 ? "WELCOME100" : random() < 0.15 ? "MEALJI20" : null,
       };
       const outcome = random();
       const target = outcome < 0.05 ? "cancelled_kitchen" : outcome < 0.08 && plan.payment !== "cod" ? "cancelled_admin" : "delivered";
@@ -594,7 +736,7 @@ async function seedSubscriptions(customers) {
   for (const [index, customer] of members.entries()) {
     const { user, addressId } = customers[customer.phone];
     if (await Subscription.exists({ user: user._id })) continue;
-    const planCode = index === 1 ? "LUNCH_WEEKLY" : "LUNCH_MONTHLY";
+    const planCode = ["STANDARD_MONTHLY", "BASIC_MONTHLY", "PREMIUM_MONTHLY"][index % 3];
     const { payment } = await subscriptions.checkout(user._id, { planCode, billingMethod: index === 2 ? "link" : "autopay", addressId });
     await onPaymentCaptured(await Payment.findById(payment.paymentId), { gatewayPaymentId: `pay_demo_sub_${payment.paymentId}`, method: "upi" });
     created += 1;
@@ -610,15 +752,17 @@ async function seedMealPicks() {
   for (const sub of await Subscription.find({ status: "active" }).lean()) {
     for (let offset = 1; offset <= 5; offset += 1) {
       const date = addIstDays(istDateKey(), offset);
-      if (await MealSelection.exists({ subscription: sub._id, date })) continue;
-      const menu = await slots.menuFor(sub.kitchen, "lunch", date);
-      if (!menu?.dishes?.length) continue;
-      const dish = menu.dishes[Math.floor(random() * menu.dishes.length)];
-      try {
-        await saveSelection(sub.user, { date, slot: "lunch", items: [{ dishId: dish.dishId, qty: 1 }] });
-        picked += 1;
-      } catch {
-        // Not a serving day for this plan, or past the cutoff.
+      for (const slot of sub.planSnapshot?.slots || ["lunch"]) {
+        if (await MealSelection.exists({ subscription: sub._id, date, slot, status: { $ne: "open" } })) continue;
+        const menu = await slots.menuFor(sub.kitchen, slot, date);
+        if (!menu?.dishes?.length) continue;
+        const dish = menu.dishes[Math.floor(random() * menu.dishes.length)];
+        try {
+          await saveSelection(sub.user, { date, slot, items: [{ dishId: dish.dishId, qty: 1 }] });
+          picked += 1;
+        } catch {
+          // Not a serving day for this plan, or past the cutoff.
+        }
       }
     }
   }
@@ -632,10 +776,10 @@ async function seedTickets(customers) {
   const agentRef = { userId: agent?._id, name: agent?.name || "Support", role: "agent" };
   const recent = async (phone) => Order.findOne({ user: customers[phone].user._id, status: "delivered" }).sort({ createdAt: -1 }).lean();
   const tickets = [
-    { phone: "9000000032", input: { category: "order", issueType: "Missing item", subject: "Raita missing from my order", description: "My order came without the boondi raita I paid for." }, order: true, reply: "Sorry about the missing raita! We've refunded it to your original payment method.", status: "resolved" },
+    { phone: "9000000032", input: { category: "order", issueType: "Missing item", subject: "Masala papad missing from my order", description: "My order came without the masala papad I paid for." }, order: true, reply: "Sorry about the missing papad! We've refunded it to your original payment method.", status: "resolved" },
     { phone: "9000000034", input: { category: "order", issueType: "Late delivery", subject: "Order arrived 30 minutes late", description: "The food was good but it came really late and was lukewarm." }, order: true, reply: "We're sorry your order arrived late. We've shared this with the kitchen and our delivery team.", status: "pending_customer" },
     { phone: "9000000035", input: { category: "payment", issueType: "Charged twice", subject: "Charged twice for one order", description: "I see two debits of the same amount on my UPI app for one order." }, order: true, status: "open" },
-    { phone: "9000000033", input: { category: "subscription", issueType: "Change plan", subject: "Want to add dinner to my plan", description: "Can I add dinner to my monthly lunch plan from next week?" }, status: "open" },
+    { phone: "9000000033", input: { category: "subscription", issueType: "Change plan", subject: "Want to upgrade to Premium", description: "Can I move from Standard to Premium Monthly from next week?" }, status: "open" },
     { phone: "9000000039", input: { category: "account", issueType: "Login", subject: "OTP not received", description: "I didn't get the OTP the first time I tried to sign in." }, reply: "The OTP can take up to a minute. If it doesn't arrive, tap Resend. Closing this for now.", status: "closed" },
   ];
   for (const ticket of tickets) {
@@ -670,11 +814,13 @@ export async function seedDemoData({ fresh = false } = {}) {
   const superadmin = await User.findOne({ phoneNumber: "9000000001" }).lean();
   const actor = { userId: superadmin?._id || null, name: superadmin?.name || "Seed", role: "superadmin" };
 
-  await seedCatalog(kitchens);
-  await seedKitchenOps(kitchens);
-  await seedPlans();
-  await seedContent(kitchens);
-  await seedSupportAndRewards(kitchens);
+  const img = await seedImages();
+  if (img.profileAvatar) await User.updateOne({ phoneNumber: "9000000031" }, { $set: { avatarUrl: img.profileAvatar } });
+  await seedCatalog(kitchens, img);
+  await seedKitchenOps(kitchens, img);
+  await seedPlans(img);
+  await seedContent(kitchens, img);
+  await seedSupportAndRewards(kitchens, img);
 
   const customers = await seedAddresses(await demoKitchens());
   const { orderCount, subscriptionCount } = await withKitchensOpen(await demoKitchens(), async () => ({

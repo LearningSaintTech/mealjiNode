@@ -19,25 +19,35 @@ function signingKey(dateStamp, region, service) {
 
 const encode = (value) => encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 
-/** A pre-signed PUT URL for one S3 object. The uploader must send the same Content-Type. */
-export function presignS3Put({ key, contentType, expiresSec = 600 }) {
+/**
+ * A pre-signed URL for one S3 object (GET, HEAD, PUT or DELETE). For PUT the
+ * uploader must send the same Content-Type.
+ */
+export function presignS3({ method = "GET", key, contentType = null, expiresSec = 600 }) {
   const region = env.s3Region;
   const host = `${env.s3Bucket}.s3.${region}.amazonaws.com`;
   const { amzDate, dateStamp } = stamps();
   const scope = `${dateStamp}/${region}/s3/aws4_request`;
   const path = `/${key.split("/").map(encode).join("/")}`;
+  const signedHeaders = contentType ? "content-type;host" : "host";
   const params = {
     "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
     "X-Amz-Credential": `${env.awsAccessKeyId}/${scope}`,
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": String(expiresSec),
-    "X-Amz-SignedHeaders": "content-type;host",
+    "X-Amz-SignedHeaders": signedHeaders,
   };
   const query = Object.keys(params).sort().map((name) => `${encode(name)}=${encode(params[name])}`).join("&");
-  const canonical = ["PUT", path, query, `content-type:${contentType}\nhost:${host}\n`, "content-type;host", "UNSIGNED-PAYLOAD"].join("\n");
+  const headers = contentType ? `content-type:${contentType}\nhost:${host}\n` : `host:${host}\n`;
+  const canonical = [method, path, query, headers, signedHeaders, "UNSIGNED-PAYLOAD"].join("\n");
   const toSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256(canonical)].join("\n");
   const signature = crypto.createHmac("sha256", signingKey(dateStamp, region, "s3")).update(toSign).digest("hex");
   return `https://${host}${path}?${query}&X-Amz-Signature=${signature}`;
+}
+
+/** A pre-signed PUT URL for one S3 object. The uploader must send the same Content-Type. */
+export function presignS3Put({ key, contentType, expiresSec = 600 }) {
+  return presignS3({ method: "PUT", key, contentType, expiresSec });
 }
 
 /** Headers for a signed JSON POST to an AWS service endpoint (e.g. SES v2). */
