@@ -1,11 +1,13 @@
 import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
+import { cleanLink, stringArray } from "../../common/links.js";
 import { istParts } from "../../common/time.js";
 import { logger } from "../../config/logger.js";
 import { storeDel, storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
 import { normalizeCity } from "../settings/settings.resolver.js";
 import { assertOwnFileUrl } from "../upload/upload.service.js";
-import { Banner, BANNER_PLACEMENTS, HomeSection, OnboardingSlide, SECTION_TYPES } from "./content.model.js";
+import { Banner, BANNER_PLACEMENTS, HomeSection, HomeTheme, OnboardingSlide, SECTION_TYPES } from "./content.model.js";
+import { pickTheme, toHeaderTheme } from "./theme.service.js";
 
 const CACHE_KEY = "content:shared";
 const CACHE_TTL = 120;
@@ -22,7 +24,8 @@ const DEFAULT_SECTIONS = [
   { key: "promo", type: "banners", title: null, sortOrder: 3, config: { placement: "home_promo" } },
   { key: "popular", type: "popular", title: "Popular today", sortOrder: 4, config: { limit: 8 } },
   { key: "combos", type: "combos", title: "Combos", sortOrder: 5, config: { placement: "home_combos" } },
-  { key: "recommended", type: "recommended", title: "Picked for you", sortOrder: 5, config: { limit: 8 } },
+  { key: "features", type: "features", title: null, sortOrder: 6, config: { items: [{ icon: "fast_delivery", title: "Fast Delivery", subtitle: "25—35 mins" }, { icon: "fresh_ingredients", title: "Fresh Ingredients", subtitle: "Locally sourced" }, { icon: "hygienic_kitchen", title: "Hygienic Kitchen", subtitle: "100% safe" }] } },
+  { key: "recommended", type: "recommended", title: "Picked for you", sortOrder: 7, config: { limit: 8 } },
   { key: "plus", type: "subscription_promo", title: "MealJi Plus", sortOrder: 6, config: {} },
   { key: "how_we_cook", type: "how_we_cook", title: "How we cook", sortOrder: 7, config: { placement: "home_how_we_cook" } },
 ];
@@ -62,9 +65,10 @@ function bannerData(input, partial) {
     if (!input.title || String(input.title).trim().length > 120) errors.push({ field: "title", message: "Title is required (max 120)" });
     else out.title = String(input.title).trim();
   }
-  for (const key of ["eyebrow", "highlight", "subtitle", "ctaLabel", "deepLink", "couponCode"]) {
+  for (const key of ["eyebrow", "highlight", "subtitle", "ctaLabel", "couponCode"]) {
     if (input[key] !== undefined) out[key] = input[key] ? String(input[key]).trim() : null;
   }
+  if (input.deepLink !== undefined) out.deepLink = cleanLink(input.deepLink, "deepLink", errors);
   if (input.imageUrl !== undefined) out.imageUrl = assertOwnFileUrl(input.imageUrl, "Banner image");
   for (const key of ["startsAt", "endsAt"]) {
     if (input[key] === undefined) continue;
@@ -74,8 +78,8 @@ function bannerData(input, partial) {
   if (out.startsAt && out.endsAt && out.startsAt > out.endsAt) errors.push({ field: "endsAt", message: "Ends before it starts" });
   if (input.sortOrder !== undefined) out.sortOrder = Number(input.sortOrder) || 0;
   if (input.isActive !== undefined) out.isActive = Boolean(input.isActive);
-  if (input.cities !== undefined) out.cities = (input.cities || []).map(normalizeCity).filter(Boolean);
-  if (input.kitchenIds !== undefined) out.kitchens = (input.kitchenIds || []).map((id) => objectId(id, "kitchen ID"));
+  if (input.cities !== undefined) out.cities = stringArray(input.cities || [], "cities", errors).map(normalizeCity).filter(Boolean);
+  if (input.kitchenIds !== undefined) out.kitchens = stringArray(input.kitchenIds || [], "kitchenIds", errors).map((id) => objectId(id, "kitchen ID"));
   if (input.segmentId !== undefined) out.segment = input.segmentId ? objectId(input.segmentId, "segment ID") : null;
   if (errors.length) throw new AppError(422, "Validation failed", errors);
   return out;
@@ -106,8 +110,17 @@ export async function deleteBanner(bannerId) {
   return { bannerId, deleted: true, title: banner.title };
 }
 
-export async function trackBanner(bannerId, kind) {
-  await Banner.updateOne({ _id: objectId(bannerId, "banner ID") }, { $inc: { [kind === "click" ? "clicks" : "impressions"]: 1 } });
+export async function trackBanner(bannerId, kind, userId = null) {
+  const id = objectId(bannerId, "banner ID");
+  if (!(await Banner.exists({ _id: id, isActive: true }))) throw new AppError(404, "Banner not found");
+  if (userId) {
+    // One impression and one click per person per banner per day.
+    const key = `banner:${kind}:${bannerId}:${userId}`;
+    const seen = await storeGetOptional(key);
+    if (seen.ok && seen.value) return { tracked: false };
+    await storeSet(key, "1", 86_400).catch(() => {});
+  }
+  await Banner.updateOne({ _id: id }, { $inc: { [kind === "click" ? "clicks" : "impressions"]: 1 } });
   return { tracked: true };
 }
 
@@ -161,6 +174,14 @@ export async function saveSections(sections) {
     if (keys.has(section?.key)) errors.push({ field: `sections[${index}].key`, message: "Duplicate key" });
     keys.add(section?.key);
     if (!SECTION_TYPES.includes(section?.type)) errors.push({ field: `sections[${index}].type`, message: `Type: ${SECTION_TYPES.join(", ")}` });
+    const config = section?.config || {};
+    if (config.limit !== undefined && (!Number.isInteger(config.limit) || config.limit < 1 || config.limit > 20)) errors.push({ field: `sections[${index}].config.limit`, message: "Limit is 1 to 20" });
+    if (section?.type === "features") {
+      const items = config.items || [];
+      const bad = !Array.isArray(items) || items.length > 6 || items.some((item) => !item || typeof item.title !== "string" || !item.title.trim() || item.title.length > 40
+        || (item.subtitle != null && (typeof item.subtitle !== "string" || item.subtitle.length > 60)) || (item.icon != null && !/^[a-z0-9_]{2,40}$/.test(item.icon)));
+      if (bad) errors.push({ field: `sections[${index}].config.items`, message: "Up to 6 items, each { icon: slug, title: max 40, subtitle: max 60 }" });
+    }
   });
   if (errors.length) throw new AppError(422, "Validation failed", errors);
   await HomeSection.deleteMany({});
@@ -171,7 +192,9 @@ export async function saveSections(sections) {
     subtitle: section.subtitle || null,
     sortOrder: index,
     isActive: section.isActive !== false,
-    config: section.config || {},
+    config: section.type === "features"
+      ? { items: (section.config?.items || []).map((item) => ({ icon: item.icon || null, title: item.title.trim(), subtitle: item.subtitle?.trim() || null })) }
+      : section.config || {},
   })));
   await invalidateContent();
   return listSections();
@@ -182,12 +205,13 @@ export async function saveSections(sections) {
 async function sharedContent() {
   const cached = await storeGetOptional(CACHE_KEY);
   if (cached.ok && cached.value) return JSON.parse(cached.value);
-  const [banners, sections, slides] = await Promise.all([
+  const [banners, sections, slides, themes] = await Promise.all([
     Banner.find({ isActive: true }).sort({ sortOrder: 1 }).lean(),
     listSections(),
     listSlides({ activeOnly: true }),
+    HomeTheme.find({ isActive: true }).lean(),
   ]);
-  const shared = { banners: banners.map(toBanner), sections: sections.filter((section) => section.isActive), slides };
+  const shared = { banners: banners.map(toBanner), sections: sections.filter((section) => section.isActive), slides, themes };
   await storeSet(CACHE_KEY, JSON.stringify(shared), CACHE_TTL).catch(() => {});
   return shared;
 }
@@ -248,66 +272,102 @@ async function safely(label, work, fallback = null) {
  * personal parts (greeting, your usual, cart, unread count, subscription) are
  * fetched in parallel, and a failing part never fails the whole screen.
  */
-export async function homeFor(user, { latitude = null, longitude = null } = {}) {
+/** A banner as the app sees it: no counters, targeting or admin flags. */
+export function toPublicBanner(banner) {
+  const { impressions, clicks, segmentId, cities, kitchenIds, isActive, sortOrder, ...rest } = banner;
+  return rest;
+}
+
+const near = (a, b) => a && b && Math.abs(a.latitude - b.latitude) < 0.001 && Math.abs(a.longitude - b.longitude) < 0.001;
+
+/** The "Deliver to" pill: the saved address or saved location at this point. */
+async function deliverToFor(user, point, kitchen) {
+  if (!point) return null;
+  const { Address } = await import("../address/address.model.js");
+  const address = await Address.findOne({ user: user._id, deletedAt: null, latitude: { $gte: point.latitude - 0.001, $lte: point.latitude + 0.001 }, longitude: { $gte: point.longitude - 0.001, $lte: point.longitude + 0.001 } }).sort({ isDefault: -1 }).lean();
+  if (address) {
+    const label = address.label === "other" ? address.customLabel || "Other" : address.label === "work" ? "Work" : "Home";
+    return { source: "address", addressId: String(address._id), label, line: [address.locality, address.city].filter(Boolean).join(", "), city: address.city };
+  }
+  const location = user.currentLocation;
+  if (near(location, point)) return { source: "location", addressId: null, label: location.area || location.city || "Current location", line: location.locationText || null, city: location.city || null };
+  return { source: "point", addressId: null, label: kitchen?.area || "Selected location", line: null, city: kitchen?.city || null };
+}
+
+/**
+ * Everything the home screen draws, in one response. `latitude`/`longitude`
+ * (both or neither) = the location the user picked; without them the saved
+ * location, then the default address. `veg` overrides the saved veg-only pref.
+ */
+export async function homeFor(user, { latitude = null, longitude = null, veg = null } = {}) {
   const { resolveCustomerKitchen, serviceabilityAt } = await import("../serviceability/serviceability.service.js");
   const catalog = await import("../catalog/catalog.service.js");
   const shared = await sharedContent();
   const userId = String(user._id);
+  const hasPoint = latitude != null && longitude != null;
+  const vegOnly = veg == null ? Boolean(user.preferences?.vegOnly) : veg === true || veg === "true";
 
   let serving = null;
   let serviceability = null;
   try {
-    serving = await resolveCustomerKitchen({ latitude, longitude, userId });
-    const point = latitude != null ? { latitude, longitude } : { latitude: serving.kitchen.latitude, longitude: serving.kitchen.longitude };
-    serviceability = await serviceabilityAt({ ...point, userId });
+    // A picked point is served on its own; otherwise saved location, then address.
+    serving = await resolveCustomerKitchen(hasPoint ? { latitude, longitude } : { userId });
+    serviceability = await serviceabilityAt({ ...serving.point, userId });
   } catch (err) {
     if (err.statusCode !== 409 && err.statusCode !== 400) throw err;
-    serviceability = { serviceable: false, message: err.message, kitchen: null };
+    if (hasPoint) {
+      // Not served here: still answer with the full not-serviceable shape.
+      serviceability = await serviceabilityAt({ latitude, longitude, userId });
+    } else {
+      serviceability = { serviceable: false, reason: err.statusCode === 400 ? "no_location" : "not_serviceable", message: err.message, kitchen: null, distanceKm: null };
+    }
   }
   const kitchenId = serving ? String(serving.kitchen._id) : null;
   const city = serving?.kitchen.city || user.currentLocation?.city || null;
   const segmentIds = await safely("segments", async () => (await import("../engagement/segment.service.js")).segmentIdsForUser(userId), []);
+  const vegFilter = (items) => (vegOnly ? items.filter((item) => item.isVeg) : items);
+  const banners = (placement) => bannersFor(shared.banners, { placement, kitchenId, city, segmentIds }).map(toPublicBanner);
 
-  const sections = await Promise.all(shared.sections.map(async (section) => {
+  const sectionsWork = Promise.all(shared.sections.map(async (section) => {
     const base = { key: section.key, type: section.type, title: section.title, subtitle: section.subtitle };
-    if (section.type === "banners" || section.type === "how_we_cook") {
-      return { ...base, items: bannersFor(shared.banners, { placement: section.config.placement || "home_promo", kitchenId, city, segmentIds }) };
-    }
+    if (section.type === "banners" || section.type === "how_we_cook") return { ...base, items: banners(section.config.placement || "home_hero") };
+    if (section.type === "features") return { ...base, items: section.config.items || [] };
     if (!kitchenId) return null;
     if (section.type === "categories") return { ...base, items: await safely("categories", () => catalog.customerCategories(kitchenId), []) };
-    if (section.type === "popular") return { ...base, items: await safely("popular", () => catalog.popularDishes(kitchenId, section.config.limit || 8), []) };
+    if (section.type === "popular") return { ...base, items: vegFilter(await safely("popular", () => catalog.popularDishes(kitchenId, section.config.limit || 8), [])) };
     if (section.type === "combos") {
-      return {
-        ...base,
-        banner: bannersFor(shared.banners, { placement: "home_combos", kitchenId, city, segmentIds })[0] || null,
-        items: await safely("combos", () => catalog.customerCombos(kitchenId), []),
-      };
+      return { ...base, banner: banners("home_combos")[0] || null, items: vegFilter(await safely("combos", () => catalog.customerCombos(kitchenId), [])) };
     }
     if (section.type === "usual" || section.type === "reorder") {
-      const items = await safely("usual", async () => (await import("../order/order.service.js")).usualDishes(userId, kitchenId, section.config.limit || 6), []);
+      const items = vegFilter(await safely("usual", async () => (await import("../order/order.service.js")).usualDishes(userId, kitchenId, section.config.limit || 6), []))
+        .filter((dish) => dish.isAvailable !== false);
       return items.length ? { ...base, items } : null;
     }
     if (section.type === "recommended") {
-      const items = await safely("recommended", () => recommendedFor(userId, kitchenId, section.config.limit || 8), []);
+      const items = vegFilter(await safely("recommended", () => recommendedFor(userId, kitchenId, section.config.limit || 8), []));
       return items.length ? { ...base, items } : null;
     }
     if (section.type === "subscription_promo") {
       const plans = await safely("plans", async () => (await import("../subscription/plan.service.js")).plansForKitchen(kitchenId, { limit: 3 }), []);
       return plans.length ? { ...base, items: plans } : null;
     }
-    if (section.type === "features") return { ...base, items: section.config.items || [] };
     return null;
   }));
 
-  const [cart, unreadNotifications, subscription] = await Promise.all([
-    safely("cart", async () => (await import("../cart/cart.service.js")).cartSummary(userId), null),
+  const [sections, cart, unreadNotifications, subscription, deliverTo] = await Promise.all([
+    sectionsWork,
+    safely("cart", async () => (await import("../cart/cart.service.js")).cartSummary(userId, { kitchenId, freeDeliveryAbovePaise: serviceability?.freeDeliveryAbovePaise ?? null, minOrderPaise: serviceability?.minOrderPaise || 0 }), null),
     safely("unread", async () => (await import("../notification/notification.service.js")).unreadCount(userId), 0),
     safely("subscription", async () => (await import("../subscription/subscription.service.js")).subscriptionCard(userId), null),
+    safely("deliverTo", () => deliverToFor(user, serving?.point || (hasPoint ? { latitude, longitude } : null), serving?.kitchen), null),
   ]);
 
   return {
+    // Seasonal header (gradient/image, status bar, promo card with two images).
+    header: toHeaderTheme(pickTheme(shared.themes || [], { city })),
     greeting: greeting(user.name),
-    vegOnly: Boolean(user.preferences?.vegOnly),
+    deliverTo,
+    vegOnly,
     serviceability,
     kitchen: serviceability?.kitchen || null,
     sections: sections.filter(Boolean),

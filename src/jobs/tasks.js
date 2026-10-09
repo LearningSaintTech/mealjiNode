@@ -49,6 +49,7 @@ export const SCHEDULED_TASKS = [
   { name: "campaign-dispatcher", every: 60_000, description: "Sends scheduled and recurring campaigns", run: lazy("../modules/engagement/campaign.service.js", "dispatchDueCampaigns") },
   { name: "journey-runner", every: 60_000, description: "Advances journey enrollments whose wait is over", run: lazy("../modules/engagement/journey.service.js", "runDueEnrollments") },
   { name: "warehouse-export", pattern: "15 2 * * *", description: "Writes yesterday's events and orders for the data warehouse", run: lazy("../modules/analytics/analytics.service.js", "exportWarehouseDay") },
+  { name: "segment-memberships", every: 15 * 60_000, description: "Recomputes who is in each dynamic segment (home and offer targeting)", run: lazy("../modules/engagement/segment.service.js", "materializeSegments") },
   { name: "segment-traits", pattern: "15 1 * * *", description: "Nightly recompute of user traits and segment sizes", run: lazy("../modules/engagement/traits.service.js", "recomputeAllTraits") },
   {
     name: "housekeeping",

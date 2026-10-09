@@ -12,9 +12,9 @@ export const redis = new Redis({
   enableOfflineQueue: false,
   maxRetriesPerRequest: 1,
   connectTimeout: 2000,
+  // Never give up: after an outage the API reconnects by itself (backoff up to 5 s).
   retryStrategy(times) {
-    if (env.isProd && times > 3) return null;
-    return Math.min(times * 200, 2000);
+    return Math.min(times * 200, 5000);
   },
 });
 

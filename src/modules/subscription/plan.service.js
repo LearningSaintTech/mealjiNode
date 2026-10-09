@@ -15,6 +15,8 @@ export function toPlan(plan, { admin = false } = {}) {
     description: plan.description || "",
     imageUrl: plan.imageUrl ?? null,
     pricePaise: plan.pricePaise,
+    // Standard strike-through price name (same as dishes/combos); mrpPaise kept for the console.
+    originalPricePaise: plan.mrpPaise ?? null,
     mrpPaise: plan.mrpPaise ?? null,
     cycleDays: plan.cycleDays,
     cycleLabel: plan.cycleLabel,

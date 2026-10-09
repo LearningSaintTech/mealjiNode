@@ -58,6 +58,8 @@ export function toDish(dish, at = new Date()) {
     mealUpgrade: dish.mealUpgrade?.label ? dish.mealUpgrade : null,
     customizationGroups: dish.customizationGroups || [],
     availableSlots: dish.availableSlots || [],
+    // Standard name (same as kitchens): ratingAvg. `rating` is kept for older clients.
+    ratingAvg: Math.round((dish.ratingAvg || 0) * 10) / 10,
     rating: Math.round((dish.ratingAvg || 0) * 10) / 10,
     ratingCount: dish.ratingCount || 0,
   };
@@ -105,12 +107,16 @@ export function toCombo(combo, dishesById = new Map(), at = new Date()) {
   return {
     comboId: String(combo._id),
     kitchenId: String(combo.kitchen),
+    // Standard names across dish/combo/plan: name, servesCount, originalPricePaise.
+    // title/serves are kept for older clients and the console.
+    name: combo.title,
     title: combo.title,
     subtitle: combo.subtitle ?? null,
     imageUrl: combo.imageUrl ?? null,
     pricePaise: combo.pricePaise,
     originalPricePaise: combo.originalPricePaise ?? null,
     badge: combo.badge ?? null,
+    servesCount: combo.serves || 1,
     serves: combo.serves || 1,
     items,
     isVeg: items.every((item) => item.isVeg),
@@ -539,7 +545,16 @@ export async function deleteMasterDish(dishId) {
 // ---------------------------------------------------------------- customer menu
 
 /** The whole live menu of one kitchen (cached), from which every customer view is cut. */
-export async function kitchenMenu(kitchenId) {
+const menuLoads = new Map();
+
+/** The kitchen's live menu (cached); concurrent callers share one load. */
+export function kitchenMenu(kitchenId) {
+  const key = String(kitchenId);
+  if (!menuLoads.has(key)) menuLoads.set(key, loadKitchenMenu(kitchenId).finally(() => menuLoads.delete(key)));
+  return menuLoads.get(key);
+}
+
+async function loadKitchenMenu(kitchenId) {
   const cached = await storeGetOptional(menuKey(kitchenId));
   if (cached.ok && cached.value) return JSON.parse(cached.value);
   const kitchen = await requireKitchen(kitchenId);
@@ -563,6 +578,7 @@ function sortDishes(list, sort) {
   if (sort === "price_asc") copy.sort((a, b) => a.pricePaise - b.pricePaise);
   else if (sort === "price_desc") copy.sort((a, b) => b.pricePaise - a.pricePaise);
   else if (sort === "rating") copy.sort((a, b) => b.rating - a.rating || b.ratingCount - a.ratingCount);
+  else if (sort === "prep_time") copy.sort((a, b) => (a.preparationMinutes ?? 999) - (b.preparationMinutes ?? 999));
   else if (sort === "popular") copy.sort((a, b) => Number(b.isBestseller) - Number(a.isBestseller) || (b.orderCount || 0) - (a.orderCount || 0));
   return copy;
 }
@@ -584,7 +600,8 @@ export async function customerMenu(kitchenId, { categoryId, veg, q, sort, cuisin
     .filter((category) => category.dishes.length);
   const uncategorised = dishes.filter((dish) => !dish.categoryId);
   if (uncategorised.length) byCategory.push({ categoryId: null, name: "More", icon: null, subtitle: null, imageUrl: null, sortOrder: 999, isActive: true, dishes: uncategorised });
-  return { kitchen: menu.kitchen, categories: byCategory, total: dishes.length };
+  // `dishes` = the same dishes as one list in the requested sort order (for /dishes).
+  return { kitchen: menu.kitchen, categories: byCategory, dishes, total: dishes.length };
 }
 
 export async function customerCategories(kitchenId) {

@@ -200,6 +200,11 @@
 			"key": "servingKitchenId",
 			"value": "",
 			"type": "string"
+		},
+		{
+			"key": "themeId",
+			"value": "6ac899fb5c2ae99a52d47591",
+			"type": "string"
 		}
 	],
 	"event": [
@@ -333,7 +338,7 @@
 							}
 						},
 						"url": "{{baseUrl}}/api/v1/auth/staff-login",
-						"description": "Console sign-in. Uses staffPhone. Default 9000000001 is the super admin. Subadmin 9000000002. Koramangala kitchen admin 9000000011, subadmin 9000000012. Indiranagar kitchen admin 9000000021. Does not create an account. Then Verify OTP with 123456. Response: userId, otpSent, otpLength, expiresInSec, resendAfterSec. Within the resend cooldown (45 s) no new SMS is sent (otpSent: false) and the code already sent still works. Suspended accounts get 403."
+						"description": "Console sign-in, step 1. Every number gets the same 'OTP sent' answer (unknown numbers get a decoy userId and no SMS), so the console cannot be used to find out who is staff. Verify with POST /auth/verify-otp."
 					},
 					"response": [],
 					"id": "f4c1a8e0-2b57-4d6a-9e13-7a5c0d8b1e24"
@@ -888,11 +893,23 @@
 						],
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/serviceability?latitude=12.9568&longitude=77.6349",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "v1", "serviceability"],
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"serviceability"
+							],
 							"query": [
-								{ "key": "latitude", "value": "12.9568" },
-								{ "key": "longitude", "value": "77.6349" }
+								{
+									"key": "latitude",
+									"value": "12.9568"
+								},
+								{
+									"key": "longitude",
+									"value": "77.6349"
+								}
 							]
 						},
 						"description": "Authenticated. Checks a point without saving it, e.g. while the user drags a map pin. latitude and longitude are required. Returns the same serviceability object as Update current location, including alternatives."
@@ -970,7 +987,7 @@
 					"id": "6f353ff4-bcd9-4903-ac37-9715fcddb659"
 				},
 				{
-					"name": "GET /home",
+					"name": "GET /home (whole home screen + header theme)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -979,10 +996,35 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/home",
-						"description": "GET /api/v1/home. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/home?latitude=12.942795&longitude=77.624478",
+						"description": "Everything the home screen draws, in one call. `header` is the live header theme (Halloween: Spooky Bites while the seed's Halloween window is on): background gradient/image, status bar, and the promo card with `leftImageUrl` / `rightImageUrl`. Render `sections` in order and switch on `type`. Send the selected location as latitude/longitude; without them the saved location, then the default address, is used."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Halloween header live (Rahul, Koramangala)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": "{{baseUrl}}/api/v1/home?latitude=12.942795&longitude=77.624478",
+								"description": "Everything the home screen draws, in one call. `header` is the live header theme (Halloween: Spooky Bites while the seed's Halloween window is on): background gradient/image, status bar, and the promo card with `leftImageUrl` / `rightImageUrl`. Render `sections` in order and switch on `type`. Send the selected location as latitude/longitude; without them the saved location, then the default address, is used."
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Home fetched.\",\n  \"data\": {\n    \"header\": {\n      \"themeId\": \"6ac899fb5c2ae99a52d47591\",\n      \"name\": \"Halloween: Spooky Bites\",\n      \"endsAt\": \"2026-10-31T18:30:00.000Z\",\n      \"header\": {\n        \"backgroundColors\": [\n          \"#FF7A00\",\n          \"#3B0A57\",\n          \"#1A0B2E\"\n        ],\n        \"gradientAngle\": 160,\n        \"backgroundImageUrl\": null,\n        \"statusBarStyle\": \"light\",\n        \"statusBarColor\": \"#3B0A57\",\n        \"textColor\": \"#FFFFFF\",\n        \"subTextColor\": \"#FFE0B2\"\n      },\n      \"promo\": {\n        \"title\": \"Spooky Bites\",\n        \"badge\": \"BOO\",\n        \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n        \"ctaLabel\": \"GRAB A TREAT\",\n        \"deepLink\": \"mealji://offers\",\n        \"couponCode\": \"BOO131\",\n        \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n        \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n        \"backgroundColors\": [\n          \"#2A0F45\",\n          \"#14081F\"\n        ],\n        \"titleColor\": \"#FFB74D\",\n        \"subtitleColor\": \"#FFFFFFCC\",\n        \"ctaColor\": \"#FF7A00\",\n        \"ctaTextColor\": \"#FFFFFF\"\n      }\n    },\n    \"greeting\": \"Good afternoon, Rahul\",\n    \"deliverTo\": {\n      \"source\": \"address\",\n      \"addressId\": \"6ac76ed8e3d5dd058f1f18fe\",\n      \"label\": \"Home\",\n      \"line\": \"Koramangala, Bengaluru\",\n      \"city\": \"Bengaluru\"\n    },\n    \"vegOnly\": false,\n    \"serviceability\": {\n      \"serviceable\": true,\n      \"distanceKm\": 0.8,\n      \"etaMinutes\": 28,\n      \"etaLabel\": \"23–33 min\",\n      \"deliveryFeePaise\": 4000,\n      \"deliveryFeeMode\": \"flat\",\n      \"freeDeliveryAbovePaise\": 29900,\n      \"minOrderPaise\": 0,\n      \"codEnabled\": true,\n      \"pickupEnabled\": false,\n      \"isOpenNow\": true,\n      \"reason\": null,\n      \"opensAt\": null,\n      \"message\": null,\n      \"kitchen\": {\n        \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n        \"name\": \"Koramangala Kitchen\",\n        \"serviceRadiusKm\": 3,\n        \"acceptingOrders\": true,\n        \"opensAt\": \"08:00\",\n        \"closesAt\": \"23:00\",\n        \"area\": \"Koramangala\",\n        \"city\": \"Bengaluru\",\n        \"ratingAvg\": 4.7,\n        \"ratingCount\": 117\n      },\n      \"alternatives\": []\n    },\n    \"kitchen\": {\n      \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n      \"name\": \"Koramangala Kitchen\",\n      \"serviceRadiusKm\": 3,\n      \"acceptingOrders\": true,\n      \"opensAt\": \"08:00\",\n      \"closesAt\": \"23:00\",\n      \"area\": \"Koramangala\",\n      \"city\": \"Bengaluru\",\n      \"ratingAvg\": 4.7,\n      \"ratingCount\": 117\n    },\n    \"sections\": [\n      {\n        \"key\": \"hero\",\n        \"type\": \"banners\",\n        \"title\": null,\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"bannerId\": \"6ac76ed7e3d5dd058f1f186d\",\n            \"placement\": \"home_hero\",\n            \"eyebrow\": \"OUR SIGNATURE CHICKEN BIRYANI\",\n            \"title\": \"A BOWL OF HAPPINESS\",\n            \"highlight\": \"HAPPINESS\",\n            \"subtitle\": \"Rich flavours. Freshly cooked. Always for you.\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/hero-chicken-biryani.jpg\",\n            \"ctaLabel\": \"Order Now\",\n            \"deepLink\": \"mealji://menu?category=biryani\",\n            \"couponCode\": null,\n            \"startsAt\": null,\n            \"endsAt\": null\n          },\n          {\n            \"bannerId\": \"6ac76ed7e3d5dd058f1f1870\",\n            \"placement\": \"home_hero\",\n            \"eyebrow\": \"24-HOUR MAKHANI\",\n            \"title\": \"BUTTER CHICKEN, DONE RIGHT\",\n            \"highlight\": \"DONE RIGHT\",\n            \"subtitle\": \"Real butter. No cornstarch. No shortcuts.\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/hero-butter-chicken.jpg\",\n            \"ctaLabel\": \"Order Now\",\n            \"deepLink\": \"mealji://menu?category=signature-bowls\",\n            \"couponCode\": null,\n            \"startsAt\": null,\n            \"endsAt\": null\n          },\n          {\n            \"bannerId\": \"6ac76ed7e3d5dd058f1f1873\",\n            \"placement\": \"home_hero\",\n            \"eyebrow\": \"NEW HERE?\",\n            \"title\": \"₹100 OFF YOUR FIRST ORDER\",\n            \"highlight\": \"₹100 OFF\",\n            \"subtitle\": \"Use code WELCOME100 on orders above ₹299.\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/hero-butter-chicken-rice.jpg\",\n            \"ctaLabel\": \"Order Now\",\n            \"deepLink\": \"mealji://menu\",\n            \"couponCode\": \"WELCOME100\",\n            \"startsAt\": null,\n            \"endsAt\": null\n          },\n          {\n            \"bannerId\": \"6ac76ed7e3d5dd058f1f1876\",\n            \"placement\": \"home_hero\",\n            \"eyebrow\": \"MEAL JI PLUS\",\n            \"title\": \"MEALS SORTED FOR THE MONTH\",\n            \"highlight\": \"SORTED\",\n            \"subtitle\": \"Plans from ₹3,499 a month with free delivery.\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/hero-kitchen-chef.jpg\",\n            \"ctaLabel\": \"See plans\",\n            \"deepLink\": \"mealji://plus\",\n            \"couponCode\": null,\n            \"startsAt\": null,\n            \"endsAt\": null\n          }\n        ]\n      },\n      {\n        \"key\": \"categories\",\n        \"type\": \"categories\",\n        \"title\": \"Today's Menu\",\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f151d\",\n            \"name\": \"Paneer\",\n            \"icon\": null,\n            \"subtitle\": \"Paneer, every way you like it\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\",\n            \"sortOrder\": 0,\n            \"isActive\": true,\n            \"dishCount\": 2\n          },\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f153c\",\n            \"name\": \"Daal & Curries\",\n            \"icon\": null,\n            \"subtitle\": \"Slow-simmered comfort\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n            \"sortOrder\": 1,\n            \"isActive\": true,\n            \"dishCount\": 2\n          },\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1559\",\n            \"name\": \"Roti & Rice\",\n            \"icon\": null,\n            \"subtitle\": \"Fresh off the tawa\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\",\n            \"sortOrder\": 2,\n            \"isActive\": true,\n            \"dishCount\": 3\n          },\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1580\",\n            \"name\": \"Meal Ji Meals\",\n            \"icon\": null,\n            \"subtitle\": \"The complete feast\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-ji-meal.jpg\",\n            \"sortOrder\": 3,\n            \"isActive\": true,\n            \"dishCount\": 1\n          },\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1593\",\n            \"name\": \"Signature Bowls\",\n            \"icon\": null,\n            \"subtitle\": \"Our chef's signature bowls\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n            \"sortOrder\": 4,\n            \"isActive\": true,\n            \"dishCount\": 2\n          },\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f15b0\",\n            \"name\": \"Biryani\",\n            \"icon\": null,\n            \"subtitle\": \"Dum-cooked, layered, fragrant\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\",\n            \"sortOrder\": 5,\n            \"isActive\": true,\n            \"dishCount\": 4\n          },\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f15e1\",\n            \"name\": \"Small Bites\",\n            \"icon\": null,\n            \"subtitle\": \"Bao, wraps and street snacks\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\",\n            \"sortOrder\": 6,\n            \"isActive\": true,\n            \"dishCount\": 4\n          },\n          {\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1612\",\n            \"name\": \"Desserts & Shakes\",\n            \"icon\": null,\n            \"subtitle\": \"Something sweet\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/gulab-cheesecake.jpg\",\n            \"sortOrder\": 7,\n            \"isActive\": true,\n            \"dishCount\": 4\n          },\n          {\n            \"categoryId\": \"6ac76ed5e3d5dd058f1f1643\",\n            \"name\": \"Drinks\",\n            \"icon\": null,\n            \"subtitle\": \"Chilled and refreshing\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/cold-drink.jpg\",\n            \"sortOrder\": 8,\n            \"isActive\": true,\n            \"dishCount\": 2\n          }\n        ]\n      },\n      {\n        \"key\": \"combos\",\n        \"type\": \"combos\",\n        \"title\": \"Meal Combos\",\n        \"subtitle\": null,\n        \"banner\": {\n          \"bannerId\": \"6ac76ed7e3d5dd058f1f1879\",\n          \"placement\": \"home_combos\",\n          \"eyebrow\": null,\n          \"title\": \"MEAL COMBOS\",\n          \"highlight\": \"COMBOS\",\n          \"subtitle\": \"Great food. Better together.\",\n          \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-combos.png\",\n          \"ctaLabel\": \"Explore Combos\",\n          \"deepLink\": \"mealji://menu?tab=combos\",\n          \"couponCode\": null,\n          \"startsAt\": null,\n          \"endsAt\": null\n        },\n        \"items\": [\n          {\n            \"comboId\": \"6ac76ed5e3d5dd058f1f167b\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"name\": \"Biryani Feast for 4\",\n            \"title\": \"Biryani Feast for 4\",\n            \"subtitle\": \"2 chicken, 1 mutton and 1 paneer biryani\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/combo-spread.jpg\",\n            \"pricePaise\": 119900,\n            \"originalPricePaise\": 135600,\n            \"badge\": \"Party pack\",\n            \"servesCount\": 4,\n            \"serves\": 4,\n            \"items\": [\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f15bf\",\n                \"qty\": 2,\n                \"name\": \"Chicken Biryani\",\n                \"isVeg\": false\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f15c8\",\n                \"qty\": 1,\n                \"name\": \"Mutton Biryani\",\n                \"isVeg\": false\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f15d1\",\n                \"qty\": 1,\n                \"name\": \"Paneer Biryani\",\n                \"isVeg\": true\n              }\n            ],\n            \"isVeg\": false,\n            \"filterTags\": [],\n            \"isSignature\": true,\n            \"isAvailable\": true,\n            \"isActive\": true,\n            \"approvalStatus\": \"live\",\n            \"sortOrder\": 0\n          },\n          {\n            \"comboId\": \"6ac76ed5e3d5dd058f1f1684\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"name\": \"Sharing Platter for 2\",\n            \"title\": \"Sharing Platter for 2\",\n            \"subtitle\": \"2 butter chicken bowls, arancini and cheesecake\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-sharing-plate.jpg\",\n            \"pricePaise\": 99900,\n            \"originalPricePaise\": 116600,\n            \"badge\": \"Save ₹167\",\n            \"servesCount\": 2,\n            \"serves\": 2,\n            \"items\": [\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f15a0\",\n                \"qty\": 2,\n                \"name\": \"Butter Chicken Bowl\",\n                \"isVeg\": false\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f15f9\",\n                \"qty\": 1,\n                \"name\": \"Biryani Arancini (4 pcs)\",\n                \"isVeg\": true\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f1621\",\n                \"qty\": 1,\n                \"name\": \"Gulab Cheesecake\",\n                \"isVeg\": true\n              }\n            ],\n            \"isVeg\": false,\n            \"filterTags\": [],\n            \"isSignature\": true,\n            \"isAvailable\": true,\n            \"isActive\": true,\n            \"approvalStatus\": \"live\",\n            \"sortOrder\": 0\n          },\n          {\n            \"comboId\": \"6ac76ed5e3d5dd058f1f168d\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"name\": \"Complete Meal\",\n            \"title\": \"Complete Meal\",\n            \"subtitle\": \"Butter chicken, garlic naan, jeera rice and gulab jamun\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\",\n            \"pricePaise\": 54900,\n            \"originalPricePaise\": 64600,\n            \"badge\": null,\n            \"servesCount\": 1,\n            \"serves\": 1,\n            \"items\": [\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f1552\",\n                \"qty\": 1,\n                \"name\": \"Butter Chicken\",\n                \"isVeg\": false\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f1570\",\n                \"qty\": 1,\n                \"name\": \"Garlic Naan\",\n                \"isVeg\": true\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f1579\",\n                \"qty\": 1,\n                \"name\": \"Jeera Rice\",\n                \"isVeg\": true\n              },\n              {\n                \"dishId\": \"6ac76ed5e3d5dd058f1f163c\",\n                \"qty\": 1,\n                \"name\": \"Gulab Jamun (2 pcs)\",\n                \"isVeg\": true\n              }\n            ],\n            \"isVeg\": false,\n            \"filterTags\": [],\n            \"isSignature\": false,\n            \"isAvailable\": true,\n            \"isActive\": true,\n            \"approvalStatus\": \"live\",\n            \"sortOrder\": 0\n          },\n          {\n            \"comboId\": \"6ac76ed5e3d5dd058f1f1696\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"name\": \"Bao & Bowl\",\n            \"title\": \"Bao & Bowl\",\n            \"subtitle\": \"Paneer bao with a dal ramen\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-bao-bowl.jpg\",\n            \"pricePaise\": 49900,\n            \"originalPricePaise\": 58800,\n            \"badge\": null,\n            \"servesCount\": 1,\n            \"serves\": 1,\n            \"items\": [\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f152c\",\n                \"qty\": 1,\n                \"name\": \"Paneer Bao (3 pcs)\",\n                \"isVeg\": true\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f1549\",\n                \"qty\": 1,\n                \"name\": \"Dal Ramen\",\n                \"isVeg\": true\n              }\n            ],\n            \"isVeg\": true,\n            \"filterTags\": [],\n            \"isSignature\": false,\n            \"isAvailable\": true,\n            \"isActive\": true,\n            \"approvalStatus\": \"live\",\n            \"sortOrder\": 0\n          },\n          {\n            \"comboId\": \"6ac76ed5e3d5dd058f1f169f\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"name\": \"Solo Wrap Meal\",\n            \"title\": \"Solo Wrap Meal\",\n            \"subtitle\": \"Chicken tikka wrap, gunpowder fries and a drink\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-wrap-solo.jpg\",\n            \"pricePaise\": 44900,\n            \"originalPricePaise\": 50700,\n            \"badge\": null,\n            \"servesCount\": 1,\n            \"serves\": 1,\n            \"items\": [\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f15f0\",\n                \"qty\": 1,\n                \"name\": \"Chicken Tikka Wrap\",\n                \"isVeg\": false\n              },\n              {\n                \"dishId\": \"6ac76ed4e3d5dd058f1f1602\",\n                \"qty\": 1,\n                \"name\": \"Masala Gunpowder Fries\",\n                \"isVeg\": true\n              },\n              {\n                \"dishId\": \"6ac76ed5e3d5dd058f1f1650\",\n                \"qty\": 1,\n                \"name\": \"Chilled Soft Drink\",\n                \"isVeg\": true\n              }\n            ],\n            \"isVeg\": false,\n            \"filterTags\": [],\n            \"isSignature\": false,\n            \"isAvailable\": true,\n            \"isActive\": true,\n            \"approvalStatus\": \"live\",\n            \"sortOrder\": 0\n          }\n        ]\n      },\n      {\n        \"key\": \"features\",\n        \"type\": \"features\",\n        \"title\": null,\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"icon\": \"fast_delivery\",\n            \"title\": \"Fast Delivery\",\n            \"subtitle\": \"25—35 mins\"\n          },\n          {\n            \"icon\": \"fresh_ingredients\",\n            \"title\": \"Fresh Ingredients\",\n            \"subtitle\": \"Locally sourced\"\n          },\n          {\n            \"icon\": \"hygienic_kitchen\",\n            \"title\": \"Hygienic Kitchen\",\n            \"subtitle\": \"100% safe\"\n          }\n        ]\n      },\n      {\n        \"key\": \"usual\",\n        \"type\": \"usual\",\n        \"title\": \"Your usual?\",\n        \"subtitle\": \"Order again in one tap\",\n        \"items\": [\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f15c8\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f15b0\",\n            \"name\": \"Mutton Biryani\",\n            \"description\": \"Tender mutton slow-cooked on dum with whole spices and aged basmati.\",\n            \"story\": \"\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/mutton-biryani.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/mutton-biryani.jpg\",\n            \"pricePaise\": 39900,\n            \"originalPricePaise\": null,\n            \"isVeg\": false,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 2,\n            \"calories\": 850,\n            \"preparationMinutes\": 25,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"biryani\",\n              \"mutton\"\n            ],\n            \"cuisine\": \"Hyderabadi\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 4.2,\n            \"rating\": 4.2,\n            \"ratingCount\": 5\n          },\n          {\n            \"dishId\": \"6ac76ed5e3d5dd058f1f163c\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1612\",\n            \"name\": \"Gulab Jamun (2 pcs)\",\n            \"description\": \"Warm khoya gulab jamuns in cardamom syrup.\",\n            \"story\": \"\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-gulab-jamun.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-gulab-jamun.jpg\",\n            \"pricePaise\": 9900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 0,\n            \"calories\": 300,\n            \"preparationMinutes\": 3,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"dessert\"\n            ],\n            \"cuisine\": \"North Indian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 4.5,\n            \"rating\": 4.5,\n            \"ratingCount\": 4\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f160b\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f15e1\",\n            \"name\": \"Masala Papad\",\n            \"description\": \"Crisp papad topped with onion, tomato and chaat masala.\",\n            \"story\": \"\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/masala-papad.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/masala-papad.jpg\",\n            \"pricePaise\": 7900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 0,\n            \"calories\": 120,\n            \"preparationMinutes\": 4,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"snack\"\n            ],\n            \"cuisine\": \"North Indian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 4.8,\n            \"rating\": 4.8,\n            \"ratingCount\": 4\n          },\n          {\n            \"dishId\": \"6ac76ed5e3d5dd058f1f1659\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed5e3d5dd058f1f1643\",\n            \"name\": \"Cold Coffee\",\n            \"description\": \"Thick cold coffee blended with vanilla ice cream.\",\n            \"story\": \"\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-cold-coffee.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-cold-coffee.jpg\",\n            \"pricePaise\": 14900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 0,\n            \"calories\": 260,\n            \"preparationMinutes\": 5,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"drink\",\n              \"coffee\"\n            ],\n            \"cuisine\": \"Beverages\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 5,\n            \"rating\": 5,\n            \"ratingCount\": 1\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f15f9\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f15e1\",\n            \"name\": \"Biryani Arancini (4 pcs)\",\n            \"description\": \"Golden spiced biryani croquettes with melted aged mozzarella centers & fiery salan glaze.\",\n            \"story\": \"Crisp outside, molten cheesy center bursting with saffron spices.\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\",\n            \"pricePaise\": 24900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 1,\n            \"calories\": 440,\n            \"preparationMinutes\": 14,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"snack\",\n              \"biryani\"\n            ],\n            \"cuisine\": \"Fusion\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 5,\n            \"rating\": 5,\n            \"ratingCount\": 2\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f1552\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f153c\",\n            \"name\": \"Butter Chicken\",\n            \"description\": \"Our 24-hour makhani with tandoori chicken. Real butter, no cornstarch, no fillers.\",\n            \"story\": \"\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-dark.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-dark.jpg\",\n            \"pricePaise\": 32900,\n            \"originalPricePaise\": null,\n            \"isVeg\": false,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 1,\n            \"calories\": 580,\n            \"preparationMinutes\": 18,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"chicken\",\n              \"curry\"\n            ],\n            \"cuisine\": \"North Indian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 4.3,\n            \"rating\": 4.3,\n            \"ratingCount\": 3\n          }\n        ]\n      },\n      {\n        \"key\": \"plus\",\n        \"type\": \"subscription_promo\",\n        \"title\": \"Meal Ji Plus\",\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"planId\": \"6ac76ed7e3d5dd058f1f185e\",\n            \"planCode\": \"BASIC_MONTHLY\",\n            \"name\": \"Basic Monthly\",\n            \"subtitle\": \"Simple and light meals\",\n            \"badge\": null,\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meals-hero-kitchen.jpg\",\n            \"pricePaise\": 349900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 1,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"3+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"2 vegetable dishes\",\n              \"Fresh salad\",\n              \"4 chapatis\",\n              \"1 sweet\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 0\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": false,\n            \"sortOrder\": 1\n          },\n          {\n            \"planId\": \"6ac76ed7e3d5dd058f1f1862\",\n            \"planCode\": \"STANDARD_MONTHLY\",\n            \"name\": \"Standard Monthly\",\n            \"subtitle\": \"Everyday healthy home meals\",\n            \"badge\": \"Most popular\",\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\",\n            \"pricePaise\": 449900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 2,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"5+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"2 vegetable dishes\",\n              \"Fresh salad\",\n              \"4 chapatis\",\n              \"1 sweet\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 10\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": true,\n            \"sortOrder\": 2\n          },\n          {\n            \"planId\": \"6ac76ed7e3d5dd058f1f1866\",\n            \"planCode\": \"PREMIUM_MONTHLY\",\n            \"name\": \"Premium Monthly\",\n            \"subtitle\": \"Gourmet meals for foodies\",\n            \"badge\": null,\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/combo-spread.jpg\",\n            \"pricePaise\": 549900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 3,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"7+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"3 vegetable dishes\",\n              \"Fresh salad\",\n              \"5 chapatis\",\n              \"2 sweets\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 15\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": false,\n            \"sortOrder\": 3\n          }\n        ]\n      },\n      {\n        \"key\": \"how_we_cook\",\n        \"type\": \"how_we_cook\",\n        \"title\": \"How we cook\",\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"bannerId\": \"6ac76ed7e3d5dd058f1f187c\",\n            \"placement\": \"home_how_we_cook\",\n            \"eyebrow\": null,\n            \"title\": \"How we cook\",\n            \"highlight\": null,\n            \"subtitle\": \"24-hour makhani, breads puffed to order, zero preservatives.\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/frame-copy.png\",\n            \"ctaLabel\": null,\n            \"deepLink\": \"mealji://about-chef\",\n            \"couponCode\": null,\n            \"startsAt\": null,\n            \"endsAt\": null\n          }\n        ]\n      },\n      {\n        \"key\": \"popular\",\n        \"type\": \"popular\",\n        \"title\": \"Popular today\",\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f15a0\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1593\",\n            \"name\": \"Butter Chicken Bowl\",\n            \"description\": \"24-hr simmered makhani sauce, tender boneless chicken, fragrant cumin jeera rice.\",\n            \"story\": \"Chef Mujahid’s signature bowl, cooked over low flame with house-ground cardamom & churned cream.\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n            \"pricePaise\": 34900,\n            \"originalPricePaise\": 39900,\n            \"isVeg\": false,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": true,\n            \"badge\": \"Chef’s Kiss\",\n            \"spicyLevel\": 1,\n            \"calories\": 620,\n            \"preparationMinutes\": 20,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"bowl\",\n              \"chicken\",\n              \"bestseller\"\n            ],\n            \"cuisine\": \"North Indian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [\n              {\n                \"groupId\": \"4732ee23de\",\n                \"name\": \"Choose Rice Portion\",\n                \"minSelect\": 1,\n                \"maxSelect\": 1,\n                \"options\": [\n                  {\n                    \"optionId\": \"070648c7be\",\n                    \"name\": \"Regular Jeera Rice\",\n                    \"pricePaise\": 0,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  },\n                  {\n                    \"optionId\": \"ca08cfa3b4\",\n                    \"name\": \"Extra Butter Jeera Rice\",\n                    \"pricePaise\": 4000,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  },\n                  {\n                    \"optionId\": \"82f29e27d7\",\n                    \"name\": \"Fragrant Biryani Rice\",\n                    \"pricePaise\": 6000,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  }\n                ]\n              },\n              {\n                \"groupId\": \"8016a71ce1\",\n                \"name\": \"Add a Side\",\n                \"minSelect\": 0,\n                \"maxSelect\": 3,\n                \"options\": [\n                  {\n                    \"optionId\": \"3736c09a82\",\n                    \"name\": \"Crispy Masala Papad\",\n                    \"pricePaise\": 3900,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  },\n                  {\n                    \"optionId\": \"004f759aaf\",\n                    \"name\": \"Butter Garlic Naan (1 pc)\",\n                    \"pricePaise\": 6500,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  },\n                  {\n                    \"optionId\": \"ef19fe4b56\",\n                    \"name\": \"Cold Badam Drink\",\n                    \"pricePaise\": 7900,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  }\n                ]\n              }\n            ],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 5,\n            \"rating\": 5,\n            \"ratingCount\": 2\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f1621\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1612\",\n            \"name\": \"Gulab Cheesecake\",\n            \"description\": \"Velvety New York style cheesecake studded with miniature warm gulab jamuns & saffron glaze.\",\n            \"story\": \"The dessert that broke the internet. Sweet, decadent and unforgettable.\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/gulab-cheesecake.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/gulab-cheesecake.jpg\",\n            \"pricePaise\": 21900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": true,\n            \"badge\": \"Must Try\",\n            \"spicyLevel\": 0,\n            \"calories\": 380,\n            \"preparationMinutes\": 5,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"dessert\",\n              \"bestseller\"\n            ],\n            \"cuisine\": \"Fusion\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 4.7,\n            \"rating\": 4.7,\n            \"ratingCount\": 3\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f15bf\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f15b0\",\n            \"name\": \"Chicken Biryani\",\n            \"description\": \"Our signature dum biryani: aged basmati, bone-in chicken, saffron and fried onions. With salan and raita.\",\n            \"story\": \"\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\",\n            \"pricePaise\": 32900,\n            \"originalPricePaise\": null,\n            \"isVeg\": false,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": true,\n            \"badge\": \"Signature\",\n            \"spicyLevel\": 2,\n            \"calories\": 780,\n            \"preparationMinutes\": 22,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"biryani\",\n              \"chicken\",\n              \"bestseller\"\n            ],\n            \"cuisine\": \"Hyderabadi\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 0,\n            \"rating\": 0,\n            \"ratingCount\": 0\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f158c\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1580\",\n            \"name\": \"The Meal Ji Meal (Signature)\",\n            \"description\": \"The complete feast: Choice of Butter Chicken/Paneer Bowl + Masala Fries + Kulfi Shake + Garlic Naan.\",\n            \"story\": \"Designed for the hungriest. Everything you love about Meal Ji in one box.\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-ji-meal.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-ji-meal.jpg\",\n            \"pricePaise\": 49900,\n            \"originalPricePaise\": 59900,\n            \"isVeg\": false,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": true,\n            \"badge\": \"Best Value\",\n            \"spicyLevel\": 0,\n            \"calories\": 950,\n            \"preparationMinutes\": 25,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"meal\",\n              \"signature\",\n              \"bestseller\"\n            ],\n            \"cuisine\": \"North Indian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [\n              {\n                \"groupId\": \"ffc639aea6\",\n                \"name\": \"Choose your bowl\",\n                \"minSelect\": 1,\n                \"maxSelect\": 1,\n                \"options\": [\n                  {\n                    \"optionId\": \"b847a35e4d\",\n                    \"name\": \"Butter Chicken Bowl\",\n                    \"pricePaise\": 0,\n                    \"isVeg\": false,\n                    \"isAvailable\": true\n                  },\n                  {\n                    \"optionId\": \"7234cca4ca\",\n                    \"name\": \"Paneer Tikka Bowl\",\n                    \"pricePaise\": 0,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  }\n                ]\n              }\n            ],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 3,\n            \"rating\": 3,\n            \"ratingCount\": 1\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f152c\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f151d\",\n            \"name\": \"Paneer Bao (3 pcs)\",\n            \"description\": \"Puffy steamed bao buns stuffed with smoky clay-oven paneer, pickled onions & fresh mint mayo.\",\n            \"story\": \"East Asian technique meets Old Delhi tandoor mastery. Fluffy, spicy, tangy in every bite.\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\",\n            \"pricePaise\": 28900,\n            \"originalPricePaise\": 32900,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": true,\n            \"badge\": \"Most Loved\",\n            \"spicyLevel\": 2,\n            \"calories\": 480,\n            \"preparationMinutes\": 15,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"bao\",\n              \"paneer\",\n              \"bestseller\"\n            ],\n            \"cuisine\": \"Indo-Asian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [\n              {\n                \"groupId\": \"c7d3bf9430\",\n                \"name\": \"Extra Dip\",\n                \"minSelect\": 0,\n                \"maxSelect\": 2,\n                \"options\": [\n                  {\n                    \"optionId\": \"22fc22ebfb\",\n                    \"name\": \"Smoked Chilli Mayo\",\n                    \"pricePaise\": 2900,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  },\n                  {\n                    \"optionId\": \"8f0bb11c58\",\n                    \"name\": \"Pudina Chutney\",\n                    \"pricePaise\": 1900,\n                    \"isVeg\": true,\n                    \"isAvailable\": true\n                  }\n                ]\n              }\n            ],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 0,\n            \"rating\": 0,\n            \"ratingCount\": 0\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f15f9\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f15e1\",\n            \"name\": \"Biryani Arancini (4 pcs)\",\n            \"description\": \"Golden spiced biryani croquettes with melted aged mozzarella centers & fiery salan glaze.\",\n            \"story\": \"Crisp outside, molten cheesy center bursting with saffron spices.\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\",\n            \"pricePaise\": 24900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 1,\n            \"calories\": 440,\n            \"preparationMinutes\": 14,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"snack\",\n              \"biryani\"\n            ],\n            \"cuisine\": \"Fusion\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 5,\n            \"rating\": 5,\n            \"ratingCount\": 2\n          },\n          {\n            \"dishId\": \"6ac76ed4e3d5dd058f1f162a\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1612\",\n            \"name\": \"Royal Kulfi Shake\",\n            \"description\": \"Chilled thick shake spun with malai kulfi, toasted Iranian pistachios and green cardamom.\",\n            \"story\": \"Pure liquid gold served ice cold.\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/kulfi-shake.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/kulfi-shake.jpg\",\n            \"pricePaise\": 18900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 0,\n            \"calories\": 320,\n            \"preparationMinutes\": 8,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"shake\",\n              \"drink\"\n            ],\n            \"cuisine\": \"Indian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 5,\n            \"rating\": 5,\n            \"ratingCount\": 4\n          },\n          {\n            \"dishId\": \"6ac76ed5e3d5dd058f1f163c\",\n            \"kitchenId\": \"6ac4baff6da196ab09e1d02e\",\n            \"categoryId\": \"6ac76ed4e3d5dd058f1f1612\",\n            \"name\": \"Gulab Jamun (2 pcs)\",\n            \"description\": \"Warm khoya gulab jamuns in cardamom syrup.\",\n            \"story\": \"\",\n            \"images\": [\n              \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-gulab-jamun.jpg\"\n            ],\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-gulab-jamun.jpg\",\n            \"pricePaise\": 9900,\n            \"originalPricePaise\": null,\n            \"isVeg\": true,\n            \"isAvailable\": true,\n            \"stockLeft\": null,\n            \"isBestseller\": false,\n            \"badge\": null,\n            \"spicyLevel\": 0,\n            \"calories\": 300,\n            \"preparationMinutes\": 3,\n            \"servesCount\": 1,\n            \"highlights\": [],\n            \"tags\": [\n              \"dessert\"\n            ],\n            \"cuisine\": \"North Indian\",\n            \"portions\": [],\n            \"mealUpgrade\": null,\n            \"customizationGroups\": [],\n            \"availableSlots\": [\n              \"lunch\",\n              \"dinner\",\n              \"snacks\"\n            ],\n            \"ratingAvg\": 4.5,\n            \"rating\": 4.5,\n            \"ratingCount\": 4\n          }\n        ]\n      }\n    ],\n    \"cart\": {\n      \"itemCount\": 0,\n      \"kitchenId\": null,\n      \"subtotalPaise\": 0,\n      \"freeDeliveryAbovePaise\": 29900,\n      \"amountToFreeDeliveryPaise\": 29900,\n      \"amountToMinOrderPaise\": 0,\n      \"fromOtherKitchen\": false,\n      \"updatedAt\": null\n    },\n    \"unreadNotifications\": 85,\n    \"subscription\": {\n      \"subscriptionId\": \"6ac76eebe3d5dd058f1f33a5\",\n      \"status\": \"active\",\n      \"planName\": \"Standard Monthly\",\n      \"validTill\": \"2026-11-07\",\n      \"daysLeft\": 30,\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ]\n    }\n  }\n}"
+						}
+					],
 					"id": "d45f18c6-12b5-452a-9f01-6a9ebccf8b18"
 				},
 				{
@@ -1234,8 +1276,8 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/dishes",
-						"description": "GET /api/v1/dishes. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/dishes?kitchenId={{kitchenId}}&limit=20&page=1&sort=popular",
+						"description": "Dishes of the serving kitchen as one list. Optional: categoryId, veg=true, q, sort (popular | price_asc | price_desc | rating | prep_time), and paging with limit (1-100) + page. Response: items, total, page, limit, hasMore. Without limit the whole list comes back (older clients)."
 					},
 					"response": [],
 					"id": "9bf1d794-0add-4008-b29f-e5ff202c22d3"
@@ -5475,6 +5517,384 @@
 					},
 					"response": [],
 					"id": "29b11813-fdff-466c-a70e-5ec7edf51c4a"
+				},
+				{
+					"name": "Home header themes",
+					"description": "Seasonal look of the app's home header: background gradient or image, status bar, and the promo card with an image on each side. The default theme shows unless a dated theme is live; the highest priority wins when windows overlap. The app reads the live theme as `header` in GET /api/v1/home. Seeded: Meal Ji Indigo (default), Halloween: Spooky Bites (live from the seed date to 1 Nov), Diwali: Festival of Lights (3–13 Nov). Sign in as a staff account with content.manage (demo super admin 9000000001).",
+					"item": [
+						{
+							"name": "List themes (which one is live)",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": "{{baseUrl}}/api/v1/admin/home-themes",
+								"description": "Every theme with its window, priority and `isLiveNow`. Save a `themeId` from here into the `themeId` variable to use the requests below."
+							},
+							"response": [
+								{
+									"name": "Halloween live",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "x-device-id",
+												"value": "{{deviceId}}"
+											}
+										],
+										"url": "{{baseUrl}}/api/v1/admin/home-themes",
+										"description": "Every theme with its window, priority and `isLiveNow`. Save a `themeId` from here into the `themeId` variable to use the requests below."
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Content-Type",
+											"value": "application/json; charset=utf-8"
+										}
+									],
+									"body": "{\n  \"success\": true,\n  \"message\": \"Themes fetched.\",\n  \"data\": [\n    {\n      \"themeId\": \"6ac899fb5c2ae99a52d4758d\",\n      \"name\": \"Meal Ji Indigo\",\n      \"endsAt\": null,\n      \"header\": {\n        \"backgroundColors\": [\n          \"#2C40A6\",\n          \"#192881\"\n        ],\n        \"gradientAngle\": 180,\n        \"backgroundImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/top-indigo-section.png\",\n        \"statusBarStyle\": \"light\",\n        \"statusBarColor\": \"#2C40A6\",\n        \"textColor\": \"#FFFFFF\",\n        \"subTextColor\": \"#FFFFFFCC\"\n      },\n      \"promo\": {\n        \"title\": \"Foodie Weekend\",\n        \"badge\": null,\n        \"subtitle\": \"Flat ₹150 OFF on delights!\",\n        \"ctaLabel\": \"ORDER NOW\",\n        \"deepLink\": \"mealji://offers\",\n        \"couponCode\": \"FOODIE150\",\n        \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/taco-1.png\",\n        \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/sushi-caviar-1.png\",\n        \"backgroundColors\": [],\n        \"titleColor\": \"#FFFFFF\",\n        \"subtitleColor\": \"#FFFFFFCC\",\n        \"ctaColor\": \"#FF5A1F\",\n        \"ctaTextColor\": \"#FFFFFF\"\n      },\n      \"isDefault\": true,\n      \"isActive\": true,\n      \"priority\": 0,\n      \"startsAt\": null,\n      \"cities\": [],\n      \"promoVisible\": true,\n      \"updatedAt\": \"2026-10-09T07:58:53.495Z\",\n      \"isLiveNow\": false\n    },\n    {\n      \"themeId\": \"6ac899fb5c2ae99a52d47591\",\n      \"name\": \"Halloween: Spooky Bites\",\n      \"endsAt\": \"2026-10-31T18:30:00.000Z\",\n      \"header\": {\n        \"backgroundColors\": [\n          \"#FF7A00\",\n          \"#3B0A57\",\n          \"#1A0B2E\"\n        ],\n        \"gradientAngle\": 160,\n        \"backgroundImageUrl\": null,\n        \"statusBarStyle\": \"light\",\n        \"statusBarColor\": \"#3B0A57\",\n        \"textColor\": \"#FFFFFF\",\n        \"subTextColor\": \"#FFE0B2\"\n      },\n      \"promo\": {\n        \"title\": \"Spooky Bites\",\n        \"badge\": \"BOO\",\n        \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n        \"ctaLabel\": \"GRAB A TREAT\",\n        \"deepLink\": \"mealji://offers\",\n        \"couponCode\": \"BOO131\",\n        \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n        \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n        \"backgroundColors\": [\n          \"#2A0F45\",\n          \"#14081F\"\n        ],\n        \"titleColor\": \"#FFB74D\",\n        \"subtitleColor\": \"#FFFFFFCC\",\n        \"ctaColor\": \"#FF7A00\",\n        \"ctaTextColor\": \"#FFFFFF\"\n      },\n      \"isDefault\": false,\n      \"isActive\": true,\n      \"priority\": 10,\n      \"startsAt\": \"2026-10-08T18:30:00.000Z\",\n      \"cities\": [],\n      \"promoVisible\": true,\n      \"updatedAt\": \"2026-10-09T07:58:53.501Z\",\n      \"isLiveNow\": true\n    },\n    {\n      \"themeId\": \"6ac899fb5c2ae99a52d47594\",\n      \"name\": \"Diwali: Festival of Lights\",\n      \"endsAt\": \"2026-11-12T18:30:00.000Z\",\n      \"header\": {\n        \"backgroundColors\": [\n          \"#FFB300\",\n          \"#C2410C\",\n          \"#7A1E00\"\n        ],\n        \"gradientAngle\": 170,\n        \"backgroundImageUrl\": null,\n        \"statusBarStyle\": \"light\",\n        \"statusBarColor\": \"#C2410C\",\n        \"textColor\": \"#FFFFFF\",\n        \"subTextColor\": \"#FFF3D6\"\n      },\n      \"promo\": {\n        \"title\": \"Festival of Lights\",\n        \"badge\": \"DIWALI\",\n        \"subtitle\": \"Flat ₹100 OFF on festive feasts\",\n        \"ctaLabel\": \"ORDER NOW\",\n        \"deepLink\": \"mealji://offers\",\n        \"couponCode\": \"DIWALI100\",\n        \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/diwali-diya.png\",\n        \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/diwali-gift.png\",\n        \"backgroundColors\": [\n          \"#5C1600\",\n          \"#3A0E00\"\n        ],\n        \"titleColor\": \"#FFD54F\",\n        \"subtitleColor\": \"#FFFFFFCC\",\n        \"ctaColor\": \"#FFB300\",\n        \"ctaTextColor\": \"#3A0E00\"\n      },\n      \"isDefault\": false,\n      \"isActive\": true,\n      \"priority\": 20,\n      \"startsAt\": \"2026-11-02T18:30:00.000Z\",\n      \"cities\": [],\n      \"promoVisible\": true,\n      \"updatedAt\": \"2026-10-09T07:58:53.504Z\",\n      \"isLiveNow\": false\n    }\n  ]\n}"
+								}
+							],
+							"id": "68086890-8c78-4020-926c-9b867ba1204a",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"let json = pm.response.json();",
+											"const live = (json.data || []).find((t) => t.isLiveNow);",
+											"if (live) pm.collectionVariables.set('themeId', live.themeId);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Get a theme",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+								"description": "One theme in full."
+							},
+							"response": [
+								{
+									"name": "Halloween",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "x-device-id",
+												"value": "{{deviceId}}"
+											}
+										],
+										"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+										"description": "One theme in full."
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Content-Type",
+											"value": "application/json; charset=utf-8"
+										}
+									],
+									"body": "{\n  \"success\": true,\n  \"message\": \"Theme fetched.\",\n  \"data\": {\n    \"themeId\": \"6ac899fb5c2ae99a52d47591\",\n    \"name\": \"Halloween: Spooky Bites\",\n    \"endsAt\": \"2026-10-31T18:30:00.000Z\",\n    \"header\": {\n      \"backgroundColors\": [\n        \"#FF7A00\",\n        \"#3B0A57\",\n        \"#1A0B2E\"\n      ],\n      \"gradientAngle\": 160,\n      \"backgroundImageUrl\": null,\n      \"statusBarStyle\": \"light\",\n      \"statusBarColor\": \"#3B0A57\",\n      \"textColor\": \"#FFFFFF\",\n      \"subTextColor\": \"#FFE0B2\"\n    },\n    \"promo\": {\n      \"title\": \"Spooky Bites\",\n      \"badge\": \"BOO\",\n      \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n      \"ctaLabel\": \"GRAB A TREAT\",\n      \"deepLink\": \"mealji://offers\",\n      \"couponCode\": \"BOO131\",\n      \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n      \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n      \"backgroundColors\": [\n        \"#2A0F45\",\n        \"#14081F\"\n      ],\n      \"titleColor\": \"#FFB74D\",\n      \"subtitleColor\": \"#FFFFFFCC\",\n      \"ctaColor\": \"#FF7A00\",\n      \"ctaTextColor\": \"#FFFFFF\"\n    },\n    \"isDefault\": false,\n    \"isActive\": true,\n    \"priority\": 10,\n    \"startsAt\": \"2026-10-08T18:30:00.000Z\",\n    \"cities\": [],\n    \"promoVisible\": true,\n    \"updatedAt\": \"2026-10-09T07:58:53.501Z\"\n  }\n}"
+								}
+							],
+							"id": "159777c9-7761-446d-92c2-861e52d5fdaa"
+						},
+						{
+							"name": "Create a theme (Halloween example)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": "{{baseUrl}}/api/v1/admin/home-themes",
+								"description": "Colours are #RRGGBB or #RRGGBBAA. Upload images first (POST /api/v1/uploads/presign, purpose `content`) and pass the returned file URLs. `startsAt`/`endsAt` set the window; leave both empty and set `isDefault: true` for the default theme.",
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"name\": \"Halloween: Spooky Bites (copy)\",\n  \"priority\": 5,\n  \"startsAt\": \"2026-10-24T00:00:00+05:30\",\n  \"endsAt\": \"2026-11-01T00:00:00+05:30\",\n  \"cities\": [],\n  \"header\": {\n    \"backgroundColors\": [\n      \"#FF7A00\",\n      \"#3B0A57\",\n      \"#1A0B2E\"\n    ],\n    \"gradientAngle\": 160,\n    \"backgroundImageUrl\": null,\n    \"statusBarStyle\": \"light\",\n    \"statusBarColor\": \"#3B0A57\",\n    \"textColor\": \"#FFFFFF\",\n    \"subTextColor\": \"#FFE0B2\"\n  },\n  \"promo\": {\n    \"isVisible\": true,\n    \"title\": \"Spooky Bites\",\n    \"badge\": \"BOO\",\n    \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n    \"ctaLabel\": \"GRAB A TREAT\",\n    \"deepLink\": \"mealji://offers\",\n    \"couponCode\": \"BOO131\",\n    \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n    \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n    \"backgroundColors\": [\n      \"#2A0F45\",\n      \"#14081F\"\n    ],\n    \"titleColor\": \"#FFB74D\",\n    \"subtitleColor\": \"#FFFFFFCC\",\n    \"ctaColor\": \"#FF7A00\",\n    \"ctaTextColor\": \"#FFFFFF\"\n  }\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"response": [
+								{
+									"name": "Created",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "x-device-id",
+												"value": "{{deviceId}}"
+											},
+											{
+												"key": "Content-Type",
+												"value": "application/json"
+											}
+										],
+										"url": "{{baseUrl}}/api/v1/admin/home-themes",
+										"description": "Colours are #RRGGBB or #RRGGBBAA. Upload images first (POST /api/v1/uploads/presign, purpose `content`) and pass the returned file URLs. `startsAt`/`endsAt` set the window; leave both empty and set `isDefault: true` for the default theme.",
+										"body": {
+											"mode": "raw",
+											"raw": "{\n  \"name\": \"Halloween: Spooky Bites (copy)\",\n  \"priority\": 5,\n  \"startsAt\": \"2026-10-24T00:00:00+05:30\",\n  \"endsAt\": \"2026-11-01T00:00:00+05:30\",\n  \"cities\": [],\n  \"header\": {\n    \"backgroundColors\": [\n      \"#FF7A00\",\n      \"#3B0A57\",\n      \"#1A0B2E\"\n    ],\n    \"gradientAngle\": 160,\n    \"backgroundImageUrl\": null,\n    \"statusBarStyle\": \"light\",\n    \"statusBarColor\": \"#3B0A57\",\n    \"textColor\": \"#FFFFFF\",\n    \"subTextColor\": \"#FFE0B2\"\n  },\n  \"promo\": {\n    \"isVisible\": true,\n    \"title\": \"Spooky Bites\",\n    \"badge\": \"BOO\",\n    \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n    \"ctaLabel\": \"GRAB A TREAT\",\n    \"deepLink\": \"mealji://offers\",\n    \"couponCode\": \"BOO131\",\n    \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n    \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n    \"backgroundColors\": [\n      \"#2A0F45\",\n      \"#14081F\"\n    ],\n    \"titleColor\": \"#FFB74D\",\n    \"subtitleColor\": \"#FFFFFFCC\",\n    \"ctaColor\": \"#FF7A00\",\n    \"ctaTextColor\": \"#FFFFFF\"\n  }\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										}
+									},
+									"status": "Created",
+									"code": 201,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Content-Type",
+											"value": "application/json; charset=utf-8"
+										}
+									],
+									"body": "{\n  \"success\": true,\n  \"message\": \"Theme added.\",\n  \"data\": {\n    \"themeId\": \"6ac89ed65e9b75397f2a3503\",\n    \"name\": \"Halloween: Spooky Bites (copy)\",\n    \"endsAt\": \"2026-10-31T18:30:00.000Z\",\n    \"header\": {\n      \"backgroundColors\": [\n        \"#FF7A00\",\n        \"#3B0A57\",\n        \"#1A0B2E\"\n      ],\n      \"gradientAngle\": 160,\n      \"backgroundImageUrl\": null,\n      \"statusBarStyle\": \"light\",\n      \"statusBarColor\": \"#3B0A57\",\n      \"textColor\": \"#FFFFFF\",\n      \"subTextColor\": \"#FFE0B2\"\n    },\n    \"promo\": {\n      \"title\": \"Spooky Bites\",\n      \"badge\": \"BOO\",\n      \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n      \"ctaLabel\": \"GRAB A TREAT\",\n      \"deepLink\": \"mealji://offers\",\n      \"couponCode\": \"BOO131\",\n      \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n      \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n      \"backgroundColors\": [\n        \"#2A0F45\",\n        \"#14081F\"\n      ],\n      \"titleColor\": \"#FFB74D\",\n      \"subtitleColor\": \"#FFFFFFCC\",\n      \"ctaColor\": \"#FF7A00\",\n      \"ctaTextColor\": \"#FFFFFF\"\n    },\n    \"isDefault\": false,\n    \"isActive\": true,\n    \"priority\": 5,\n    \"startsAt\": \"2026-10-23T18:30:00.000Z\",\n    \"cities\": [],\n    \"promoVisible\": true,\n    \"updatedAt\": \"2026-10-09T07:59:18.254Z\"\n  }\n}"
+								},
+								{
+									"name": "Invalid colour",
+									"originalRequest": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "x-device-id",
+												"value": "{{deviceId}}"
+											},
+											{
+												"key": "Content-Type",
+												"value": "application/json"
+											}
+										],
+										"url": "{{baseUrl}}/api/v1/admin/home-themes",
+										"description": "Colours are #RRGGBB or #RRGGBBAA. Upload images first (POST /api/v1/uploads/presign, purpose `content`) and pass the returned file URLs. `startsAt`/`endsAt` set the window; leave both empty and set `isDefault: true` for the default theme.",
+										"body": {
+											"mode": "raw",
+											"raw": "{\n  \"name\": \"Halloween: Spooky Bites (copy)\",\n  \"priority\": 5,\n  \"startsAt\": \"2026-10-24T00:00:00+05:30\",\n  \"endsAt\": \"2026-11-01T00:00:00+05:30\",\n  \"cities\": [],\n  \"header\": {\n    \"backgroundColors\": [\n      \"#FF7A00\",\n      \"#3B0A57\",\n      \"#1A0B2E\"\n    ],\n    \"gradientAngle\": 160,\n    \"backgroundImageUrl\": null,\n    \"statusBarStyle\": \"light\",\n    \"statusBarColor\": \"#3B0A57\",\n    \"textColor\": \"#FFFFFF\",\n    \"subTextColor\": \"#FFE0B2\"\n  },\n  \"promo\": {\n    \"isVisible\": true,\n    \"title\": \"Spooky Bites\",\n    \"badge\": \"BOO\",\n    \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n    \"ctaLabel\": \"GRAB A TREAT\",\n    \"deepLink\": \"mealji://offers\",\n    \"couponCode\": \"BOO131\",\n    \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n    \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n    \"backgroundColors\": [\n      \"#2A0F45\",\n      \"#14081F\"\n    ],\n    \"titleColor\": \"#FFB74D\",\n    \"subtitleColor\": \"#FFFFFFCC\",\n    \"ctaColor\": \"#FF7A00\",\n    \"ctaTextColor\": \"#FFFFFF\"\n  }\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										}
+									},
+									"status": "Unprocessable Entity",
+									"code": 422,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Content-Type",
+											"value": "application/json; charset=utf-8"
+										}
+									],
+									"body": "{\n  \"success\": false,\n  \"message\": \"Validation failed\",\n  \"errors\": [\n    {\n      \"field\": \"header.backgroundColors\",\n      \"message\": \"header.backgroundColors: up to 4 colours as #RRGGBB or #RRGGBBAA\"\n    },\n    {\n      \"field\": \"header.backgroundColors\",\n      \"message\": \"Give background colours or a background image\"\n    }\n  ]\n}"
+								}
+							],
+							"id": "315f3a3b-67ed-4816-9ffd-d755f1f7ef51",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"let json = pm.response.json();",
+											"if (json.data && json.data.themeId) pm.collectionVariables.set('themeId', json.data.themeId);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Preview a theme now (start it now)",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+								"description": "Moves the theme's start to now so the app shows it on the next GET /home (within 2 minutes; immediately after this call). Set `startsAt` back when you are done.",
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"startsAt\": \"{{$isoTimestamp}}\",\n  \"isActive\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"response": [],
+							"id": "741cce2e-54ea-4cec-829e-375950393b7e"
+						},
+						{
+							"name": "Turn a theme off",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+								"description": "The app falls back to the default (or another live theme).",
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"isActive\": false\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"response": [
+								{
+									"name": "Turned off",
+									"originalRequest": {
+										"method": "PATCH",
+										"header": [
+											{
+												"key": "x-device-id",
+												"value": "{{deviceId}}"
+											},
+											{
+												"key": "Content-Type",
+												"value": "application/json"
+											}
+										],
+										"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+										"description": "The app falls back to the default (or another live theme).",
+										"body": {
+											"mode": "raw",
+											"raw": "{\n  \"isActive\": false\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Content-Type",
+											"value": "application/json; charset=utf-8"
+										}
+									],
+									"body": "{\n  \"success\": true,\n  \"message\": \"Theme updated.\",\n  \"data\": {\n    \"themeId\": \"6ac89ed65e9b75397f2a3503\",\n    \"name\": \"Halloween: Spooky Bites (copy)\",\n    \"endsAt\": \"2026-10-31T18:30:00.000Z\",\n    \"header\": {\n      \"backgroundColors\": [\n        \"#FF7A00\",\n        \"#3B0A57\",\n        \"#1A0B2E\"\n      ],\n      \"gradientAngle\": 160,\n      \"backgroundImageUrl\": null,\n      \"statusBarStyle\": \"light\",\n      \"statusBarColor\": \"#3B0A57\",\n      \"textColor\": \"#FFFFFF\",\n      \"subTextColor\": \"#FFE0B2\"\n    },\n    \"promo\": {\n      \"title\": \"Spooky Bites\",\n      \"badge\": \"BOO\",\n      \"subtitle\": \"Flat ₹131 OFF, trick or treat!\",\n      \"ctaLabel\": \"GRAB A TREAT\",\n      \"deepLink\": \"mealji://offers\",\n      \"couponCode\": \"BOO131\",\n      \"leftImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-pumpkin.png\",\n      \"rightImageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/halloween-ghost.png\",\n      \"backgroundColors\": [\n        \"#2A0F45\",\n        \"#14081F\"\n      ],\n      \"titleColor\": \"#FFB74D\",\n      \"subtitleColor\": \"#FFFFFFCC\",\n      \"ctaColor\": \"#FF7A00\",\n      \"ctaTextColor\": \"#FFFFFF\"\n    },\n    \"isDefault\": false,\n    \"isActive\": false,\n    \"priority\": 5,\n    \"startsAt\": \"2026-10-23T18:30:00.000Z\",\n    \"cities\": [],\n    \"promoVisible\": true,\n    \"updatedAt\": \"2026-10-09T07:59:18.274Z\"\n  }\n}"
+								}
+							],
+							"id": "6d7c2e5a-c09a-4f16-bedf-6b18e4507e16"
+						},
+						{
+							"name": "Delete a theme",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+								"description": "The default theme cannot be deleted (409); make another theme the default first."
+							},
+							"response": [
+								{
+									"name": "Deleted",
+									"originalRequest": {
+										"method": "DELETE",
+										"header": [
+											{
+												"key": "x-device-id",
+												"value": "{{deviceId}}"
+											}
+										],
+										"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+										"description": "The default theme cannot be deleted (409); make another theme the default first."
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Content-Type",
+											"value": "application/json; charset=utf-8"
+										}
+									],
+									"body": "{\n  \"success\": true,\n  \"message\": \"Theme deleted.\",\n  \"data\": {\n    \"themeId\": \"6ac89ed65e9b75397f2a3503\",\n    \"deleted\": true,\n    \"name\": \"Halloween: Spooky Bites (copy)\"\n  }\n}"
+								},
+								{
+									"name": "Default cannot be deleted",
+									"originalRequest": {
+										"method": "DELETE",
+										"header": [
+											{
+												"key": "x-device-id",
+												"value": "{{deviceId}}"
+											}
+										],
+										"url": "{{baseUrl}}/api/v1/admin/home-themes/{{themeId}}",
+										"description": "The default theme cannot be deleted (409); make another theme the default first."
+									},
+									"status": "Conflict",
+									"code": 409,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Content-Type",
+											"value": "application/json; charset=utf-8"
+										}
+									],
+									"body": "{\n  \"success\": false,\n  \"message\": \"Make another theme the default before deleting this one\",\n  \"errors\": null\n}"
+								}
+							],
+							"id": "c2f45006-40d9-42c7-b137-239628ae0cd9"
+						}
+					]
 				}
 			]
 		},

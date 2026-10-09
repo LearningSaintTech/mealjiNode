@@ -226,10 +226,29 @@ export async function buildCart(userId, overrides = {}) {
   };
 }
 
-export async function cartSummary(userId) {
+/**
+ * The floating cart bar on home, without pricing the whole cart: item count,
+ * subtotal (prices as added), and how much more unlocks free delivery at the
+ * kitchen serving the customer. `fromOtherKitchen` = the cart was filled at a
+ * different kitchen than the one serving this location now.
+ */
+export async function cartSummary(userId, { kitchenId = null, freeDeliveryAbovePaise = null, minOrderPaise = 0 } = {}) {
   const cart = await Cart.findOne({ user: userId }).lean();
-  if (!cart?.items?.length) return { itemCount: 0, kitchenId: null };
-  return { itemCount: cart.items.reduce((sum, line) => sum + line.qty, 0), kitchenId: cart.kitchen ? String(cart.kitchen) : null, updatedAt: cart.updatedAt };
+  if (!cart?.items?.length) {
+    return { itemCount: 0, kitchenId: null, subtotalPaise: 0, freeDeliveryAbovePaise, amountToFreeDeliveryPaise: freeDeliveryAbovePaise, amountToMinOrderPaise: minOrderPaise || 0, fromOtherKitchen: false, updatedAt: null };
+  }
+  const subtotalPaise = cart.items.reduce((sum, line) => sum + (line.seenUnitPricePaise || 0) * line.qty, 0);
+  const cartKitchen = cart.kitchen ? String(cart.kitchen) : null;
+  return {
+    itemCount: cart.items.reduce((sum, line) => sum + line.qty, 0),
+    kitchenId: cartKitchen,
+    subtotalPaise,
+    freeDeliveryAbovePaise,
+    amountToFreeDeliveryPaise: freeDeliveryAbovePaise ? Math.max(0, freeDeliveryAbovePaise - subtotalPaise) : null,
+    amountToMinOrderPaise: Math.max(0, (minOrderPaise || 0) - subtotalPaise),
+    fromOtherKitchen: Boolean(kitchenId && cartKitchen && cartKitchen !== String(kitchenId)),
+    updatedAt: cart.updatedAt,
+  };
 }
 
 async function saveAndBuild(cart, userId, event = true) {

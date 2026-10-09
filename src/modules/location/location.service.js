@@ -4,7 +4,15 @@ import { toCurrentLocation } from "../user/user.mapper.js";
 import { userRepository } from "../user/user.repository.js";
 
 export async function updateCurrentLocation({ userId, latitude, longitude }) {
-  const textual = await reverseGeocode({ latitude, longitude });
+  // The pin is what matters for delivery; the place name is a nicety. If
+  // Google is down or unconfigured, save the pin with a plain label.
+  let textual;
+  try {
+    textual = await reverseGeocode({ latitude, longitude });
+  } catch (err) {
+    if (!(err instanceof AppError) || ![400, 404, 502, 503].includes(err.statusCode)) throw err;
+    textual = { locationText: "Pinned location", area: null, city: null, state: null, postalCode: null, country: null };
+  }
   const user = await userRepository.updateById(userId, {
     currentLocation: {
       latitude,

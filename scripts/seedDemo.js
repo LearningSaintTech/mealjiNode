@@ -24,7 +24,8 @@ import { MealSelection, SubscriptionPlan, Subscription } from "../src/modules/su
 import { saveSelection } from "../src/modules/subscription/mealplan.service.js";
 import * as subscriptions from "../src/modules/subscription/subscription.service.js";
 import * as content from "../src/modules/content/content.service.js";
-import { Banner, OnboardingSlide } from "../src/modules/content/content.model.js";
+import { Banner, HomeTheme, OnboardingSlide } from "../src/modules/content/content.model.js";
+import * as themesService from "../src/modules/content/theme.service.js";
 import * as coupons from "../src/modules/coupon/coupon.service.js";
 import { Coupon } from "../src/modules/coupon/coupon.model.js";
 import * as billing from "../src/modules/billing/billing.service.js";
@@ -81,6 +82,8 @@ const DEMO_CUSTOMERS = [
 // exactly like the app's design. They are uploaded once to storage (S3 under
 // S3_KEY_PREFIX, or ./uploads locally) at seed/<file> and reused afterwards.
 const APP_SRC = path.resolve(rootDir, "..", "MealJi", "src");
+const SEED_ASSETS = path.join(rootDir, "scripts", "seed-assets");
+const imageSource = (file) => (file.startsWith("seed-assets:") ? path.join(SEED_ASSETS, file.slice("seed-assets:".length)) : path.join(APP_SRC, file));
 const MENU = "design/assets/menu-v4";
 const IMAGE_FILES = {
   // Dishes
@@ -131,6 +134,13 @@ const IMAGE_FILES = {
   rewardsChefGift: `${MENU}/rewards-chef-gift.webp`,
   profileAvatar: `${MENU}/profile-avatar.jpg`,
   promoTaco: "assets/images/taco 1.png",
+  promoSushi: "assets/images/sushi caviar 1.png",
+  headerIndigo: "assets/images/top-indigo-section.png",
+  // Seasonal header art (drawn for the seed; not in the app).
+  halloweenPumpkin: "seed-assets:halloween-pumpkin.png",
+  halloweenGhost: "seed-assets:halloween-ghost.png",
+  diwaliDiya: "seed-assets:diwali-diya.png",
+  diwaliGift: "seed-assets:diwali-gift.png",
   mealCombos: "assets/images/Meal combos.png",
   howWeCook: "assets/images/Frame copy.png",
   onboardMenu: "assets/images/onboard2.png",
@@ -152,12 +162,12 @@ async function seedImages() {
   const urls = {};
   const canUpload = env.storageDriver === "s3" && fs.existsSync(APP_SRC);
   for (const [name, file] of Object.entries(IMAGE_FILES)) {
-    const source = path.join(APP_SRC, file);
+    const source = imageSource(file);
     if (canUpload && fs.existsSync(source)) {
       const type = CONTENT_TYPES[path.extname(source).toLowerCase()];
-      urls[name] = await putFile(storageKey(`seed/${fileSlug(file)}`), fs.readFileSync(source), type);
+      urls[name] = await putFile(storageKey(`seed/${fileSlug(file.replace(/^seed-assets:/, ""))}`), fs.readFileSync(source), type);
     } else {
-      urls[name] = `${HOSTED_SEED_IMAGES}/${fileSlug(file)}`;
+      urls[name] = `${HOSTED_SEED_IMAGES}/${fileSlug(file.replace(/^seed-assets:/, ""))}`;
     }
   }
   // One request proves the images can actually be loaded from here.
@@ -270,7 +280,7 @@ const WIPE = [
   "orders", "payments", "refunds", "invoices", "deliveryjobs", "carts", "couponredemptions", "coupons",
   "subscriptions", "mealselections", "subscriptionplans", "slotmenus", "mealslots",
   "kitchendishes", "kitchencategories", "kitchencombos", "menuchangerequests", "masterdishes", "mastercategories",
-  "banners", "onboardingslides", "supporttickets", "ticketmessages", "faqs", "cannedreplies",
+  "banners", "onboardingslides", "homethemes", "supporttickets", "ticketmessages", "faqs", "cannedreplies",
   "notifications", "messagelogs", "analyticsevents", "metricsdailies", "campaigns", "campaignrecipients",
   "inappmessages", "inappimpressions", "experiments", "journeyenrollments", "segments", "userstats",
   "rewards", "rewardtransactions", "rewardredemptions", "referrals", "favorites", "searchlogs", "demandlogs",
@@ -444,7 +454,6 @@ async function seedContent(kitchens, img) {
   // Placements follow the app's home: promo strip in the header, the
   // signature carousel (4 slides), the Meal Combos card and How we cook.
   const banners = [
-    { placement: "home_promo", title: "Foodie Weekend", subtitle: "Flat ₹150 OFF on delights!", ctaLabel: "ORDER NOW", couponCode: "FOODIE150", deepLink: "mealji://offers", image: "promoTaco", sortOrder: 0 },
     { placement: "home_hero", eyebrow: "OUR SIGNATURE CHICKEN BIRYANI", title: "A BOWL OF HAPPINESS", highlight: "HAPPINESS", subtitle: "Rich flavours. Freshly cooked. Always for you.", ctaLabel: "Order Now", deepLink: "mealji://menu?category=biryani", image: "heroChickenBiryani", sortOrder: 0 },
     { placement: "home_hero", eyebrow: "24-HOUR MAKHANI", title: "BUTTER CHICKEN, DONE RIGHT", highlight: "DONE RIGHT", subtitle: "Real butter. No cornstarch. No shortcuts.", ctaLabel: "Order Now", deepLink: "mealji://menu?category=signature-bowls", image: "heroButterChicken", sortOrder: 1 },
     { placement: "home_hero", eyebrow: "NEW HERE?", title: "₹100 OFF YOUR FIRST ORDER", highlight: "₹100 OFF", subtitle: "Use code WELCOME100 on orders above ₹299.", ctaLabel: "Order Now", couponCode: "WELCOME100", deepLink: "mealji://menu", image: "heroButterChickenRice", sortOrder: 2 },
@@ -456,6 +465,8 @@ async function seedContent(kitchens, img) {
     { placement: "offers", title: "Free delivery above ₹249", subtitle: "Code FREEDEL", couponCode: "FREEDEL", image: "dealsScooter", sortOrder: 1 },
     { placement: "offers", title: "20% off up to ₹100", subtitle: "Code MEALJI20 on orders above ₹299", couponCode: "MEALJI20", image: "dealsChefKiss", sortOrder: 2 },
   ];
+  // Earlier seeds had the header promo as a banner; the home theme carries it now.
+  await Banner.deleteMany({ placement: "home_promo", title: "Foodie Weekend" });
   for (const { image, ...banner } of banners) {
     const data = { ...banner, imageUrl: img[image] || null, cities: ["Bengaluru"], isActive: true };
     const found = await Banner.findOne({ placement: banner.placement, title: banner.title }).lean();
@@ -473,9 +484,10 @@ async function seedContent(kitchens, img) {
     await content.saveSlide(found ? String(found._id) : null, { ...slide, imageUrl: img[image] || null, isActive: true });
   }
 
+  await seedThemes(img);
+
   // Home layout in the app's order.
   await content.saveSections([
-    { key: "promo", type: "banners", config: { placement: "home_promo" } },
     { key: "hero", type: "banners", config: { placement: "home_hero" } },
     { key: "categories", type: "categories", title: "Today's Menu" },
     { key: "combos", type: "combos", title: "Meal Combos", config: { placement: "home_combos" } },
@@ -493,10 +505,15 @@ async function seedContent(kitchens, img) {
     { code: "MEALJI20", title: "20% off up to ₹100", description: "On orders above ₹299", type: "percent", value: 20, maxDiscountPaise: 10000, minOrderPaise: 29900, perUserLimit: 3, terms: ["Up to 3 times per customer"] },
     { code: "FREEDEL", title: "Free delivery", description: "On orders above ₹249", type: "free_delivery", value: 0, minOrderPaise: 24900, perUserLimit: 5 },
     { code: "UPI25", title: "₹25 off with UPI", description: "Pay with any UPI app", type: "flat", value: 2500, minOrderPaise: 14900, paymentMethods: ["upi"], perUserLimit: 2 },
-    { code: "DIWALI100", title: "₹100 off this Diwali", description: "Festive offer on orders above ₹499", type: "flat", value: 10000, minOrderPaise: 49900, validFrom: new Date(now + 10 * 86_400_000), validTo: new Date(now + 20 * 86_400_000), perUserLimit: 1 },
+    { code: "BOO131", title: "Spooky Bites: flat ₹131 off", description: "Halloween week, orders above ₹499", type: "flat", value: 13100, minOrderPaise: 49900, validFrom: istDateTime(HALLOWEEN_FROM, "00:00"), validTo: istDateTime("2026-11-01", "00:00"), perUserLimit: 1 },
+    { code: "DIWALI100", title: "₹100 off this Diwali", description: "Festive offer on orders above ₹499", type: "flat", value: 10000, minOrderPaise: 49900, validFrom: istDateTime("2026-11-03", "00:00"), validTo: istDateTime("2026-11-13", "00:00"), perUserLimit: 1 },
     { code: "MONSOON15", title: "15% off (ended)", type: "percent", value: 15, maxDiscountPaise: 7500, validFrom: new Date(now - 60 * 86_400_000), validTo: new Date(now - 30 * 86_400_000), isActive: false },
   ];
-  for (const offer of offers) if (!(await Coupon.exists({ code: offer.code }))) await coupons.saveCoupon(null, { isPublic: true, isActive: true, ...offer });
+  for (const offer of offers) {
+    const found = await Coupon.findOne({ code: offer.code }).lean();
+    if (!found) await coupons.saveCoupon(null, { isPublic: true, isActive: true, ...offer });
+    else if (["BOO131", "DIWALI100"].includes(offer.code)) await Coupon.updateOne({ _id: found._id }, { $set: { validFrom: offer.validFrom, validTo: offer.validTo } });
+  }
 
   // Invoicing entity (GST) and delivery partner accounts.
   let entity = await BillingEntity.findOne({ invoicePrefix: "MJ" }).lean();
@@ -509,6 +526,48 @@ async function seedContent(kitchens, img) {
   for (const kitchen of Object.values(kitchens)) if (!kitchen.billingEntity) await billing.mapKitchen(String(kitchen._id), String(entity._id));
   if (!(await DeliveryProviderAccount.exists({ name: "MealJi riders (manual dispatch)" }))) {
     await delivery.saveProviderAccount(null, { provider: "manual", name: "MealJi riders (manual dispatch)", cities: ["bengaluru"], credentials: {}, isActive: true });
+  }
+}
+
+// ------------------------------------------------------------------ home header themes
+
+// Halloween starts on the day the seed runs (or 24 Oct, whichever is earlier)
+// so the app team can see the seasonal header right away; it still ends on
+// 1 Nov, after which the default comes back and Diwali takes over on 3 Nov.
+const previewFrom = (date) => (istDateKey() < date ? istDateKey() : date);
+const HALLOWEEN_FROM = previewFrom("2026-10-24");
+
+// The default is today's app header exactly; Halloween and Diwali switch on by date.
+const HOME_THEMES = [
+  {
+    name: "Meal Ji Indigo", isDefault: true, priority: 0,
+    header: { backgroundColors: ["#2C40A6", "#192881"], gradientAngle: 180, background: "headerIndigo", statusBarStyle: "light", statusBarColor: "#2C40A6", textColor: "#FFFFFF", subTextColor: "#FFFFFFCC" },
+    promo: { title: "Foodie Weekend", subtitle: "Flat ₹150 OFF on delights!", ctaLabel: "ORDER NOW", deepLink: "mealji://offers", couponCode: "FOODIE150", left: "promoTaco", right: "promoSushi", backgroundColors: [], titleColor: "#FFFFFF", subtitleColor: "#FFFFFFCC", ctaColor: "#FF5A1F", ctaTextColor: "#FFFFFF" },
+  },
+  {
+    name: "Halloween: Spooky Bites", priority: 10, startsAt: HALLOWEEN_FROM, endsAt: "2026-11-01",
+    header: { backgroundColors: ["#FF7A00", "#3B0A57", "#1A0B2E"], gradientAngle: 160, statusBarStyle: "light", statusBarColor: "#3B0A57", textColor: "#FFFFFF", subTextColor: "#FFE0B2" },
+    promo: { title: "Spooky Bites", badge: "BOO", subtitle: "Flat ₹131 OFF, trick or treat!", ctaLabel: "GRAB A TREAT", deepLink: "mealji://offers", couponCode: "BOO131", left: "halloweenPumpkin", right: "halloweenGhost", backgroundColors: ["#2A0F45", "#14081F"], titleColor: "#FFB74D", subtitleColor: "#FFFFFFCC", ctaColor: "#FF7A00", ctaTextColor: "#FFFFFF" },
+  },
+  {
+    name: "Diwali: Festival of Lights", priority: 20, startsAt: "2026-11-03", endsAt: "2026-11-13",
+    header: { backgroundColors: ["#FFB300", "#C2410C", "#7A1E00"], gradientAngle: 170, statusBarStyle: "light", statusBarColor: "#C2410C", textColor: "#FFFFFF", subTextColor: "#FFF3D6" },
+    promo: { title: "Festival of Lights", badge: "DIWALI", subtitle: "Flat ₹100 OFF on festive feasts", ctaLabel: "ORDER NOW", deepLink: "mealji://offers", couponCode: "DIWALI100", left: "diwaliDiya", right: "diwaliGift", backgroundColors: ["#5C1600", "#3A0E00"], titleColor: "#FFD54F", subtitleColor: "#FFFFFFCC", ctaColor: "#FFB300", ctaTextColor: "#3A0E00" },
+  },
+];
+
+async function seedThemes(img) {
+  for (const { header: { background, ...header }, promo: { left, right, ...promo }, startsAt, endsAt, ...theme } of HOME_THEMES) {
+    const data = {
+      ...theme,
+      startsAt: startsAt ? istDateTime(startsAt, "00:00") : null,
+      endsAt: endsAt ? istDateTime(endsAt, "00:00") : null,
+      cities: [],
+      header: { ...header, backgroundImageUrl: img[background] || null },
+      promo: { ...promo, isVisible: true, leftImageUrl: img[left] || null, rightImageUrl: img[right] || null },
+    };
+    const found = await HomeTheme.findOne({ name: theme.name }).lean();
+    await themesService.saveTheme(found ? String(found._id) : null, data);
   }
 }
 
@@ -618,7 +677,7 @@ async function seedAddresses(kitchens) {
     }
     // The app's "Deliver to" pin: the customer's own address (never a stale test location).
     const pin = await Address.findById(address._id).lean();
-    await User.updateOne({ _id: user._id }, { $set: { currentLocation: { latitude: pin.latitude, longitude: pin.longitude, locationText: `${pin.houseFlat}, ${pin.locality}`, area: pin.locality, city: pin.city, state: pin.state, postalCode: pin.pincode } } });
+    await User.updateOne({ _id: user._id }, { $set: { currentLocation: { latitude: pin.latitude, longitude: pin.longitude, locationText: `${pin.houseFlat}, ${pin.locality}`, area: pin.locality, city: pin.city, state: pin.state, postalCode: pin.pincode, updatedAt: new Date() } } });
     out[customer.phone] = { user, addressId: String(address._id), kitchen };
   }
   return out;

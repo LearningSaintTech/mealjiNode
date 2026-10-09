@@ -5,7 +5,8 @@ import { authFor, idParam, ok } from "../../common/http.js";
 import { authMiddleware } from "../../common/middleware/auth.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
 import { autocompletePlaces, geocodeAddress, placeDetails } from "../../infrastructure/googleMaps.service.js";
-import { placeSearchLimiter } from "../../infrastructure/rateLimit.js";
+import { accountLimiter, placeSearchLimiter } from "../../infrastructure/rateLimit.js";
+import { storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
 import { serviceabilityAt, serviceabilityForPincode } from "../serviceability/serviceability.service.js";
 import * as addresses from "./address.service.js";
 
@@ -46,6 +47,17 @@ addressRouter.delete("/me/addresses/:id", idParam(), validate, asyncHandler(asyn
   ok(res, await addresses.deleteAddress(req.auth.userId, req.params.id), "Address deleted.")
 )));
 
+// Pincode centres change rarely: cache Google's answer for 30 days (also cuts the Maps bill).
+async function geocodePincode(text) {
+  const key = `geo:pin:${text}`;
+  const cached = await storeGetOptional(key);
+  if (cached.ok && cached.value) return JSON.parse(cached.value);
+  const point = await geocodeAddress(text);
+  if (point) await storeSet(key, JSON.stringify(point), 30 * 86_400).catch(() => {});
+  return point;
+}
+const lookupLimiter = accountLimiter("serviceability", { limit: 60, windowSec: 60 });
+
 // Mounted at /api/v1 – geo search and serviceability by pincode or point.
 export const geoRouter = Router();
 geoRouter.use(authFor(["/geo", "/serviceability"], authMiddleware));
@@ -77,12 +89,14 @@ geoRouter.get(
   "/serviceability/pincode/:pincode",
   param("pincode").matches(/^\d{6}$/).withMessage("Pincode must be 6 digits"),
   validate,
-  asyncHandler(async (req, res) => ok(res, await serviceabilityForPincode(req.params.pincode, { userId: req.auth.userId, geocode: geocodeAddress }), "Serviceability checked.")),
+  lookupLimiter,
+  asyncHandler(async (req, res) => ok(res, await serviceabilityForPincode(req.params.pincode, { userId: req.auth.userId, geocode: geocodePincode }), "Serviceability checked.")),
 );
 geoRouter.get(
   "/serviceability",
   query("latitude").isFloat({ min: -90, max: 90 }).toFloat(),
   query("longitude").isFloat({ min: -180, max: 180 }).toFloat(),
   validate,
+  lookupLimiter,
   asyncHandler(async (req, res) => ok(res, await serviceabilityAt({ ...req.query, userId: req.auth.userId }), "Serviceability checked.")),
 );

@@ -39,6 +39,16 @@ Demo accounts are flagged `isDemo`: their notifications reach the in-app inbox o
 
 With `FIXED_OTP=123456` every OTP is that code (never in production). Without a fixed OTP or a 2Factor key the code is written to the server log.
 
+Smoke test (app start → home + home CMS), against a running API with the seeded data and `FIXED_OTP` set:
+
+```bash
+npm run smoke:home
+```
+
+It walks config, onboarding, sign-in, location, addresses, `GET /home`, the calls made from home, then edits banners, onboarding, the home layout and header themes in the CMS and checks each change reaches the app. Everything it creates is removed and every setting restored. `SMOKE_API=<url>` points it at another server.
+
+Home header themes (`/api/v1/admin/home-themes`): the coloured top of the app's home (background gradient or image, status bar, promo card with two side images) is a scheduled theme. The default theme shows unless a dated one (seeded: Halloween 24 Oct–1 Nov, Diwali 3–13 Nov) is live; the highest priority wins on overlap. `GET /home` returns it as `header`.
+
 Processes:
 - `npm run dev` / `npm start` – the API, the WebSocket server on `/ws`, and (in development) the background workers.
 - `npm run worker` – background workers on their own. In production run it separately with `RUN_WORKERS_IN_API=false` on the API.

@@ -20,6 +20,8 @@ const segmentSchema = new mongoose.Schema(
   },
   { timestamps: true, minimize: false },
 );
+// Static lists are looked up by member (home targeting).
+segmentSchema.index({ type: 1, isArchived: 1, userIds: 1 });
 export const Segment = mongoose.model("Segment", segmentSchema);
 
 const OPERATORS = ["eq", "neq", "gt", "gte", "lt", "lte", "between", "in", "nin", "exists", "contains", "olderThanDays", "withinDays"];
@@ -147,8 +149,8 @@ export async function saveSegment(segmentId, input, actor) {
   segment.estimatedSize = await UserStats.countDocuments(await filterFor(segment));
   segment.lastComputedAt = new Date();
   await segment.save();
-  await bumpVersion();
-  return toSegment(segment);
+  await materializeSegments({ segmentId: segment._id });
+  return toSegment(await Segment.findById(segment._id).lean());
 }
 
 /** Static segment from phone numbers or user IDs (CSV import). */
@@ -200,39 +202,63 @@ async function bumpVersion() {
   await storeIncr("segments:version", 30 * 86_400).catch(() => {});
 }
 
+/**
+ * Segment IDs a customer belongs to (banner, coupon, in-app and theme
+ * targeting). Two indexed reads: the precomputed dynamic memberships on the
+ * customer's stats, and the static lists that contain them. Cached 5 minutes.
+ */
 export async function segmentIdsForUser(userId) {
   const key = `segments:user:${await segmentsVersion()}:${userId}`;
   const cached = await storeGetOptional(key);
   if (cached.ok && cached.value) return JSON.parse(cached.value);
-  const segments = await Segment.find({ isArchived: false }).lean();
-  const ids = [];
-  for (const segment of segments) {
-    if (segment.type === "static") {
-      if (segment.userIds.some((id) => String(id) === String(userId))) ids.push(String(segment._id));
-      continue;
-    }
-    try {
-      const filter = await compileRules(segment.rules);
-      if (await UserStats.exists({ $and: [filter, { user: new mongoose.Types.ObjectId(String(userId)) }] })) ids.push(String(segment._id));
-    } catch {
-      // A broken rule never blocks the user's screens.
-    }
-  }
-  await storeSet(key, JSON.stringify(ids), 600).catch(() => {});
+  const id = new mongoose.Types.ObjectId(String(userId));
+  const [stats, staticLists] = await Promise.all([
+    UserStats.findOne({ user: id }).select("segmentIds").lean(),
+    Segment.find({ type: "static", isArchived: false, userIds: id }).select("_id").lean(),
+  ]);
+  const ids = [...new Set([...(stats?.segmentIds || []).map(String), ...staticLists.map((segment) => String(segment._id))])];
+  await storeSet(key, JSON.stringify(ids), 300).catch(() => {});
   return ids;
 }
 
-export async function refreshSegmentSizes() {
-  for (const segment of await Segment.find({ isArchived: false })) {
+/**
+ * Recomputes who is in each dynamic segment (all of them, or one) with two
+ * bulk updates per segment, and refreshes sizes. Runs every 15 minutes, after
+ * the nightly trait recompute and whenever a segment is saved.
+ */
+export async function materializeSegments({ segmentId = null } = {}) {
+  const filter = segmentId ? { _id: objectId(segmentId, "segment ID") } : { isArchived: false };
+  const segments = await Segment.find(filter);
+  for (const segment of segments) {
     try {
-      segment.estimatedSize = await UserStats.countDocuments(await filterFor(segment));
+      if (segment.isArchived) {
+        await UserStats.updateMany({ segmentIds: segment._id }, { $pull: { segmentIds: segment._id } });
+        continue;
+      }
+      if (segment.type === "dynamic") {
+        const rules = await compileRules(segment.rules);
+        await UserStats.updateMany({ segmentIds: segment._id, $nor: [rules] }, { $pull: { segmentIds: segment._id } });
+        await UserStats.updateMany(rules, { $addToSet: { segmentIds: segment._id } });
+        segment.estimatedSize = await UserStats.countDocuments({ segmentIds: segment._id });
+      } else {
+        segment.estimatedSize = segment.userIds.length;
+      }
       segment.lastComputedAt = new Date();
       await segment.save();
     } catch {
-      // keep the previous size
+      // A broken rule keeps its previous members and size.
     }
   }
+  if (!segmentId) {
+    // Memberships of archived or deleted segments.
+    const live = (await Segment.find({ isArchived: false, type: "dynamic" }).select("_id").lean()).map((segment) => segment._id);
+    await UserStats.updateMany({ segmentIds: { $elemMatch: { $nin: live } } }, { $pull: { segmentIds: { $nin: live } } });
+  }
+  await bumpVersion();
+  return segments.length;
 }
+
+export const refreshSegmentSizes = () => materializeSegments();
 
 export async function getSegment(segmentId) {
   const segment = await Segment.findById(objectId(segmentId, "segment ID")).lean();

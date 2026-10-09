@@ -223,8 +223,23 @@ customerCatalogRouter.get("/menu/items/:id", kitchenQuery, idParam(), validate, 
 customerCatalogRouter.get("/menu/items/:id/recommendations", kitchenQuery, idParam(), validate, asyncHandler(async (req, res) => ok(res, await catalog.recommendations(await servingKitchen(req), req.params.id), "Recommendations fetched.")));
 customerCatalogRouter.get("/combos", kitchenQuery, validate, asyncHandler(async (req, res) => ok(res, await catalog.customerCombos(await servingKitchen(req)), "Combos fetched.")));
 customerCatalogRouter.get("/combos/signature", kitchenQuery, validate, asyncHandler(async (req, res) => ok(res, await catalog.customerCombos(await servingKitchen(req), { signature: true }), "Signature combos fetched.")));
-customerCatalogRouter.get("/dishes", kitchenQuery, validate, asyncHandler(async (req, res) => {
-  const menu = await catalog.customerMenu(await servingKitchen(req), req.query);
-  return ok(res, { kitchen: menu.kitchen, items: menu.categories.flatMap((category) => category.dishes), total: menu.total }, "Dishes fetched.");
-}));
+customerCatalogRouter.get(
+  "/dishes",
+  kitchenQuery,
+  query("page").optional().isInt({ min: 1, max: 1000 }).toInt(),
+  query("limit").optional().isInt({ min: 1, max: 100 }).toInt(),
+  query("veg").optional().isBoolean(),
+  query("sort").optional().isIn(["popular", "price_asc", "price_desc", "rating", "prep_time"]).withMessage("sort: popular, price_asc, price_desc, rating or prep_time"),
+  validate,
+  asyncHandler(async (req, res) => {
+    const menu = await catalog.customerMenu(await servingKitchen(req), req.query);
+    // Sorted as asked across all categories (or menu order when no sort is given).
+    const all = req.query.sort ? menu.dishes : menu.categories.flatMap((category) => category.dishes);
+    // Paged when `limit` is sent (page 1 by default); the whole list otherwise.
+    const limit = req.query.limit || null;
+    const page = limit ? req.query.page || 1 : 1;
+    const items = limit ? all.slice((page - 1) * limit, page * limit) : all;
+    return ok(res, { kitchen: menu.kitchen, items, total: all.length, page, limit: limit || all.length, hasMore: limit ? page * limit < all.length : false }, "Dishes fetched.");
+  }),
+);
 customerCatalogRouter.get("/dishes/filters", kitchenQuery, validate, asyncHandler(async (req, res) => ok(res, await catalog.dishFilters(await servingKitchen(req)), "Filters fetched.")));

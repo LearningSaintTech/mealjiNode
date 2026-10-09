@@ -14,7 +14,8 @@
     "test": "node --test --test-reporter=spec",
     "seed": "node scripts/seed.js",
     "postman:check": "node scripts/checkPostmanRoutes.js",
-    "postman:sync": "node scripts/syncPostman.js"
+    "postman:sync": "node scripts/syncPostman.js",
+    "smoke:home": "node scripts/smokeHome.js"
   },
   "dependencies": {
     "axios": "^1.12.2",

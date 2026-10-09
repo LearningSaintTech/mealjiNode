@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { AppError } from "../../common/errors/AppError.js";
 import { countryOrDefault, normalizeMobile } from "../../common/phone.util.js";
 import { isConsoleRole } from "../../constants/permissions.js";
@@ -80,34 +81,46 @@ export async function login({ name, countryCode, phoneNumber }) {
   }
 
   const userRole = await requireRole("user");
-  user = await userRepository.create({
-    name: trimmedName || "User",
-    countryCode: code,
-    phoneNumber: phone,
-    role: userRole._id,
-    isActive: false,
-    isNumberVerified: false,
-  });
+  try {
+    user = await userRepository.create({
+      name: trimmedName || "User",
+      countryCode: code,
+      phoneNumber: phone,
+      role: userRole._id,
+      isActive: false,
+      isNumberVerified: false,
+    });
+  } catch (err) {
+    // Two first logins at once (double tap): the other request created it.
+    if (err?.code !== 11000) throw err;
+    return deliverOtp(await userRepository.findByPhone(code, phone));
+  }
   await publishEventSafe("user.registered", { userId: String(user._id), role: "user" }, { aggregate: { type: "user", id: user._id } });
   return deliverOtp(user);
+}
+
+/**
+ * Same answer for a number that is not a (usable) staff account, so the
+ * console login cannot be used to find out who is staff: a stable decoy ID,
+ * no SMS, and verify later fails exactly like a wrong code.
+ */
+function decoyOtpResponse(code, phone) {
+  const userId = crypto.createHmac("sha256", env.storageSecret).update(`staff-decoy:${code}${phone}`).digest("hex").slice(0, 24);
+  return { userId, message: "OTP sent successfully", otpSent: true, otpLength: OTP_LENGTH, expiresInSec: OTP_TTL, resendAfterSec: env.otpResendCooldownSec };
 }
 
 export async function staffLogin({ countryCode, phoneNumber }) {
   const phone = normalizeMobile(phoneNumber);
   const code = countryOrDefault(countryCode);
   const user = await userRepository.findByPhone(code, phone);
-  if (!user || !isConsoleRole(user.role)) {
-    throw new AppError(404, "No super admin, subadmin, or kitchen account uses this phone number");
-  }
-  if (isSuspended(user)) {
-    throw new AppError(403, "Account is suspended");
-  }
+  if (!user || !isConsoleRole(user.role) || isSuspended(user)) return decoyOtpResponse(code, phone);
   return deliverOtp(user);
 }
 
 export async function resendOtp({ userId }) {
   const user = await userRepository.findById(userId);
-  if (!user) throw new AppError(404, "User not found");
+  // Unknown IDs (including staff-login decoys) get the normal "sent" answer.
+  if (!user) return { userId: String(userId), message: "OTP sent successfully", otpSent: true, otpLength: OTP_LENGTH, expiresInSec: OTP_TTL, resendAfterSec: env.otpResendCooldownSec };
   if (isSuspended(user)) {
     throw new AppError(403, "Account is suspended");
   }
@@ -118,12 +131,13 @@ export async function verifyNumberOtp({ userId, otp }, deviceId) {
   // Checked before the code is used up, so a missing header does not burn the OTP.
   const resolvedDeviceId = requireDeviceId(deviceId);
   const user = await userRepository.findById(userId);
-  if (!user) throw new AppError(404, "User not found");
+  // Same answer as a wrong code, so IDs reveal nothing.
+  if (!user) throw new AppError(400, "Invalid OTP.");
   if (isSuspended(user)) {
     throw new AppError(403, "Account is suspended");
   }
 
-  await verifyOtp({ subjectId: user._id, purpose: OTP_PURPOSE, otp });
+  await verifyOtp({ subjectId: user._id, purpose: OTP_PURPOSE, otp, source: resolvedDeviceId });
 
   // Signing in during the 30-day window after closing the account restores it.
   const restoring = Boolean(user.deletedAt);

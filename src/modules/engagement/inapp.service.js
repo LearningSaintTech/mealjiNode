@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { isSafeLink } from "../../common/links.js";
 import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { assertOwnFileUrl } from "../upload/upload.service.js";
@@ -56,7 +57,11 @@ export function toInApp(message) {
 
 export async function saveInApp(id, input) {
   const data = {};
-  for (const key of ["name", "screen", "type", "title", "body", "ctaLabel", "deepLink", "priority", "maxImpressionsPerUser", "status"]) if (input[key] !== undefined) data[key] = input[key];
+  for (const key of ["name", "screen", "type", "title", "body", "ctaLabel", "priority", "maxImpressionsPerUser", "status"]) if (input[key] !== undefined) data[key] = input[key];
+  if (input.deepLink !== undefined) {
+    if (!isSafeLink(input.deepLink)) throw new AppError(422, "Validation failed", [{ field: "deepLink", message: "Link must start with mealji:// or https://" }]);
+    data.deepLink = input.deepLink ? String(input.deepLink).trim() : null;
+  }
   if (input.imageUrl !== undefined) data.imageUrl = assertOwnFileUrl(input.imageUrl);
   if (input.segmentId !== undefined) data.segment = input.segmentId ? objectId(input.segmentId, "segment ID") : null;
   for (const key of ["startsAt", "endsAt"]) if (input[key] !== undefined) data[key] = input[key] ? new Date(input[key]) : null;
@@ -89,6 +94,7 @@ export async function forScreen(userId, screen) {
 
 export async function track(userId, id, event) {
   const message = objectId(id, "message ID");
+  if (!(await InAppMessage.exists({ _id: message }))) throw new AppError(404, "Message not found");
   const update = event === "shown" ? { $inc: { shown: 1 } } : { $set: { [event === "clicked" ? "clicked" : "dismissed"]: true } };
   await InAppImpression.updateOne({ message, user: userId }, update, { upsert: true });
   await InAppMessage.updateOne({ _id: message }, { $inc: { [`stats.${event === "shown" ? "impressions" : event === "clicked" ? "clicks" : "dismissals"}`]: 1 } });

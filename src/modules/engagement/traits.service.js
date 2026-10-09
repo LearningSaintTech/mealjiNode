@@ -9,6 +9,8 @@ const { ObjectId } = mongoose.Schema.Types;
 const userStatsSchema = new mongoose.Schema(
   {
     user: { type: ObjectId, ref: "User", required: true, unique: true },
+    // Dynamic segments this customer is in, precomputed by materializeSegments().
+    segmentIds: { type: [ObjectId], default: [], index: true },
     ordersCount: { type: Number, default: 0 },
     deliveredOrdersCount: { type: Number, default: 0 },
     cancelledOrdersCount: { type: Number, default: 0 },
@@ -173,10 +175,10 @@ export async function recomputeAllTraits() {
   const { publishEventSafe } = await import("../../events/eventBus.js");
   const lapsed = await UserStats.find({ lastOrderAt: { $gte: new Date(Date.now() - 22 * 86_400_000), $lt: new Date(Date.now() - 21 * 86_400_000) } }).select("user").lean();
   for (const row of lapsed) await publishEventSafe("traits.inactive_21d", { userId: String(row.user) });
-  const { refreshSegmentSizes } = await import("./segment.service.js");
-  await refreshSegmentSizes();
   // daysSinceLastOrder drifts daily even without events.
   await UserStats.updateMany({ lastOrderAt: { $ne: null } }, [{ $set: { daysSinceLastOrder: { $floor: { $divide: [{ $subtract: ["$$NOW", "$lastOrderAt"] }, 86_400_000] } } } }]);
+  const { refreshSegmentSizes } = await import("./segment.service.js");
+  await refreshSegmentSizes();
   return count;
 }
 

@@ -84,14 +84,16 @@ export function createApp() {
     } catch {
       mongo = "down";
     }
+    // OTP, sessions, rate limits and caches need Redis: not ready without it.
+    const ready = mongo === "up" && redis.status === "ready";
     const data = {
-      status: mongo === "up" ? "ready" : "not_ready",
+      status: ready ? "ready" : "not_ready",
       mongo,
       redis: redis.status === "ready" ? "up" : "down",
       // "off" when this process runs no workers (production api); the worker reports its own.
       queues: workersActive() ? "up" : env.runWorkersInApi ? "down" : "off",
     };
-    res.status(mongo === "up" ? 200 : 503).json({ success: mongo === "up", message: data.status, data });
+    res.status(ready ? 200 : 503).json({ success: ready, message: data.status, data });
   });
 
   app.get("/metrics", metricsHandler);

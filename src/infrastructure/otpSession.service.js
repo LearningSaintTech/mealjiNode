@@ -13,6 +13,11 @@ const sessionKey = (purpose, subjectId) => `otp2factor:session:${purpose}:${subj
 const attemptsKey = (purpose, subjectId) => `otp2factor:attempts:${purpose}:${subjectId}`;
 // Not reset by re-sending, so re-requesting codes cannot reset the guess budget.
 const failuresKey = (purpose, subjectId) => `otp:failures:${purpose}:${subjectId}`;
+// Wrong codes are also counted per device, so a stranger guessing codes for
+// someone's number locks out only their own device; the account-wide ceiling
+// (5x the daily limit) still stops guessing spread over many devices.
+const deviceFailuresKey = (purpose, subjectId, source) => `otp:failures:${purpose}:${subjectId}:${source}`;
+const ACCOUNT_FAILURE_FACTOR = 5;
 const DAY_SEC = 24 * 3600;
 
 export function isReviewPhone(phoneNumber) {
@@ -61,13 +66,14 @@ export async function sendOtp({ subjectId, purpose = OTP_PURPOSE, phoneNumber })
   await storeSet(key, sessionId, OTP_TTL, { unavailableMessage: OTP_UNAVAILABLE });
 }
 
-export async function verifyOtp({ subjectId, purpose = OTP_PURPOSE, otp }) {
+export async function verifyOtp({ subjectId, purpose = OTP_PURPOSE, otp, source = null }) {
   if (!subjectId || !otp) {
     throw new AppError(400, "subjectId and otp are required");
   }
 
-  const failures = Number(await storeGet(failuresKey(purpose, subjectId), { unavailableMessage: OTP_UNAVAILABLE }) || 0);
-  if (failures >= env.otpDailyFailureLimit) {
+  const accountFailures = Number(await storeGet(failuresKey(purpose, subjectId), { unavailableMessage: OTP_UNAVAILABLE }) || 0);
+  const deviceFailures = source ? Number(await storeGet(deviceFailuresKey(purpose, subjectId, source), { unavailableMessage: OTP_UNAVAILABLE }) || 0) : accountFailures;
+  if (deviceFailures >= env.otpDailyFailureLimit || accountFailures >= env.otpDailyFailureLimit * (source ? ACCOUNT_FAILURE_FACTOR : 1)) {
     throw new AppError(429, "Too many incorrect codes. Try again tomorrow or contact support.");
   }
 
@@ -96,6 +102,7 @@ export async function verifyOtp({ subjectId, purpose = OTP_PURPOSE, otp }) {
   } catch (err) {
     if (!(err instanceof AppError) || err.statusCode !== 400) throw err;
     await storeIncr(failuresKey(purpose, subjectId), DAY_SEC, { unavailableMessage: OTP_UNAVAILABLE });
+    if (source) await storeIncr(deviceFailuresKey(purpose, subjectId, source), DAY_SEC, { unavailableMessage: OTP_UNAVAILABLE });
     const attempts = await storeIncr(attemptsKey(purpose, subjectId), OTP_TTL, {
       unavailableMessage: OTP_UNAVAILABLE,
     });

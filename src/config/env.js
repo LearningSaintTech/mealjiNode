@@ -108,6 +108,8 @@ export const env = {
   // Public CDN in front of the bucket. Without it, files are served through
   // the API (/files/<key> redirects to a short-lived signed S3 link).
   cdnBaseUrl: String(process.env.CDN_BASE_URL || "").trim().replace(/\/$/, ""),
+  // Hosts that email/redirect links may open (plus PUBLIC_BASE_URL and CDN hosts).
+  linkHostsExtra: String(process.env.LINK_HOSTS || "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean),
 
   // Payments. Without Razorpay keys the "test" gateway is used (development only).
   razorpayKeyId: String(process.env.RAZORPAY_KEY_ID || "").trim(),

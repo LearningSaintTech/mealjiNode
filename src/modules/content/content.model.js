@@ -59,3 +59,47 @@ const homeSectionSchema = new mongoose.Schema(
   { timestamps: true, minimize: false },
 );
 export const HomeSection = mongoose.model("HomeSection", homeSectionSchema);
+
+// Seasonal look of the home header (the coloured top block): its background,
+// status bar and the promo card with an image on each side. One theme is the
+// default; dated themes (Halloween, Diwali…) take over inside their window.
+const themeColor = { type: String, default: null, match: /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/ };
+const homeThemeSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, maxlength: 60 },
+    isDefault: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
+    priority: { type: Number, default: 0 },
+    startsAt: { type: Date, default: null },
+    endsAt: { type: Date, default: null },
+    cities: { type: [String], default: [] },
+    header: {
+      backgroundColors: { type: [String], default: [] },
+      gradientAngle: { type: Number, default: 180, min: 0, max: 360 },
+      backgroundImageUrl: { type: String, default: null },
+      statusBarStyle: { type: String, enum: ["light", "dark"], default: "light" },
+      statusBarColor: themeColor,
+      textColor: themeColor,
+      subTextColor: themeColor,
+    },
+    promo: {
+      isVisible: { type: Boolean, default: true },
+      title: { type: String, default: null, maxlength: 60 },
+      badge: { type: String, default: null, maxlength: 20 },
+      subtitle: { type: String, default: null, maxlength: 120 },
+      ctaLabel: { type: String, default: null, maxlength: 30 },
+      deepLink: { type: String, default: null, maxlength: 300 },
+      couponCode: { type: String, default: null, maxlength: 30 },
+      leftImageUrl: { type: String, default: null },
+      rightImageUrl: { type: String, default: null },
+      backgroundColors: { type: [String], default: [] },
+      titleColor: themeColor,
+      subtitleColor: themeColor,
+      ctaColor: themeColor,
+      ctaTextColor: themeColor,
+    },
+  },
+  { timestamps: true, minimize: false },
+);
+homeThemeSchema.index({ isActive: 1, startsAt: 1, endsAt: 1 });
+export const HomeTheme = mongoose.model("HomeTheme", homeThemeSchema);

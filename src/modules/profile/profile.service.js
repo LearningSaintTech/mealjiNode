@@ -74,7 +74,7 @@ export async function updatePreferences(userId, input, { ip = null, deviceId = n
   user.markModified("preferences");
   await user.save();
   for (const change of changes) {
-    await recordConsent({ userId, channel: change.channel, purpose: "marketing", granted: change.granted, source: input.source || "app_toggle", ip, deviceId });
+    await recordConsent({ userId, channel: change.channel, purpose: "marketing", granted: change.granted, source: "app_toggle", ip, deviceId });
   }
   if (changes.length) {
     await publishEventSafe("user.consent_changed", { userId: String(userId), changes }, { aggregate: { type: "user", id: userId } });

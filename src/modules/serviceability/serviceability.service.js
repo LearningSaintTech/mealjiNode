@@ -31,6 +31,17 @@ export async function kitchenForPoint(latitude, longitude, { preferOpen = true }
   return { kitchen: pick.kitchen, distanceKm: pick.distanceKm };
 }
 
+/** Records unmet demand once per user, place (~100 m) and day, so repeated checks don't flood the log. */
+async function logDemand({ userId = null, latitude = null, longitude = null, pincode = null, source }) {
+  const { storeGetOptional, storeSet } = await import("../../infrastructure/redisStore.js");
+  const place = pincode || `${Number(latitude).toFixed(3)},${Number(longitude).toFixed(3)}`;
+  const key = `demand:${userId || "anon"}:${place}`;
+  const seen = await storeGetOptional(key);
+  if (seen.ok && seen.value) return;
+  await storeSet(key, "1", 86_400).catch(() => {});
+  await DemandLog.create({ userId, latitude, longitude, pincode, source }).catch(() => {});
+}
+
 /** Whether this kitchen's radius covers the point. */
 export function kitchenCovers(kitchen, latitude, longitude) {
   if (!kitchen || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return false;
@@ -47,9 +58,10 @@ export async function serviceabilityAt({ latitude, longitude, userId = null, sou
   const matches = await kitchensForPoint(latitude, longitude);
   const match = matches.find((item) => item.canOrder) || matches[0];
   if (!match) {
-    await DemandLog.create({ userId, latitude, longitude, pincode, source }).catch(() => {});
+    await logDemand({ userId, latitude, longitude, pincode, source });
     return {
       serviceable: false,
+      reason: "not_serviceable",
       kitchen: null,
       distanceKm: null,
       message: "We don't deliver here yet. We'll let you know when we do.",
@@ -80,6 +92,8 @@ export async function serviceabilityAt({ latitude, longitude, userId = null, sou
     codEnabled: policy.values.codEnabled,
     pickupEnabled: policy.values.pickupEnabled,
     isOpenNow: state.canOrder,
+    // null when ordering is open; "closed" (outside hours), "paused" or "kitchen_unavailable".
+    reason: state.canOrder ? null : state.reason,
     opensAt: state.opensAt || null,
     message: state.message,
     kitchen: {
@@ -91,7 +105,7 @@ export async function serviceabilityAt({ latitude, longitude, userId = null, sou
       closesAt: kitchen.closesAt,
       area: kitchen.area ?? null,
       city: kitchen.city,
-      ratingAvg: kitchen.ratingAvg || 0,
+      ratingAvg: Math.round((kitchen.ratingAvg || 0) * 10) / 10,
       ratingCount: kitchen.ratingCount || 0,
     },
     alternatives: matches
@@ -103,7 +117,7 @@ export async function serviceabilityAt({ latitude, longitude, userId = null, sou
         city: item.kitchen.city,
         distanceKm: item.distanceKm,
         isOpenNow: item.canOrder,
-        ratingAvg: item.kitchen.ratingAvg || 0,
+        ratingAvg: Math.round((item.kitchen.ratingAvg || 0) * 10) / 10,
         ratingCount: item.kitchen.ratingCount || 0,
       })),
   };
@@ -117,7 +131,7 @@ export async function serviceabilityForPincode(pincode, { userId = null, geocode
     // Without geocoding, fall back to kitchens registered at that pincode.
     const kitchen = await Kitchen.findOne({ status: "active", postalCode: String(pincode) });
     if (!kitchen) {
-      await DemandLog.create({ userId, pincode, source: "pincode" }).catch(() => {});
+      await logDemand({ userId, pincode, source: "pincode" });
       return { serviceable: false, kitchen: null, distanceKm: null, message: "We don't deliver to this pincode yet." };
     }
     return serviceabilityAt({ latitude: kitchen.latitude, longitude: kitchen.longitude, userId, source: "pincode", pincode });
@@ -149,7 +163,8 @@ export async function resolveCustomerKitchen({ kitchenId = null, latitude = null
   if (!points.length) throw new AppError(400, "Set your location to see the menu");
   for (const point of points) {
     const match = await kitchenForPoint(point.latitude, point.longitude);
-    if (match) return match;
+    // `point` = where the customer is (for distance, ETA and "Deliver to").
+    if (match) return { ...match, point: { latitude: point.latitude, longitude: point.longitude } };
   }
   throw new AppError(409, "We don't deliver to your location yet", [{ field: "location", message: "NOT_SERVICEABLE" }]);
 }

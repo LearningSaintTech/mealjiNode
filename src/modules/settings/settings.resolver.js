@@ -167,8 +167,15 @@ export function applyLimits(definition, limits) {
   };
 }
 
+// Old and new city names (Google and users mix them) map to one key.
+const CITY_ALIASES = {
+  bangalore: "bengaluru", "bengaluru urban": "bengaluru", gurgaon: "gurugram", bombay: "mumbai", calcutta: "kolkata",
+  madras: "chennai", poona: "pune", mysore: "mysuru", trivandrum: "thiruvananthapuram", "new delhi": "delhi", baroda: "vadodara",
+};
+
 export function normalizeCity(city) {
-  return String(city || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const key = String(city || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return CITY_ALIASES[key] || key;
 }
 
 // Orders versions the way they take effect: by start time, then by version.

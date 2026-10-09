@@ -46,50 +46,63 @@ export async function rotateRefreshToken({ refreshToken, deviceId }) {
     throw new AppError(401, "Invalid or expired token");
   }
 
-  // Two refreshes with the same token at once (e.g. two tabs) must not both
-  // rotate: the second waits briefly and then takes the grace path below.
-  const locked = await storeSetNx(rotateLockKey(user._id, resolvedDeviceId), "1", 5).catch(() => true);
-  if (!locked) await sleep(400);
-
-  const current = await storeGetOptional(refreshKey(user._id, resolvedDeviceId));
-  if (!current.ok) {
-    throw new AppError(503, "Service temporarily unavailable. Please try again later.");
+  // Two refreshes with the same token at once (two tabs, a retry) must not
+  // both rotate. The second waits until the first has finished (the lock is
+  // released, or expires after 5 s) and then takes the grace path below.
+  const lockKey = rotateLockKey(user._id, resolvedDeviceId);
+  const holdsLock = await storeSetNx(lockKey, "1", 5).catch(() => true);
+  if (!holdsLock) {
+    for (let waited = 0; waited < 5000; waited += 100) {
+      await sleep(100);
+      const lock = await storeGetOptional(lockKey);
+      if (!lock.ok || !lock.value) break;
+    }
   }
 
-  const previous = await storeGetOptional(previousKey(user._id, resolvedDeviceId));
-  const matchesCurrent = Boolean(current.value) && timingSafeEqualString(current.value, refreshToken);
-  const matchesPrevious = Boolean(previous.ok && previous.value) && timingSafeEqualString(previous.value, refreshToken);
+  try {
+    const current = await storeGetOptional(refreshKey(user._id, resolvedDeviceId));
+    if (!current.ok) {
+      throw new AppError(503, "Service temporarily unavailable. Please try again later.");
+    }
 
-  if (matchesCurrent) {
-    const refresh = signRefreshToken({ userId: user._id, role: user.role.slug, deviceId: resolvedDeviceId });
-    await storeSet(previousKey(user._id, resolvedDeviceId), current.value, env.refreshTokenGraceSec);
-    await storeSet(refreshKey(user._id, resolvedDeviceId), refresh.token, refresh.expiresInSec);
-    await storeDel(rotateLockKey(user._id, resolvedDeviceId)).catch(() => {});
-    const access = signAccessToken({ userId: user._id, role: user.role.slug });
-    return {
-      userId: String(user._id),
-      accessToken: access.token,
-      refreshToken: refresh.token,
-      expiresIn: access.expiresInSec,
-    };
+    const previous = await storeGetOptional(previousKey(user._id, resolvedDeviceId));
+    const matchesCurrent = Boolean(current.value) && timingSafeEqualString(current.value, refreshToken);
+    const matchesPrevious = Boolean(previous.ok && previous.value) && timingSafeEqualString(previous.value, refreshToken);
+
+    if (matchesCurrent) {
+      const refresh = signRefreshToken({ userId: user._id, role: user.role.slug, deviceId: resolvedDeviceId });
+      await storeSet(previousKey(user._id, resolvedDeviceId), current.value, env.refreshTokenGraceSec);
+      await storeSet(refreshKey(user._id, resolvedDeviceId), refresh.token, refresh.expiresInSec);
+      const access = signAccessToken({ userId: user._id, role: user.role.slug });
+      return {
+        userId: String(user._id),
+        accessToken: access.token,
+        refreshToken: refresh.token,
+        expiresIn: access.expiresInSec,
+      };
+    }
+
+    if (!previous.ok) {
+      throw new AppError(503, "Service temporarily unavailable. Please try again later.");
+    }
+
+    // The token was just rotated by a parallel request: hand back the new one.
+    if (matchesPrevious && current.value) {
+      const access = signAccessToken({ userId: user._id, role: user.role.slug });
+      return {
+        userId: String(user._id),
+        accessToken: access.token,
+        refreshToken: current.value,
+        expiresIn: access.expiresInSec,
+      };
+    }
+
+    // Neither current nor just-rotated: a stolen or replayed token. End the session.
+    await storeDel(refreshKey(user._id, resolvedDeviceId), previousKey(user._id, resolvedDeviceId));
+    throw new AppError(401, "Invalid or expired token");
+  } finally {
+    if (holdsLock) await storeDel(lockKey).catch(() => {});
   }
-
-  if (!previous.ok) {
-    throw new AppError(503, "Service temporarily unavailable. Please try again later.");
-  }
-
-  if (matchesPrevious && current.value) {
-    const access = signAccessToken({ userId: user._id, role: user.role.slug });
-    return {
-      userId: String(user._id),
-      accessToken: access.token,
-      refreshToken: current.value,
-      expiresIn: access.expiresInSec,
-    };
-  }
-
-  await storeDel(refreshKey(user._id, resolvedDeviceId), previousKey(user._id, resolvedDeviceId));
-  throw new AppError(401, "Invalid or expired token");
 }
 
 export async function revokeRefreshToken({ userId, deviceId }) {

@@ -110,7 +110,15 @@ publicNotificationRouter.post("/u/:token", asyncHandler(unsubscribe));
 // Click redirect for email links: /r/<messageId>?to=<url>
 publicNotificationRouter.get("/r/:messageId", asyncHandler(async (req, res) => {
   const target = String(req.query.to || "");
-  const allowed = /^https:\/\//.test(target) || target.startsWith("mealji://");
+  // Only the app scheme or MealJi's own hosts: never an open redirect.
+  let allowed = target.startsWith("mealji://");
+  try {
+    const url = new URL(target);
+    const hosts = [env.publicBaseUrl, env.cdnBaseUrl].filter(Boolean).map((base) => new URL(base).hostname.toLowerCase()).concat(env.linkHostsExtra);
+    allowed = allowed || (url.protocol === "https:" && hosts.includes(url.hostname.toLowerCase()));
+  } catch {
+    // not a URL
+  }
   await notifications.trackMessage(req.params.messageId, "clicked").catch(() => {});
   return res.redirect(302, allowed ? target : env.publicBaseUrl);
 }));
