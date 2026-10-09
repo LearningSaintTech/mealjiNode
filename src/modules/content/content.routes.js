@@ -9,6 +9,7 @@ import { authorize } from "../../common/middleware/authorize.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
+import { applyAbout } from "../kitchen/kitchen.about.js";
 import { toKitchen } from "../kitchen/kitchen.mapper.js";
 import { resolveCustomerKitchen } from "../serviceability/serviceability.service.js";
 import * as content from "./content.service.js";
@@ -31,16 +32,25 @@ customerContentRouter.get(
     .custom((value, { req }) => (req.query.latitude == null) === (value == null)).withMessage("Send latitude and longitude together"),
   query("latitude").custom((value, { req }) => (value == null) === (req.query.longitude == null)).withMessage("Send latitude and longitude together"),
   query("veg").optional().isBoolean().withMessage("veg is true or false"),
+  query("kitchenId").optional({ values: "falsy" }).isMongoId().withMessage("kitchenId is not valid"),
   validate,
   accountLimiter("home", { limit: 120, windowSec: 60 }),
   asyncHandler(async (req, res) => ok(res, await content.homeFor(req.auth.user, req.query), "Home fetched.")),
 );
+customerContentRouter.get(
+  "/banners",
+  query("placement").isString().notEmpty().withMessage("placement is required"),
+  query("kitchenId").optional({ values: "falsy" }).isMongoId().withMessage("kitchenId is not valid"),
+  validate,
+  accountLimiter("banners", { limit: 120, windowSec: 60 }),
+  asyncHandler(async (req, res) => ok(res, await content.bannersForCustomer(req.auth.user, { placement: req.query.placement, kitchenId: req.query.kitchenId || null }), "Banners fetched.")),
+);
 customerContentRouter.get("/kitchen-about", query("kitchenId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => {
-  const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId });
+  const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId, user: req.auth.user });
   const view = toKitchen(kitchen);
   return ok(res, { kitchenId: view.kitchenId, name: view.name, area: view.area, city: view.city, ...view.about, ratingAvg: Math.round((view.ratingAvg || 0) * 10) / 10, ratingCount: view.ratingCount, opensAt: view.opensAt, closesAt: view.closesAt }, "About fetched.");
 }));
-customerContentRouter.post("/banners/:id/:event", idParam(), param("event").isIn(["impression", "click"]), validate, asyncHandler(async (req, res) => (
+customerContentRouter.post("/banners/:id/:event", idParam(), param("event").isIn(["impression", "click"]), validate, accountLimiter("banner_track", { limit: 240, windowSec: 60 }), asyncHandler(async (req, res) => (
   ok(res, await content.trackBanner(req.params.id, req.params.event === "click" ? "click" : "impression", req.auth.userId), "Tracked.")
 )));
 
@@ -102,12 +112,7 @@ adminContentRouter.delete("/home-themes/:id", canEdit, idParam(), validate, asyn
 adminContentRouter.put("/kitchens/:id/about", authMiddleware, canEdit, idParam(), validate, asyncHandler(async (req, res) => {
   const kitchen = await Kitchen.findById(req.params.id);
   if (!kitchen) throw new AppError(404, "Kitchen not found");
-  const { assertOwnFileUrl } = await import("../upload/upload.service.js");
-  const about = { ...(kitchen.about?.toObject?.() || kitchen.about || {}) };
-  for (const key of ["chefName", "title", "story"]) if (req.body[key] !== undefined) about[key] = req.body[key] ? String(req.body[key]).slice(0, key === "story" ? 2000 : 120) : null;
-  if (req.body.imageUrl !== undefined) about.imageUrl = assertOwnFileUrl(req.body.imageUrl);
-  if (Array.isArray(req.body.gallery)) about.gallery = req.body.gallery.slice(0, 12).map((url) => assertOwnFileUrl(url));
-  kitchen.about = about;
+  applyAbout(kitchen, req.body);
   await kitchen.save();
   await audit(req, "content.kitchen_about_changed", `Updated About page of ${kitchen.name}`, { entityId: String(kitchen._id), kitchenId: String(kitchen._id) });
   return ok(res, toKitchen(kitchen).about, "About page saved.");

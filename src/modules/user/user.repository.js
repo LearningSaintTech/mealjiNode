@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import { memoCache } from "../../common/memoCache.js";
+import { Role } from "../role/role.model.js";
 import { User } from "./user.model.js";
 
 const rolePopulate = {
@@ -6,7 +8,23 @@ const rolePopulate = {
   populate: { path: "permissions" },
 };
 
+// Roles and their permissions change rarely and are read on every request:
+// cached 30 s per role (cleared on role writes in this process).
+export const roleCache = memoCache(30_000);
+const roleWithPermissions = (roleId) => roleCache.get(String(roleId), () => Role.findById(roleId).populate("permissions"));
+
 export const userRepository = {
+  /** For sign-in checks on every request: one user read, role from the cache. */
+  async findForAuth(id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    const user = await User.findById(id);
+    if (user?.role) {
+      const role = await roleWithPermissions(user.role);
+      if (role) user.role = role;
+    }
+    return user;
+  },
+
   async findById(id) {
     if (!mongoose.isValidObjectId(id)) return null;
     return User.findById(id).populate(rolePopulate);

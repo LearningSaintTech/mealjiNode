@@ -1,9 +1,8 @@
 import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
-import { Kitchen } from "../kitchen/kitchen.model.js";
 import { normalizeCity } from "../settings/settings.resolver.js";
 import { assertOwnFileUrl } from "../upload/upload.service.js";
-import { NO_SELECTION_POLICIES, SLOT_KEYS, Subscription, SubscriptionPlan } from "./subscription.model.js";
+import { livePlanCache, NO_SELECTION_POLICIES, SLOT_KEYS, Subscription, SubscriptionPlan } from "./subscription.model.js";
 
 export function toPlan(plan, { admin = false } = {}) {
   const view = {
@@ -183,15 +182,17 @@ export async function setPlanStatus(planId, status) {
 
 /** Active plans sold at a kitchen (kitchen list or city match, inside the active window). */
 export async function plansForKitchen(kitchenId, { limit = 50 } = {}) {
-  const kitchen = await Kitchen.findById(kitchenId).select("city").lean();
+  const { kitchenRepository } = await import("../kitchen/kitchen.repository.js");
+  const kitchen = await kitchenRepository.findActiveById(kitchenId);
   const now = new Date();
-  const plans = await SubscriptionPlan.find({
+  // Live plans are the same for everyone: cached 30 s, cleared on plan edits.
+  const plans = await livePlanCache.get("live", () => SubscriptionPlan.find({
     status: "active",
     $and: [
       { $or: [{ activeFrom: null }, { activeFrom: { $lte: now } }] },
       { $or: [{ activeTo: null }, { activeTo: { $gte: now } }] },
     ],
-  }).sort({ sortOrder: 1, pricePaise: 1 }).lean();
+  }).sort({ sortOrder: 1, pricePaise: 1 }).lean());
   const city = normalizeCity(kitchen?.city);
   return plans
     .filter((plan) => (!plan.kitchens?.length || plan.kitchens.map(String).includes(String(kitchenId))) && (!plan.cities?.length || plan.cities.includes(city)))

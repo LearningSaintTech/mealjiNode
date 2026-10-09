@@ -1,15 +1,16 @@
 import mongoose from "mongoose";
 import { Router } from "express";
-import { body, query } from "express-validator";
+import { body, param, query } from "express-validator";
 import { asyncHandler } from "../../common/asyncHandler.js";
 import { AppError } from "../../common/errors/AppError.js";
 import { authFor, idParam, ok } from "../../common/http.js";
 import { authMiddleware } from "../../common/middleware/auth.middleware.js";
 import { authorize } from "../../common/middleware/authorize.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
+import { memoCache } from "../../common/memoCache.js";
 import { accountLimiter } from "../../infrastructure/rateLimit.js";
 import { storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
-import { customerCombos, isOrderable, kitchenMenu, toDish } from "../catalog/catalog.service.js";
+import { customerCombos, isOrderable, kitchenMenu, markFavorites, popularDishes, toDish } from "../catalog/catalog.service.js";
 import { registerReport } from "../report/report.registry.js";
 import { resolveCustomerKitchen } from "../serviceability/serviceability.service.js";
 
@@ -53,10 +54,19 @@ async function synonymMap() {
   return map;
 }
 
-// Edit distance ≤ 1 for longer words catches simple typos ("biriyani").
+// One typo in a longer word still matches: one letter added, missing or wrong
+// ("biriyani"), or two neighbouring letters swapped ("briyani").
+function swapped(a, b) {
+  if (a.length !== b.length) return false;
+  const diff = [];
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) diff.push(i);
+  return diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]];
+}
+
 function nearly(a, b) {
   if (a === b) return true;
-  if (Math.abs(a.length - b.length) > 1 || a.length < 5) return false;
+  if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 4) return false;
+  if (swapped(a, b)) return true;
   let i = 0;
   let j = 0;
   let edits = 0;
@@ -109,6 +119,31 @@ async function runSearch({ q, kitchenId, veg }) {
   return { dishes: dishes.slice(0, 40).map((row) => toDish(row.dish)), combos: combos.slice(0, 10), categories };
 }
 
+/** “Try these instead” and “Popular right now” for a search with no results. */
+async function zeroResultHelp(kitchenId, userId) {
+  const popular = await markFavorites(userId, await popularDishes(kitchenId, 6));
+  const menu = await kitchenMenu(kitchenId);
+  const suggestions = [...new Set([...popular.map((dish) => dish.name), ...menu.categories.map((category) => category.name)])].slice(0, 6);
+  return { suggestions, popular };
+}
+
+// Typing “p”, “pa”, “pan”… is one search: a query that extends (or shortens) the
+// user's search from the last minute replaces it instead of adding a new row.
+const TYPING_WINDOW_MS = 60_000;
+async function logSearch({ userId, kitchenId, q, results }) {
+  const normalized = normalize(q);
+  const last = await SearchLog.findOne({ user: userId, createdAt: { $gte: new Date(Date.now() - TYPING_WINDOW_MS) } }).sort({ createdAt: -1 });
+  if (last && !last.clickedDish && (normalized.startsWith(last.normalized) || last.normalized.startsWith(normalized))) {
+    last.query = q.slice(0, 60);
+    last.normalized = normalized;
+    last.results = results;
+    last.kitchen = kitchenId;
+    await last.save();
+    return last;
+  }
+  return SearchLog.create({ user: userId, kitchen: kitchenId, query: q.slice(0, 60), normalized, results });
+}
+
 // ------------------------------------------------------------------ routes
 
 const customer = Router();
@@ -116,19 +151,32 @@ customer.use(authFor(["/search"], authMiddleware));
 customer.get(
   "/search",
   accountLimiter("search", { limit: 120, windowSec: 60 }),
-  query("q").isString().trim().isLength({ min: 1, max: 60 }),
-  query("kitchenId").optional({ values: "falsy" }).isMongoId(),
+  query("q").isString().withMessage("Type what to search for").bail().trim().isLength({ min: 1, max: 60 }).withMessage("Search 1 to 60 characters"),
+  query("kitchenId").optional({ values: "falsy" }).isMongoId().withMessage("kitchenId is not valid"),
+  query("latitude").optional().isFloat({ min: -90, max: 90 }).withMessage("latitude is not valid"),
+  query("longitude").optional().isFloat({ min: -180, max: 180 }).withMessage("longitude is not valid"),
+  query("veg").optional().isBoolean().withMessage("veg is true or false"),
   validate,
   asyncHandler(async (req, res) => {
-    const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId });
-    const result = await runSearch({ q: req.query.q, kitchenId: String(kitchen._id), veg: req.query.veg });
+    const { kitchen } = await resolveCustomerKitchen({
+      kitchenId: req.query.kitchenId || null,
+      latitude: req.query.latitude != null ? Number(req.query.latitude) : null,
+      longitude: req.query.longitude != null ? Number(req.query.longitude) : null,
+      userId: req.auth.userId, user: req.auth.user,
+    });
+    const kitchenId = String(kitchen._id);
+    const result = await runSearch({ q: req.query.q, kitchenId, veg: req.query.veg });
+    result.dishes = await markFavorites(req.auth.userId, result.dishes);
     const total = result.dishes.length + result.combos.length;
-    const log = await SearchLog.create({ user: req.auth.userId, kitchen: kitchen._id, query: req.query.q.slice(0, 60), normalized: normalize(req.query.q), results: total });
-    return ok(res, { query: req.query.q, searchId: String(log._id), total, ...result }, "Search results.");
+    const log = await logSearch({ userId: req.auth.userId, kitchenId: kitchen._id, q: req.query.q, results: total });
+    // Nothing found: suggestions to tap and popular dishes, so the screen is never empty.
+    const help = total ? { suggestions: [], popular: [] } : await zeroResultHelp(kitchenId, req.auth.userId);
+    return ok(res, { query: req.query.q, searchId: String(log._id), total, dishCount: result.dishes.length, ...result, ...help }, "Search results.");
   }),
 );
-customer.post("/search/:id/click", idParam(), body("dishId").isMongoId(), validate, asyncHandler(async (req, res) => {
-  await SearchLog.updateOne({ _id: req.params.id, user: req.auth.userId }, { $set: { clickedDish: req.body.dishId } });
+customer.post("/search/:id/click", idParam(), body("dishId").isMongoId().withMessage("dishId is not valid"), validate, asyncHandler(async (req, res) => {
+  const updated = await SearchLog.updateOne({ _id: req.params.id, user: req.auth.userId }, { $set: { clickedDish: req.body.dishId } });
+  if (!updated.matchedCount) throw new AppError(404, "Search not found");
   return ok(res, { tracked: true }, "Tracked.");
 }));
 customer.get("/search/recent", asyncHandler(async (req, res) => {
@@ -142,21 +190,43 @@ customer.get("/search/recent", asyncHandler(async (req, res) => {
   return ok(res, rows.map((row) => ({ query: row.query, at: row.at })), "Recent searches.");
 }));
 customer.delete("/search/recent", asyncHandler(async (req, res) => {
-  await SearchLog.updateMany({ user: req.auth.userId }, { $set: { hiddenFromRecent: true } });
+  await SearchLog.updateMany({ user: req.auth.userId, hiddenFromRecent: false }, { $set: { hiddenFromRecent: true } });
   return ok(res, { cleared: true }, "Recent searches cleared.");
 }));
+// Remove one recent search (the ✕ on a row).
+customer.delete("/search/recent/:query", param("query").isString().isLength({ min: 1, max: 60 }), validate, asyncHandler(async (req, res) => {
+  await SearchLog.updateMany({ user: req.auth.userId, normalized: normalize(req.params.query), hiddenFromRecent: false }, { $set: { hiddenFromRecent: true } });
+  return ok(res, { removed: true }, "Removed from recent searches.");
+}));
+// One computation at a time per instance when the 10-minute cache runs out.
+const trendingOnce = memoCache(5_000);
 customer.get("/search/trending", asyncHandler(async (req, res) => {
   const cached = await storeGetOptional("search:trending");
   if (cached.ok && cached.value) return ok(res, JSON.parse(cached.value), "Trending.");
-  const rows = await SearchLog.aggregate([
+  const rows = await trendingOnce.get("rows", () => SearchLog.aggregate([
     { $match: { createdAt: { $gte: new Date(Date.now() - 7 * 86_400_000) }, results: { $gt: 0 } } },
     { $group: { _id: "$normalized", query: { $first: "$query" }, searches: { $sum: 1 }, people: { $addToSet: "$user" } } },
     { $project: { query: 1, searches: 1, people: { $size: "$people" } } },
     { $match: { people: { $gte: 2 } } },
     { $sort: { people: -1, searches: -1 } },
     { $limit: 10 },
-  ]);
+  ]));
   const data = rows.map((row) => ({ query: row.query, searches: row.searches }));
+  // Too little search history (a new city or a quiet week): fill up with the
+  // kitchen's best-selling dishes so the screen always has chips to tap.
+  if (data.length < 6) {
+    try {
+      const { kitchen } = await resolveCustomerKitchen({ userId: req.auth.userId, user: req.auth.user });
+      const seen = new Set(data.map((row) => normalize(row.query)));
+      for (const dish of await popularDishes(String(kitchen._id), 10)) {
+        if (data.length >= 6) break;
+        if (!seen.has(normalize(dish.name))) data.push({ query: dish.name, searches: 0 });
+      }
+    } catch {
+      // no serving kitchen: trending stays as it is
+    }
+    return ok(res, data, "Trending.");
+  }
   await storeSet("search:trending", JSON.stringify(data), 600).catch(() => {});
   return ok(res, data, "Trending.");
 }));

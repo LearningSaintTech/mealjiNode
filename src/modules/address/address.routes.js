@@ -10,10 +10,25 @@ import { storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
 import { serviceabilityAt, serviceabilityForPincode } from "../serviceability/serviceability.service.js";
 import * as addresses from "./address.service.js";
 
+const LABELS = { home: "home", work: "work", office: "work", other: "other" };
+
+// Latitude/longitude are optional: the Add new address form has no map pin, so
+// the server places the address from its text (then the pincode centre).
 const addressBody = (optional) => {
   const opt = (chain) => (optional ? chain.optional() : chain);
   return [
-    body("label").optional().isIn(["home", "work", "other"]).withMessage("label must be home, work or other"),
+    // The app's chips say Home / Office / Other; any other wording is kept as a custom label.
+    body("label").optional({ values: "null" }).isString().customSanitizer((value, { req }) => {
+      const word = String(value).trim();
+      const known = LABELS[word.toLowerCase()];
+      if (known) {
+        // Switching to Home or Office drops an old custom wording.
+        if (known !== "other" && req.body.customLabel === undefined) req.body.customLabel = null;
+        return known;
+      }
+      if (word && !req.body.customLabel) req.body.customLabel = word.slice(0, 40);
+      return "other";
+    }),
     body("customLabel").optional({ values: "null" }).isString().isLength({ max: 40 }),
     body("recipientName").optional({ values: "null" }).isString().isLength({ max: 80 }),
     body("phone").optional({ values: "falsy" }).matches(/^[6-9]\d{9}$/).withMessage("Invalid phone number"),
@@ -24,8 +39,8 @@ const addressBody = (optional) => {
     opt(body("city")).isString().trim().notEmpty().isLength({ max: 60 }).withMessage("City is required"),
     body("state").optional({ values: "null" }).isString().isLength({ max: 60 }),
     opt(body("pincode")).matches(/^\d{6}$/).withMessage("Pincode must be 6 digits"),
-    opt(body("latitude")).isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude").toFloat(),
-    opt(body("longitude")).isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude").toFloat(),
+    body("latitude").optional({ values: "null" }).isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude").toFloat(),
+    body("longitude").optional({ values: "null" }).isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude").toFloat(),
     body("isDefault").optional().isBoolean().toBoolean(),
   ];
 };
@@ -35,10 +50,10 @@ export const addressRouter = Router();
 addressRouter.use(authFor(["/me/addresses"], authMiddleware));
 addressRouter.get("/me/addresses", asyncHandler(async (req, res) => ok(res, await addresses.listAddresses(req.auth.userId), "Addresses fetched.")));
 addressRouter.post("/me/addresses", addressBody(false), validate, asyncHandler(async (req, res) => (
-  ok(res, await addresses.createAddress(req.auth.userId, req.body), "Address saved.", 201)
+  ok(res, await addresses.createAddress(req.auth.userId, req.body, { geocodePincode }), "Address saved.", 201)
 )));
 addressRouter.patch("/me/addresses/:id", idParam(), addressBody(true), validate, asyncHandler(async (req, res) => (
-  ok(res, await addresses.updateAddress(req.auth.userId, req.params.id, req.body), "Address updated.")
+  ok(res, await addresses.updateAddress(req.auth.userId, req.params.id, req.body, { geocodePincode }), "Address updated.")
 )));
 addressRouter.patch("/me/addresses/:id/default", idParam(), validate, asyncHandler(async (req, res) => (
   ok(res, await addresses.setDefaultAddress(req.auth.userId, req.params.id), "Default address set.")
@@ -52,7 +67,9 @@ async function geocodePincode(text) {
   const key = `geo:pin:${text}`;
   const cached = await storeGetOptional(key);
   if (cached.ok && cached.value) return JSON.parse(cached.value);
-  const point = await geocodeAddress(text);
+  const found = await geocodeAddress(text);
+  // A country-wide match means Google did not know the pincode.
+  const point = found && !found.vague ? { latitude: found.latitude, longitude: found.longitude } : null;
   if (point) await storeSet(key, JSON.stringify(point), 30 * 86_400).catch(() => {});
   return point;
 }

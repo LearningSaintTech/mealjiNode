@@ -41,6 +41,10 @@ export function toPublicUser(user) {
     lastLoginAt: user.lastLoginAt ?? null,
     createdAt: user.createdAt,
     email: user.email ?? null,
+    // What the app's user model shows right after sign-in.
+    avatarUrl: user.avatarUrl ?? null,
+    points: user.pointsBalance || 0,
+    tier: user.tier ?? null,
     deletedAt: user.deletedAt ?? null,
   };
 }

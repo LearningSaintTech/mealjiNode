@@ -10,17 +10,19 @@ import * as profile from "./profile.service.js";
 const router = Router();
 router.use(authFor(["/me"], authMiddleware));
 
-router.get("/me", asyncHandler(async (req, res) => ok(res, await profile.getProfile(req.auth.userId), "Profile fetched.")));
+router.get("/me", asyncHandler(async (req, res) => ok(res, await profile.getProfile(req.auth.userId, { user: req.auth.user }), "Profile fetched.")));
 
 router.patch(
   "/me",
-  body("name").optional().isString().trim().isLength({ min: 1, max: 80 }).withMessage("Name must be 1 to 80 characters"),
+  body("name").optional().isString().trim().isLength({ min: 2, max: 80 }).withMessage("Please enter your full name (min 2 characters)"),
   body("email").optional({ values: "null" }).isEmail().withMessage("Invalid email").isLength({ max: 120 }),
   body("dob").optional({ values: "null" }).isISO8601({ strict: true }).withMessage("dob must be YYYY-MM-DD").custom((value) => {
     if (value && new Date(value) > new Date()) throw new Error("dob cannot be in the future");
     return true;
   }),
-  body("gender").optional({ values: "null" }).isIn(["male", "female", "other", "prefer_not"]).withMessage("Invalid gender"),
+  // The app shows "Male", "Female", "Other", "Prefer not to say".
+  body("gender").optional({ values: "null" }).customSanitizer((value) => (typeof value === "string" ? ({ "prefer not to say": "prefer_not" }[value.trim().toLowerCase()] || value.trim().toLowerCase()) : value))
+    .isIn(["male", "female", "other", "prefer_not"]).withMessage("Gender: male, female, other or prefer_not"),
   body("avatarUrl").optional({ values: "null" }).isURL({ require_tld: false }).withMessage("Invalid avatar URL"),
   validate,
   asyncHandler(async (req, res) => ok(res, await profile.updateProfile(req.auth.userId, req.body), "Profile updated.")),
@@ -34,7 +36,7 @@ router.post(
   asyncHandler(async (req, res) => ok(res, await profile.updateProfile(req.auth.userId, { avatarUrl: req.body.avatarUrl }), "Avatar updated.")),
 );
 
-router.get("/me/preferences", asyncHandler(async (req, res) => ok(res, await profile.getPreferences(req.auth.userId), "Preferences fetched.")));
+router.get("/me/preferences", asyncHandler(async (req, res) => ok(res, await profile.getPreferences(req.auth.userId, { user: req.auth.user }), "Preferences fetched.")));
 router.patch(
   "/me/preferences",
   body("language").optional().isIn(["en", "hi"]).withMessage("Unsupported language"),

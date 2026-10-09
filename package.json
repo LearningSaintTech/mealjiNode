@@ -15,7 +15,19 @@
     "seed": "node scripts/seed.js",
     "postman:check": "node scripts/checkPostmanRoutes.js",
     "postman:sync": "node scripts/syncPostman.js",
-    "smoke:home": "node scripts/smokeHome.js"
+    "smoke:home": "node scripts/smokeHome.js",
+    "smoke:menu": "node scripts/smokeMenu.js",
+    "test:steps": "node scripts/testSteps.js",
+    "load:seed": "node --import ./scripts/load/loadEnv.js scripts/seed.js && node scripts/load/generate.js",
+    "load:generate": "node scripts/load/generate.js",
+    "load:api": "node scripts/load/api.js",
+    "load:indexes": "node scripts/load/checkIndexes.js",
+    "load:run": "node scripts/load/run.js",
+    "load:api:profile": "node scripts/load/api.js --profile=45",
+    "load:profile-top": "node scripts/load/profileTop.js",
+    "load:api:opcount": "node scripts/load/api.js --opcount",
+    "start:cluster": "node src/cluster.js",
+    "load:api:cluster": "node --import ./scripts/load/loadEnv.js src/cluster.js"
   },
   "dependencies": {
     "axios": "^1.12.2",

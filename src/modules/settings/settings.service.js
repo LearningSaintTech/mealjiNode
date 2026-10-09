@@ -1,3 +1,4 @@
+import { env } from "../../config/env.js";
 import { AppError } from "../../common/errors/AppError.js";
 import { BUSINESS_TIMEZONE } from "../../common/time.js";
 import { withTransaction } from "../../config/database.js";
@@ -10,6 +11,7 @@ import { kitchenRepository } from "../kitchen/kitchen.repository.js";
 import { getDefinition, listDefinitions } from "./settings.definitions.js";
 import { Setting } from "./settings.model.js";
 import { SettingLimit } from "./settingLimit.model.js";
+import { memoCache } from "../../common/memoCache.js";
 import {
   applyLimits,
   applyPatch,
@@ -122,8 +124,14 @@ async function scopeValues(key, scopeType, scopeId) {
   return values;
 }
 
+// The public app config is read on every app launch: cached 30 s per instance,
+// cleared whenever a setting changes here.
+const appConfigCache = memoCache(30_000);
+
 async function invalidate(key, scopeType, scopeId) {
   await storeDel(cacheKey(key, scopeType, scopeId)).catch(() => {});
+  appConfigCache.clear();
+  resolvedCache.clear();
 }
 
 async function kitchenContext(kitchenId) {
@@ -137,7 +145,16 @@ async function kitchenContext(kitchenId) {
  * up) or `{ city }`. This is what business code calls, e.g.
  * `resolveSetting("order_policy", { kitchenId })`.
  */
-export async function resolveSetting(key, { kitchenId = null, city = null } = {}) {
+// Resolved settings are read many times per request (home, delivery checks):
+// kept in memory for 5 s per key + city + kitchen, cleared on any setting change.
+const resolvedCache = memoCache(5_000);
+
+export function resolveSetting(key, { kitchenId = null, city = null } = {}) {
+  requireDefinition(key);
+  return resolvedCache.get(`${key}|${city ? normalizeCity(city) : ""}|${kitchenId || ""}`, () => resolveSettingFresh(key, { kitchenId, city }));
+}
+
+async function resolveSettingFresh(key, { kitchenId = null, city = null } = {}) {
   const definition = requireDefinition(key);
   let resolvedCity = city ? normalizeCity(city) : null;
   if (kitchenId && !resolvedCity) resolvedCity = (await kitchenContext(kitchenId)).city;
@@ -387,13 +404,30 @@ export async function activateDueSettings() {
 
 // What the customer app reads at start-up. Only fields marked `public`.
 export async function getPublicAppConfig() {
+  return { ...(await appConfigCache.get("app", buildPublicAppConfig)), serverTime: new Date().toISOString() };
+}
+
+async function buildPublicAppConfig() {
   const definition = requireDefinition("app");
   const { values } = await resolveSetting("app");
   const publicValues = Object.fromEntries(
     definition.fields.filter((field) => field.public).map((field) => [field.key, values[field.key]]),
   );
+  // What the app's start, sign-in and onboarding screens need besides settings.
+  const [{ Kitchen }, { OTP_LENGTH }, pricing] = await Promise.all([
+    import("../kitchen/kitchen.model.js"),
+    import("../../constants/otp.constants.js"),
+    resolveSetting("pricing").catch(() => ({ values: {} })),
+  ]);
+  const cities = await Kitchen.distinct("city", { status: "active" }).catch(() => []);
   return {
     ...publicValues,
+    deliveryEtaLabel: publicValues.deliveryPromiseLabel,
+    pickupReadyMinutes: pricing.values.pickupReadyMinutes ?? 15,
+    otpLength: OTP_LENGTH,
+    otpResendSeconds: env.otpResendCooldownSec,
+    countryCodes: ["+91"],
+    servedCitiesCount: new Set(cities.map((city) => String(city).trim().toLowerCase()).filter(Boolean)).size,
     apiVersion: "v1",
     businessTimezone: BUSINESS_TIMEZONE,
     serverTime: new Date().toISOString(),

@@ -144,19 +144,27 @@ export async function serviceabilityForPincode(pincode, { userId = null, geocode
  * the kitchen covering the given point, their current location, or their
  * default address. Throws 409 NOT_SERVICEABLE when nothing covers them.
  */
-export async function resolveCustomerKitchen({ kitchenId = null, latitude = null, longitude = null, userId = null }) {
+export async function resolveCustomerKitchen({ kitchenId = null, latitude = null, longitude = null, userId = null, user = null }) {
   if (kitchenId) {
-    const kitchen = await Kitchen.findOne({ _id: kitchenId, status: "active" });
-    if (!kitchen) throw new AppError(404, "Kitchen not found");
+    const kitchen = await kitchenRepository.findActiveById(kitchenId);
+    if (!kitchen || kitchen.status !== "active") throw new AppError(404, "Kitchen not found");
     return { kitchen, distanceKm: null };
   }
   const points = [];
-  if (latitude != null && longitude != null) points.push({ latitude, longitude });
-  if (userId) {
+  // A point the app sends (map pin, chosen address) is the answer on its own:
+  // never fall back to another saved location when that point is not served.
+  const explicit = latitude != null && longitude != null;
+  if (explicit) points.push({ latitude, longitude });
+  if (userId && !explicit) {
     const { User } = await import("../user/user.model.js");
     const { Address } = await import("../address/address.model.js");
-    const user = await User.findById(userId).select("currentLocation").lean();
-    if (user?.currentLocation?.latitude != null) points.push(user.currentLocation);
+    // The signed-in user is already loaded by the auth check; the default
+    // address is read only when the current location does not resolve.
+    const current = (user || await User.findById(userId).select("currentLocation").lean())?.currentLocation;
+    if (current?.latitude != null) {
+      const match = await kitchenForPoint(current.latitude, current.longitude);
+      if (match) return { ...match, point: { latitude: current.latitude, longitude: current.longitude } };
+    }
     const address = await Address.findOne({ user: userId, deletedAt: null }).sort({ isDefault: -1, updatedAt: -1 }).lean();
     if (address) points.push(address);
   }

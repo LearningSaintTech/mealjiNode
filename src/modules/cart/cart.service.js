@@ -3,7 +3,7 @@ import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { Address, addressSnapshot } from "../address/address.model.js";
-import { isOrderable, popularDishes } from "../catalog/catalog.service.js";
+import { isOrderable, popularDishes, unavailableMessage, unavailableReason } from "../catalog/catalog.service.js";
 import { KitchenCombo, KitchenDish } from "../catalog/catalog.model.js";
 import { checkCode } from "../coupon/coupon.service.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
@@ -271,7 +271,8 @@ export async function addItem(userId, input) {
   } else {
     const dish = await KitchenDish.findOne({ _id: objectId(input.dishId, "dish ID"), isActive: true, approvalStatus: "live" }).lean();
     if (!dish) throw new AppError(404, "Dish not found");
-    if (!isOrderable(dish)) throw new AppError(409, `${dish.name} is sold out right now`);
+    const reason = unavailableReason(dish);
+    if (reason) throw new AppError(409, `${dish.name}: ${unavailableMessage(dish, reason)}`);
     if (input.portionId && !(dish.portions || []).some((portion) => portion.portionId === input.portionId)) throw new AppError(422, "Choose a valid portion");
     const { chosen, errors } = chosenOptions(dish, input.optionIds || []);
     if (errors.length) throw new AppError(422, "Validation failed", errors.map((message) => ({ field: "optionIds", message })));

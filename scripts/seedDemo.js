@@ -155,7 +155,7 @@ const fileSlug = (file) => path.basename(file).toLowerCase().replace(/[^a-z0-9.]
 // Used whenever this machine cannot upload them itself: no S3 in .env, or no
 // MealJi app folder next to the API. Local ./uploads URLs are never used for
 // seed images, because phones and other machines cannot reach localhost.
-const HOSTED_SEED_IMAGES = String(process.env.SEED_IMAGE_BASE_URL || "https://d3bi5d5em13bi2.cloudfront.net/mealji/seed").replace(/\/$/, "");
+const HOSTED_SEED_IMAGES = env.seedImageBaseUrl;
 
 /** Returns name → URL for every seed image, uploading them first when this machine can. */
 async function seedImages() {
@@ -186,7 +186,7 @@ const MASTER_CATEGORIES = [
   { name: "Roti & Rice", subtitle: "Fresh off the tawa", image: "butterNaan", sortOrder: 2 },
   { name: "Meal Ji Meals", subtitle: "The complete feast", image: "mealJiMeal", sortOrder: 3 },
   { name: "Signature Bowls", subtitle: "Our chef's signature bowls", image: "butterChickenBowl", sortOrder: 4 },
-  { name: "Biryani", subtitle: "Dum-cooked, layered, fragrant", image: "chickenBiryani", sortOrder: 5 },
+  { name: "Biryani", subtitle: "Aromatic. Authentic. Always a good idea.", image: "chickenBiryani", sortOrder: 5 },
   { name: "Small Bites", subtitle: "Bao, wraps and street snacks", image: "biryaniArancini", sortOrder: 6 },
   { name: "Desserts & Shakes", subtitle: "Something sweet", image: "gulabCheesecake", sortOrder: 7 },
   { name: "Drinks", subtitle: "Chilled and refreshing", image: "coldDrink", sortOrder: 8 },
@@ -225,6 +225,22 @@ const MASTER_DISHES = [
   ["Drinks", "Cold Coffee", 14900, true, "coldCoffee", { description: "Thick cold coffee blended with vanilla ice cream.", calories: 260, preparationMinutes: 5, tags: ["drink", "coffee"], cuisine: "Beverages" }],
 ];
 
+// Dish detail extras from the app's Dish detail screen: portion cards, “Make it a
+// meal” and the feature badges (Fresh Ingredients / Slow Cooked / Halal Certified).
+const DISH_DETAILS = {
+  "Butter Chicken Bowl": {
+    highlights: ["Fresh Ingredients", "Slow Cooked", "Halal Certified"],
+    portions: [
+      { portionId: "regular", label: "Regular", serves: "Serves 1", pricePaise: 34900, isDefault: true },
+      { portionId: "large", label: "Large", serves: "Serves 2", pricePaise: 59900, isDefault: false },
+      { portionId: "family", label: "Family Pack", serves: "Serves 3-4", pricePaise: 99900, isDefault: false },
+    ],
+    mealUpgrade: { label: "Complete Meal", description: "Butter Naan + Chilled Soft Drink", pricePaise: 9900, originalPricePaise: 11800, image: "completeMeal" },
+  },
+  "Chicken Biryani": { highlights: ["Fresh Ingredients", "Slow Cooked", "Halal Certified"] },
+  "Paneer Bao (3 pcs)": { highlights: ["Fresh Ingredients", "Handmade"] },
+};
+
 const BESTSELLERS = ["Butter Chicken Bowl", "Paneer Bao (3 pcs)", "The Meal Ji Meal (Signature)", "Chicken Biryani", "Gulab Cheesecake"];
 
 const KITCHEN_SETUP = {
@@ -234,10 +250,22 @@ const KITCHEN_SETUP = {
       { title: "Biryani Feast for 4", subtitle: "2 chicken, 1 mutton and 1 paneer biryani", image: "comboSpread", items: [["Chicken Biryani", 2], ["Mutton Biryani", 1], ["Paneer Biryani", 1]], pricePaise: 119900, originalPricePaise: 135600, isSignature: true, serves: 4, badge: "Party pack" },
       { title: "Sharing Platter for 2", subtitle: "2 butter chicken bowls, arancini and cheesecake", image: "mealSharingPlate", items: [["Butter Chicken Bowl", 2], ["Biryani Arancini (4 pcs)", 1], ["Gulab Cheesecake", 1]], pricePaise: 99900, originalPricePaise: 116600, isSignature: true, serves: 2, badge: "Save ₹167" },
       { title: "Complete Meal", subtitle: "Butter chicken, garlic naan, jeera rice and gulab jamun", image: "completeMeal", items: [["Butter Chicken", 1], ["Garlic Naan", 1], ["Jeera Rice", 1], ["Gulab Jamun (2 pcs)", 1]], pricePaise: 54900, originalPricePaise: 64600 },
-      { title: "Bao & Bowl", subtitle: "Paneer bao with a dal ramen", image: "mealBaoBowl", items: [["Paneer Bao (3 pcs)", 1], ["Dal Ramen", 1]], pricePaise: 49900, originalPricePaise: 58800 },
+      { title: "Bao & Bowl", subtitle: "Paneer bao with a dal ramen", image: "mealBaoBowl", items: [["Paneer Bao (3 pcs)", 1], ["Dal Ramen", 1]], pricePaise: 44900, originalPricePaise: 58800, badge: "BESTSELLER" },
       { title: "Solo Wrap Meal", subtitle: "Chicken tikka wrap, gunpowder fries and a drink", image: "mealWrapSolo", items: [["Chicken Tikka Wrap", 1], ["Masala Gunpowder Fries", 1], ["Chilled Soft Drink", 1]], pricePaise: 44900, originalPricePaise: 50700 },
     ],
-    about: { chefName: "Chef Mujahid Khan", title: "The man behind the flame", story: "Every Meal Ji dish follows one standard. Our makhani simmers for 24 hours with real butter, ripe tomatoes and whole green cardamom, no cornstarch and no fillers. Baos and breads are puffed to order off the iron tawa and steam baskets, never reheated. And there are zero preservatives, so it's food you can enjoy four times a week.", image: "mealsHeroKitchen", gallery: ["heroKitchenChef", "kitchenFlame", "kitchenPrep", "kitchenFresh"] },
+    about: {
+      chefName: "Chef Mujahid Khan", title: "The man behind the flame", tagline: "FOUNDED 2024 • GREATER NOIDA",
+      quote: "We cook Indian food the way it was meant to be: unapologetic, slow-simmered, and full of soul.",
+      story: "Meal Ji started from a simple frustration: why does delivery Indian food always feel like heavy restaurant leftovers? Where was the crackling tandoor smoke, the silky fresh makhani, and the crispy gunpowder spice that you crave on a late Friday night?\n\nWe built Meal Ji not as a massive marketplace with 50 mediocre cuisines, but as a single dedicated culinary studio where every single sauce is cooked from scratch daily with fresh whole spices.",
+      standardTitle: "The Meal Ji Standard",
+      pillars: [
+        { icon: "fire", title: "24-Hour Makhani Simmer", description: "No cornstarch, no fillers. Real butter, ripe tomatoes & whole green cardamom." },
+        { icon: "utensils", title: "Handmade Baos & Breads", description: "Puffed to order off our iron tawa and steam baskets. Never reheated." },
+        { icon: "leaf", title: "Zero Preservatives", description: "Clean eating you can enjoy 4 times a week without feeling sluggish." },
+      ],
+      ctaLabel: "Taste the Menu", ctaDeepLink: "mealji://menu",
+      image: "mealsHeroKitchen", gallery: ["heroKitchenChef", "kitchenFlame", "kitchenPrep", "kitchenFresh"],
+    },
     hours: { opensAt: "08:00", closesAt: "23:00" },
   },
   Indiranagar: {
@@ -246,7 +274,19 @@ const KITCHEN_SETUP = {
       { title: "Bao & Bowl", subtitle: "Paneer bao with a dal ramen", image: "mealBaoBowl", items: [["Paneer Bao (3 pcs)", 1], ["Dal Ramen", 1]], pricePaise: 49900, originalPricePaise: 58800, isSignature: true },
       { title: "Solo Wrap Meal", subtitle: "Chicken tikka wrap, gunpowder fries and a drink", image: "mealWrapSolo", items: [["Chicken Tikka Wrap", 1], ["Masala Gunpowder Fries", 1], ["Chilled Soft Drink", 1]], pricePaise: 44900, originalPricePaise: 50700 },
     ],
-    about: { chefName: "Chef Meera Shah", title: "Same kitchen, same love", story: "Meera runs the Indiranagar kitchen with the same Meal Ji recipes: the 24-hour makhani, hand-made baos and breads, and nothing reheated. Every order is cooked and packed by the same small team.", image: "liveKitchenChef", gallery: ["kitchenPrep", "kitchenFresh"] },
+    about: {
+      chefName: "Chef Meera Shah", title: "Same kitchen, same love", tagline: "INDIRANAGAR • BENGALURU",
+      quote: "Same recipes, same standard, cooked fresh for your neighbourhood.",
+      story: "Meera runs the Indiranagar kitchen with the same Meal Ji recipes: the 24-hour makhani, hand-made baos and breads, and nothing reheated.\n\nEvery order is cooked and packed by the same small team.",
+      standardTitle: "The Meal Ji Standard",
+      pillars: [
+        { icon: "fire", title: "24-Hour Makhani Simmer", description: "No cornstarch, no fillers. Real butter, ripe tomatoes & whole green cardamom." },
+        { icon: "utensils", title: "Handmade Baos & Breads", description: "Puffed to order off our iron tawa and steam baskets. Never reheated." },
+        { icon: "leaf", title: "Zero Preservatives", description: "Clean eating you can enjoy 4 times a week without feeling sluggish." },
+      ],
+      ctaLabel: "Taste the Menu", ctaDeepLink: "mealji://menu",
+      image: "liveKitchenChef", gallery: ["kitchenPrep", "kitchenFresh"],
+    },
     hours: { opensAt: "08:00", closesAt: "23:00" },
   },
 };
@@ -373,11 +413,20 @@ async function seedCatalog(kitchens, img) {
         preparationMinutes: extra.preparationMinutes ?? null,
         ...(img[extra.image] ? { images: [img[extra.image]] } : {}),
       } });
+      const detail = DISH_DETAILS[dish.name];
+      if (detail) {
+        const { image, ...upgrade } = detail.mealUpgrade || {};
+        await KitchenDish.updateOne({ _id: dish._id }, { $set: {
+          highlights: detail.highlights || [],
+          ...(detail.portions ? { portions: detail.portions } : {}),
+          ...(detail.mealUpgrade ? { mealUpgrade: { ...upgrade, imageUrl: img[image] || null } } : {}),
+        } });
+      }
     }
     for (const { image, ...combo } of setup.combos) {
       const data = { ...combo, imageUrl: img[image] || null, items: combo.items.map(([name, qty]) => ({ dishId: String(byName.get(name)._id), qty })) };
       const found = await KitchenCombo.findOne({ kitchen: kitchenId, title: combo.title }).lean();
-      if (found) await KitchenCombo.updateOne({ _id: found._id }, { $set: { imageUrl: data.imageUrl } });
+      if (found) await KitchenCombo.updateOne({ _id: found._id }, { $set: { imageUrl: data.imageUrl, pricePaise: data.pricePaise, originalPricePaise: data.originalPricePaise ?? null, badge: data.badge ?? null, serves: data.serves || 1 } });
       else await catalog.createCombo(kitchenId, data, { platform: true });
     }
     await catalog.invalidateMenu(kitchenId, "seed");
@@ -407,7 +456,8 @@ const BREAKFAST_ROTATION = ["Paneer Bao (3 pcs)", "Chicken Tikka Wrap", "Royal K
 async function seedKitchenOps(kitchens, img) {
   for (const [key, kitchen] of Object.entries(kitchens)) {
     const { about } = KITCHEN_SETUP[key];
-    const update = { about: { chefName: about.chefName, title: about.title, story: about.story, imageUrl: img[about.image] || null, gallery: about.gallery.map((name) => img[name]).filter(Boolean) } };
+    const { image, gallery, ...text } = about;
+    const update = { about: { ...text, imageUrl: img[image] || null, gallery: gallery.map((name) => img[name]).filter(Boolean) } };
     if (kitchen.status !== "active") Object.assign(update, { status: "active", acceptingOrders: true });
     await Kitchen.updateOne({ _id: kitchen._id }, { $set: update });
 
@@ -473,15 +523,27 @@ async function seedContent(kitchens, img) {
     await content.saveBanner(found ? String(found._id) : null, data);
   }
 
-  // The app's three onboarding steps.
+  // The app's three onboarding steps: each names the layout the app draws
+  // (chef mascot, menu grid, fresh benefits), the highlighted words and the button.
   const slides = [
-    { title: "Hey. I'm the chef at Meal Ji.", subtitle: "One kitchen. One menu. Cooked and packed by the same people every time.", image: "mascot", sortOrder: 0 },
-    { title: "A short menu. Every dish, a hero.", subtitle: "Nine signature bowls, bao, wraps and desserts. No filler. No maybes.", image: "onboardMenu", sortOrder: 1 },
-    { title: "Made in the last hour. Delivered warm.", subtitle: "Every dish is fresh out the pan. We deliver in 25–35 minutes, or you pick it up in 15.", image: "onboardFresh", sortOrder: 2 },
+    { layout: "chef", title: "Hey. I'm the chef at Meal Ji.", highlight: "Meal Ji.", subtitle: "One kitchen. One menu. Cooked and packed by the same people every time.", ctaLabel: "Show me the menu", image: "mascot", sortOrder: 0 },
+    {
+      layout: "menu", title: "A short menu. Every dish, a hero.", highlight: "hero.", subtitle: "Nine signature bowls, bao, wraps and desserts. No filler. No maybes.", ctaLabel: "Continue", image: "onboardMenu", sortOrder: 1,
+      items: [["Signature Bowls", "butterChickenBowl"], ["Steamed Bao", "paneerBao"], ["Global Wraps", "tikkaWrap"], ["Street Snacks", "biryaniArancini"], ["Comfort Curries", "dalRamen"], ["Desserts", "gulabCheesecake"]],
+    },
+    {
+      layout: "fresh", title: "Made in the last hour. Delivered warm.", highlight: "Delivered warm.", subtitle: "Every dish is fresh out the pan. We deliver in 25–35 minutes, or you pick it up in 15.", ctaLabel: "Let's eat", image: "onboardFresh", sortOrder: 2,
+      items: [["Hot Meals"], ["Real Ingredients"], ["Happier You"]],
+    },
   ];
-  for (const { image, ...slide } of slides) {
+  for (const { image, items = [], ...slide } of slides) {
     const found = await OnboardingSlide.findOne({ title: slide.title }).lean();
-    await content.saveSlide(found ? String(found._id) : null, { ...slide, imageUrl: img[image] || null, isActive: true });
+    await content.saveSlide(found ? String(found._id) : null, {
+      ...slide,
+      imageUrl: img[image] || null,
+      items: items.map(([title, itemImage]) => ({ title, imageUrl: itemImage ? img[itemImage] || null : null })),
+      isActive: true,
+    });
   }
 
   await seedThemes(img);
@@ -872,6 +934,41 @@ async function withKitchensOpen(kitchens, run) {
   }
 }
 
+// ------------------------------------------------------------------ favourites and search
+
+// Favourites for the demo customers (Favourites screen, hearts) and a week of
+// searches so Trending and Recent are not empty.
+async function seedFavoritesAndSearches(customers) {
+  const { Favorite } = await import("../src/modules/favorites/favorites.model.js");
+  const { SearchLog } = await import("../src/modules/search/search.routes.js");
+  const kitchen = (await demoKitchens()).Koramangala;
+  const dishes = new Map((await KitchenDish.find({ kitchen: kitchen._id, isActive: true }).select("name").lean()).map((dish) => [dish.name, dish._id]));
+  const FAVORITES = {
+    "9000000031": ["Butter Chicken Bowl", "Gulab Cheesecake", "Paneer Bao (3 pcs)", "Mutton Biryani"],
+    "9000000032": ["Chicken Biryani", "Royal Kulfi Shake"],
+    "9000000033": ["Dal Ramen"],
+  };
+  const TRENDING = ["Butter chicken", "Bao", "Ramen", "Kulfi", "Meal Ji Meal", "Biryani"];
+  const RECENT = { "9000000031": ["Chicken wrap", "Gulab jamun", "Kulfi shake"] };
+  const users = Object.values(customers).map((customer) => customer.user);
+  const normalize = (text) => text.toLowerCase().trim();
+  for (const user of users) {
+    for (const name of FAVORITES[user.phoneNumber] || []) {
+      const dish = dishes.get(name);
+      if (dish) await Favorite.updateOne({ user: user._id, dish }, { $setOnInsert: { user: user._id, dish } }, { upsert: true });
+    }
+  }
+  // Only once per customer: searches are history, not settings.
+  const done = new Set((await SearchLog.distinct("user", { user: { $in: users.map((user) => user._id) }, normalized: "meal ji meal" })).map(String));
+  const rows = [];
+  users.forEach((user, index) => {
+    if (done.has(String(user._id))) return;
+    TRENDING.slice(0, 5 + (index % 2)).forEach((query, i) => rows.push({ user: user._id, kitchen: kitchen._id, query, normalized: normalize(query), results: 3, createdAt: new Date(Date.now() - (i + index) * 3_600_000) }));
+    (RECENT[user.phoneNumber] || []).forEach((query, i) => rows.push({ user: user._id, kitchen: kitchen._id, query, normalized: normalize(query), results: 2, createdAt: new Date(Date.now() - (i + 1) * 60_000) }));
+  });
+  if (rows.length) await SearchLog.insertMany(rows);
+}
+
 // ------------------------------------------------------------------ entry
 
 export async function seedDemoData({ fresh = false } = {}) {
@@ -902,6 +999,7 @@ export async function seedDemoData({ fresh = false } = {}) {
   for (let offset = 0; offset <= 60; offset += 1) await rollupDay(addIstDays(istDateKey(), -offset));
   for (const customer of Object.values(customers)) await computeTraits(customer.user._id);
   await seedEngagement(actor);
+  await seedFavoritesAndSearches(customers);
   await segments.refreshSegmentSizes();
 
   logger.info({

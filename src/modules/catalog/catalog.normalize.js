@@ -1,3 +1,4 @@
+import { assertOwnFileUrl } from "../upload/upload.service.js";
 import crypto from "node:crypto";
 import { AppError } from "../../common/errors/AppError.js";
 
@@ -26,7 +27,7 @@ function portions(value, errors) {
   const out = value.map((item, index) => {
     if (!item || !str(item.label, 40)) errors.push({ field: `portions[${index}].label`, message: "Portion label is required" });
     if (!isMoney(item?.pricePaise)) errors.push({ field: `portions[${index}].pricePaise`, message: "Portion price must be paise" });
-    return { portionId: item?.portionId || shortId(), label: str(item?.label, 40), pricePaise: item?.pricePaise, isDefault: Boolean(item?.isDefault) };
+    return { portionId: item?.portionId || shortId(), label: str(item?.label, 40), pricePaise: item?.pricePaise, serves: str(item?.serves, 20) || null, isDefault: Boolean(item?.isDefault) };
   });
   if (out.length && !out.some((item) => item.isDefault)) out[0].isDefault = true;
   return out;
@@ -109,10 +110,17 @@ export function normalizeDish(input, { partial = false, kitchenDish = true, maxI
   if (present("customizationGroups")) out.customizationGroups = groups(input.customizationGroups, errors);
   if (present("mealUpgrade")) {
     const upgrade = input.mealUpgrade;
-    if (upgrade == null || (!upgrade.label && upgrade.pricePaise == null)) out.mealUpgrade = { label: null, description: null, pricePaise: null };
+    if (upgrade == null || (!upgrade.label && upgrade.pricePaise == null)) out.mealUpgrade = { label: null, description: null, pricePaise: null, originalPricePaise: null, imageUrl: null };
     else {
       if (!str(upgrade.label, 60) || !isMoney(upgrade.pricePaise)) errors.push({ field: "mealUpgrade", message: "Meal upgrade needs a label and a price" });
-      out.mealUpgrade = { label: str(upgrade.label, 60), description: str(upgrade.description, 200), pricePaise: upgrade.pricePaise };
+      if (upgrade.originalPricePaise != null && !isMoney(upgrade.originalPricePaise)) errors.push({ field: "mealUpgrade.originalPricePaise", message: "Original price must be paise" });
+      out.mealUpgrade = {
+        label: str(upgrade.label, 60),
+        description: str(upgrade.description, 200),
+        pricePaise: upgrade.pricePaise,
+        originalPricePaise: upgrade.originalPricePaise ?? null,
+        imageUrl: upgrade.imageUrl ? assertOwnFileUrl(upgrade.imageUrl, "Meal image") : null,
+      };
     }
   }
 

@@ -10,7 +10,7 @@ import { HomeTheme } from "./content.model.js";
 const HEX = /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const HEADER_COLORS = ["statusBarColor", "textColor", "subTextColor"];
 const PROMO_COLORS = ["titleColor", "subtitleColor", "ctaColor", "ctaTextColor"];
-const PROMO_TEXT = { title: 60, badge: 20, subtitle: 120, ctaLabel: 30, couponCode: 30 };
+const PROMO_TEXT = { title: 60, badge: 20, subtitle: 120, ctaLabel: 30, couponCode: 20 };
 
 /** What the app receives (no admin fields). */
 export function toHeaderTheme(theme) {

@@ -160,7 +160,9 @@ const usedVariables = new Set();
 
 for (const [key, route] of routes) {
   if (have.has(key)) continue;
-  const folderName = folderFor(route.path);
+  // New app endpoints wait in one folder until they are given a release step.
+  const natural = folderFor(route.path);
+  const folderName = natural.startsWith("App") || natural === "Location" ? "App · not in a release step" : natural === "Auth" ? "Console sign-in" : natural;
   let folder = collection.item.find((item) => item.name === folderName && item.item);
   if (!folder) {
     folder = { name: folderName, item: [] };
@@ -193,13 +195,16 @@ for (const name of ["dishId", "addressId", "orderId", "gatewayOrderId", "payment
   if (!collection.variable.some((variable) => variable.key === name)) collection.variable.push({ key: name, value: "", type: "string" });
 }
 
-// Keep folders in a stable, readable order.
-const order = ["Health", "Auth", "App", "App · Profile", "App · Addresses", "App · Location", "App · Home & content", "App · Menu & search", "App · Favourites", "App · Cart & checkout", "App · Orders & payments", "App · MealJi Plus", "App · Rewards", "App · Notifications", "App · Support", "App · Config & analytics", "Location", "Kitchen desk", "Kitchen · Orders", "Kitchen · Menu", "Kitchen · Meal plan", "Kitchen · Reports", "Kitchens", "Admin"];
-collection.item.sort((a, b) => {
-  const ia = order.indexOf(a.name);
-  const ib = order.indexOf(b.name);
-  return (ia < 0 ? 100 : ia) - (ib < 0 ? 100 : ib) || a.name.localeCompare(b.name);
-});
+// Keep folders in a stable, readable order: the app's release steps first
+// (Step 01, Step 02 …), then the consoles and platform folders.
+const order = ["Health", "Console sign-in", "App · not in a release step", "Kitchen desk", "Kitchen · Orders", "Kitchen · Menu", "Kitchen · Meal plan", "Kitchen · Reports", "Kitchens", "Admin"];
+const rank = (name) => {
+  const step = /^Step (\d+) · /.exec(name);
+  if (step) return Number(step[1]) - 1000;
+  const index = order.indexOf(name);
+  return index < 0 ? 100 : index;
+};
+collection.item.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
 
 await writeFile(collectionPath, `${JSON.stringify(collection, null, "\t")}\n`, "utf8");
 console.log(`Added ${added} request(s) to the Postman collection.`);

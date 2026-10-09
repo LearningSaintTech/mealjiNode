@@ -1,3 +1,5 @@
+import { toAbout } from "./kitchen.about.js";
+
 export function toKitchen(kitchen) {
   return {
     kitchenId: String(kitchen._id),
@@ -22,13 +24,7 @@ export function toKitchen(kitchen) {
     weeklyHours: (kitchen.weeklyHours || []).map((day) => ({ weekday: day.weekday, closed: Boolean(day.closed), opensAt: day.opensAt ?? null, closesAt: day.closesAt ?? null })),
     closures: (kitchen.closures || []).map((item) => ({ date: item.date, reason: item.reason || "" })),
     billingEntityId: kitchen.billingEntity ? String(kitchen.billingEntity._id || kitchen.billingEntity) : null,
-    about: {
-      chefName: kitchen.about?.chefName ?? null,
-      title: kitchen.about?.title ?? null,
-      story: kitchen.about?.story ?? null,
-      imageUrl: kitchen.about?.imageUrl ?? null,
-      gallery: kitchen.about?.gallery || [],
-    },
+    about: toAbout(kitchen.about || {}),
     ratingAvg: kitchen.ratingAvg || 0,
     ratingCount: kitchen.ratingCount || 0,
     createdAt: kitchen.createdAt,

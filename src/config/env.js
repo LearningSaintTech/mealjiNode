@@ -35,6 +35,8 @@ const corsList = corsRaw.split(",").map((item) => item.trim()).filter(Boolean);
 export const env = {
   nodeEnv,
   isProd,
+  // Where the demo seed images are hosted (accepted as "own" images too).
+  seedImageBaseUrl: String(process.env.SEED_IMAGE_BASE_URL || "https://d3bi5d5em13bi2.cloudfront.net/mealji/seed").trim().replace(/\/$/, ""),
   port: int("PORT", 4000),
   mongoUri: process.env.MONGO_URI || "mongodb://127.0.0.1:27017/mealji",
   trustProxy: process.env.TRUST_PROXY === "false" ? false : int("TRUST_PROXY", 1),
@@ -79,7 +81,7 @@ export const env = {
   otpIpSoftLimit: int("OTP_IP_SOFT_LIMIT", isProd ? 300 : 1000),
   otpIpSoftWindowSec: int("OTP_IP_SOFT_WINDOW_SEC", 3600),
   rateLimitRedisTimeoutMs: int("RATE_LIMIT_REDIS_TIMEOUT_MS", 2000),
-  otpResendCooldownSec: int("OTP_RESEND_COOLDOWN_SEC", 45),
+  otpResendCooldownSec: int("OTP_RESEND_COOLDOWN_SEC", 30),
   otpMaxAttempts: int("OTP_MAX_ATTEMPTS", 5),
   // Failed OTP checks allowed per account per 24 h, across all re-sends.
   otpDailyFailureLimit: int("OTP_DAILY_FAILURE_LIMIT", 20),

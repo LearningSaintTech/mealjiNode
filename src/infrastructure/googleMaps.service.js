@@ -10,15 +10,15 @@ function component(components, ...types) {
   return match?.long_name || null;
 }
 
-function rejectGeocode(status, errorMessage, fallback) {
+function rejectGeocode(status, errorMessage, fallback, api = "Geocoding API") {
   if (status === "REQUEST_DENIED") {
     logger.error({ status }, "Google Maps rejected the key");
     const billing = /billing/i.test(errorMessage || "");
     throw new AppError(
       502,
       billing
-        ? "Google Maps rejected the key. Enable billing for the Geocoding API on this Cloud project."
-        : "Google Maps rejected the key. Enable the Geocoding API for this key.",
+        ? `Google Maps rejected the key. Enable billing for the ${api} on this Cloud project.`
+        : `Google Maps rejected the key. Enable the ${api} for this key.`,
     );
   }
   logger.error({ status, error: errorMessage }, "Google Maps geocoding rejected the request");
@@ -127,9 +127,12 @@ export async function geocodeAddress(address) {
   }
 
   const status = response?.data?.status;
-  const location = response?.data?.results?.[0]?.geometry?.location;
+  const result = response?.data?.results?.[0];
+  const location = result?.geometry?.location;
   if (status === "OK" && Number.isFinite(location?.lat) && Number.isFinite(location?.lng)) {
-    return { latitude: location.lat, longitude: location.lng };
+    // `vague`: Google only matched the whole country or state (e.g. a made-up address).
+    const vague = (result.types || []).some((type) => type === "country" || type === "administrative_area_level_1");
+    return { latitude: location.lat, longitude: location.lng, vague };
   }
 
   if (status === "ZERO_RESULTS") {
@@ -171,77 +174,86 @@ export async function reverseGeocode({ latitude, longitude }) {
   rejectGeocode(status, response?.data?.error_message, "Could not resolve the location");
 }
 
-// ---- Customer address search (Places Autocomplete + Place Details) ----
+// ---- Customer address search (Places API (New): Autocomplete + Place Details) ----
 
-const PLACES_BASE = "https://maps.googleapis.com/maps/api/place";
+const PLACES_BASE = "https://places.googleapis.com/v1";
 
 function requireKey() {
   if (!env.googleMapsApiKey) throw new AppError(503, "Address search is not configured");
 }
 
+/** Maps a Places API (New) error response to our error; the key problems name the API to enable. */
+function rejectPlaces(error, fallback) {
+  const status = error?.response?.status;
+  const detail = error?.response?.data?.error;
+  if (status === 404 || detail?.status === "NOT_FOUND" || detail?.status === "INVALID_ARGUMENT") throw new AppError(404, "Place not found");
+  if (status === 403 || detail?.status === "PERMISSION_DENIED") {
+    logger.error({ status, error: detail?.message }, "Google Places rejected the key");
+    throw new AppError(502, "Google Maps rejected the key. Enable the Places API (New) for this key.");
+  }
+  logger.error({ status, error: detail?.message }, "Google Places request failed");
+  throw new AppError(502, fallback);
+}
+
+const placesHeaders = (fieldMask) => ({ "X-Goog-Api-Key": env.googleMapsApiKey, ...(fieldMask ? { "X-Goog-FieldMask": fieldMask } : {}) });
+
 /** Place predictions for a partial address, biased to a point when given. */
 export async function autocompletePlaces({ input, latitude, longitude, sessionToken }) {
   requireKey();
-  const params = {
-    input,
-    key: env.googleMapsApiKey,
-    language: env.googleMapsLanguage || "en",
-    components: "country:in",
-  };
+  const body = { input, languageCode: env.googleMapsLanguage || "en", includedRegionCodes: ["in"] };
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-    params.location = `${latitude},${longitude}`;
-    params.radius = 30000;
+    body.locationBias = { circle: { center: { latitude, longitude }, radius: 30000 } };
   }
-  if (sessionToken) params.sessiontoken = sessionToken;
+  if (sessionToken) body.sessionToken = sessionToken;
   let response;
   try {
-    response = await client.get(`${PLACES_BASE}/autocomplete/json`, { params });
+    response = await client.post(`${PLACES_BASE}/places:autocomplete`, body, { headers: placesHeaders() });
   } catch (error) {
-    logger.error({ status: error?.response?.status }, "Google Places autocomplete failed");
-    throw new AppError(502, "Could not search addresses");
+    if (error?.response?.status === 404) return [];
+    rejectPlaces(error, "Could not search addresses");
   }
-  const status = response?.data?.status;
-  if (status === "ZERO_RESULTS") return [];
-  if (status !== "OK") rejectGeocode(status, response?.data?.error_message, "Could not search addresses");
-  return (response.data.predictions || []).slice(0, 8).map((item) => ({
-    placeId: item.place_id,
-    primaryText: item.structured_formatting?.main_text || item.description,
-    secondaryText: item.structured_formatting?.secondary_text || "",
-    description: item.description,
-  }));
+  return (response.data?.suggestions || [])
+    .map((item) => item.placePrediction)
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((item) => ({
+      placeId: item.placeId,
+      primaryText: item.structuredFormat?.mainText?.text || item.text?.text || "",
+      secondaryText: item.structuredFormat?.secondaryText?.text || "",
+      description: item.text?.text || "",
+    }));
 }
 
 /** Full address and coordinates for a place ID. */
 export async function placeDetails({ placeId, sessionToken }) {
   requireKey();
-  const params = {
-    place_id: placeId,
-    key: env.googleMapsApiKey,
-    language: env.googleMapsLanguage || "en",
-    fields: "place_id,formatted_address,address_component,geometry/location,name",
-  };
-  if (sessionToken) params.sessiontoken = sessionToken;
+  const params = { languageCode: env.googleMapsLanguage || "en" };
+  if (sessionToken) params.sessionToken = sessionToken;
   let response;
   try {
-    response = await client.get(`${PLACES_BASE}/details/json`, { params });
+    response = await client.get(`${PLACES_BASE}/places/${encodeURIComponent(placeId)}`, {
+      params,
+      headers: placesHeaders("id,displayName,formattedAddress,addressComponents,location"),
+    });
   } catch (error) {
-    logger.error({ status: error?.response?.status }, "Google Place details failed");
-    throw new AppError(502, "Could not load this address");
+    rejectPlaces(error, "Could not load this address");
   }
-  const status = response?.data?.status;
-  if (status === "NOT_FOUND" || status === "INVALID_REQUEST") throw new AppError(404, "Place not found");
-  if (status !== "OK") rejectGeocode(status, response?.data?.error_message, "Could not load this address");
-  const result = response.data.result;
-  const textual = textualLocation(result);
+  const place = response.data || {};
+  // Same shape as the Geocoding result so textualLocation can read it.
+  const textual = textualLocation({
+    formatted_address: place.formattedAddress,
+    place_id: place.id,
+    address_components: (place.addressComponents || []).map((item) => ({ long_name: item.longText, short_name: item.shortText, types: item.types })),
+  });
   return {
-    placeId: result.place_id,
-    name: result.name || null,
+    placeId: place.id,
+    name: place.displayName?.text || null,
     fullAddress: textual.locationText,
     locality: textual.area,
     city: textual.city,
     state: textual.state,
     pincode: textual.postalCode,
-    latitude: result.geometry?.location?.lat ?? null,
-    longitude: result.geometry?.location?.lng ?? null,
+    latitude: place.location?.latitude ?? null,
+    longitude: place.location?.longitude ?? null,
   };
 }

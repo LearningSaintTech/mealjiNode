@@ -1,4 +1,8 @@
 import mongoose from "mongoose";
+import { memoCache } from "../../common/memoCache.js";
+
+// Active, placed kitchens: read on almost every customer request.
+export const kitchenCache = memoCache(5_000);
 
 const kitchenSchema = new mongoose.Schema(
   {
@@ -47,6 +51,12 @@ const kitchenSchema = new mongoose.Schema(
       chefName: { type: String, default: null, maxlength: 80 },
       title: { type: String, default: null, maxlength: 120 },
       story: { type: String, default: null, maxlength: 2000 },
+      tagline: { type: String, default: null, maxlength: 60 },
+      quote: { type: String, default: null, maxlength: 240 },
+      standardTitle: { type: String, default: null, maxlength: 60 },
+      pillars: { type: [{ _id: false, icon: { type: String, default: null }, title: { type: String, required: true }, description: { type: String, default: null } }], default: [] },
+      ctaLabel: { type: String, default: null, maxlength: 30 },
+      ctaDeepLink: { type: String, default: null, maxlength: 300 },
       imageUrl: { type: String, default: null, maxlength: 500 },
       gallery: { type: [String], default: [] },
     },
@@ -59,5 +69,10 @@ const kitchenSchema = new mongoose.Schema(
 kitchenSchema.index({ phoneNumber: 1 }, { unique: true });
 kitchenSchema.index({ user: 1 }, { unique: true, sparse: true });
 kitchenSchema.index({ status: 1, createdAt: -1 });
+
+// Any write clears the short in-process kitchen cache (kitchen.repository.js).
+const kitchenChanged = () => kitchenCache.clear();
+kitchenSchema.post("save", kitchenChanged);
+for (const op of ["updateOne", "updateMany", "findOneAndUpdate", "deleteOne", "deleteMany"]) kitchenSchema.post(op, kitchenChanged);
 
 export const Kitchen = mongoose.model("Kitchen", kitchenSchema);

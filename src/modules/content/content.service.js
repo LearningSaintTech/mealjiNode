@@ -2,11 +2,12 @@ import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { cleanLink, stringArray } from "../../common/links.js";
 import { istParts } from "../../common/time.js";
+import { withTransaction } from "../../config/database.js";
 import { logger } from "../../config/logger.js";
 import { storeDel, storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
 import { normalizeCity } from "../settings/settings.resolver.js";
 import { assertOwnFileUrl } from "../upload/upload.service.js";
-import { Banner, BANNER_PLACEMENTS, HomeSection, HomeTheme, OnboardingSlide, SECTION_TYPES } from "./content.model.js";
+import { Banner, BANNER_PLACEMENTS, HomeSection, HomeTheme, OnboardingSlide, SECTION_TYPES, SLIDE_LAYOUTS } from "./content.model.js";
 import { pickTheme, toHeaderTheme } from "./theme.service.js";
 
 const CACHE_KEY = "content:shared";
@@ -126,7 +127,18 @@ export async function trackBanner(bannerId, kind, userId = null) {
 
 // ---- onboarding slides
 
-const toSlide = (slide) => ({ slideId: String(slide._id), title: slide.title, subtitle: slide.subtitle ?? null, imageUrl: slide.imageUrl ?? null, sortOrder: slide.sortOrder || 0, isActive: slide.isActive !== false });
+const toSlide = (slide) => ({
+  slideId: String(slide._id),
+  layout: slide.layout || "basic",
+  title: slide.title,
+  highlight: slide.highlight ?? null,
+  subtitle: slide.subtitle ?? null,
+  ctaLabel: slide.ctaLabel ?? null,
+  imageUrl: slide.imageUrl ?? null,
+  items: (slide.items || []).map((item) => ({ title: item.title, imageUrl: item.imageUrl ?? null })),
+  sortOrder: slide.sortOrder || 0,
+  isActive: slide.isActive !== false,
+});
 
 export async function listSlides({ activeOnly = false } = {}) {
   return (await OnboardingSlide.find(activeOnly ? { isActive: true } : {}).sort({ sortOrder: 1 }).lean()).map(toSlide);
@@ -138,6 +150,28 @@ export async function saveSlide(slideId, input) {
   if (!slideId && !data.title) throw new AppError(422, "Validation failed", [{ field: "title", message: "Title is required" }]);
   if (input.subtitle !== undefined) data.subtitle = input.subtitle ? String(input.subtitle).trim() : null;
   if (input.imageUrl !== undefined) data.imageUrl = assertOwnFileUrl(input.imageUrl, "Slide image");
+  const errors = [];
+  if (input.layout !== undefined) {
+    if (!SLIDE_LAYOUTS.includes(input.layout)) errors.push({ field: "layout", message: `Layout: ${SLIDE_LAYOUTS.join(", ")}` });
+    else data.layout = input.layout;
+  }
+  for (const [key, max] of [["highlight", 60], ["ctaLabel", 30]]) {
+    if (input[key] === undefined) continue;
+    const value = input[key] ? String(input[key]).trim() : null;
+    if (value && value.length > max) errors.push({ field: key, message: `Up to ${max} characters` });
+    else data[key] = value;
+  }
+  if (input.items !== undefined) {
+    const items = input.items || [];
+    if (!Array.isArray(items) || items.length > 8 || items.some((item) => !item || typeof item.title !== "string" || !item.title.trim() || item.title.length > 40)) {
+      errors.push({ field: "items", message: "Up to 8 items, each with a title (max 40)" });
+    } else {
+      data.items = items.map((item) => ({ title: item.title.trim(), imageUrl: item.imageUrl ? assertOwnFileUrl(item.imageUrl, "Item image") : null }));
+    }
+  }
+  const title = data.title ?? input.title;
+  if (data.highlight && title && !String(title).includes(data.highlight)) errors.push({ field: "highlight", message: "Highlight must be words from the title" });
+  if (errors.length) throw new AppError(422, "Validation failed", errors);
   if (input.sortOrder !== undefined) data.sortOrder = Number(input.sortOrder) || 0;
   if (input.isActive !== undefined) data.isActive = Boolean(input.isActive);
   const slide = slideId
@@ -184,8 +218,7 @@ export async function saveSections(sections) {
     }
   });
   if (errors.length) throw new AppError(422, "Validation failed", errors);
-  await HomeSection.deleteMany({});
-  await HomeSection.insertMany(sections.map((section, index) => ({
+  const docs = sections.map((section, index) => ({
     key: section.key,
     type: section.type,
     title: section.title || null,
@@ -195,7 +228,11 @@ export async function saveSections(sections) {
     config: section.type === "features"
       ? { items: (section.config?.items || []).map((item) => ({ icon: item.icon || null, title: item.title.trim(), subtitle: item.subtitle?.trim() || null })) }
       : section.config || {},
-  })));
+  }));
+  await withTransaction(async (session) => {
+    await HomeSection.deleteMany({}, { session });
+    await HomeSection.insertMany(docs, { session });
+  });
   await invalidateContent();
   return listSections();
 }
@@ -272,6 +309,23 @@ async function safely(label, work, fallback = null) {
  * personal parts (greeting, your usual, cart, unread count, subscription) are
  * fetched in parallel, and a failing part never fails the whole screen.
  */
+/**
+ * GET /banners?placement=: banners for one slot outside the home payload
+ * (menu header, offers tab), targeted to the customer's serving kitchen.
+ */
+export async function bannersForCustomer(user, { placement, kitchenId = null }) {
+  if (!BANNER_PLACEMENTS.includes(placement)) throw new AppError(422, `placement: ${BANNER_PLACEMENTS.join(", ")}`);
+  const { resolveCustomerKitchen } = await import("../serviceability/serviceability.service.js");
+  const userId = String(user._id);
+  const [shared, serving, segmentIds] = await Promise.all([
+    sharedContent(),
+    safely("banner kitchen", () => resolveCustomerKitchen({ kitchenId, userId, user }), null),
+    safely("segments", async () => (await import("../engagement/segment.service.js")).segmentIdsForUser(userId), []),
+  ]);
+  const city = serving?.kitchen.city || user.currentLocation?.city || null;
+  return bannersFor(shared.banners, { placement, kitchenId: serving ? String(serving.kitchen._id) : null, city, segmentIds }).map(toPublicBanner);
+}
+
 /** A banner as the app sees it: no counters, targeting or admin flags. */
 export function toPublicBanner(banner) {
   const { impressions, clicks, segmentId, cities, kitchenIds, isActive, sortOrder, ...rest } = banner;
@@ -299,7 +353,7 @@ async function deliverToFor(user, point, kitchen) {
  * (both or neither) = the location the user picked; without them the saved
  * location, then the default address. `veg` overrides the saved veg-only pref.
  */
-export async function homeFor(user, { latitude = null, longitude = null, veg = null } = {}) {
+export async function homeFor(user, { latitude = null, longitude = null, veg = null, kitchenId: pickedKitchenId = null } = {}) {
   const { resolveCustomerKitchen, serviceabilityAt } = await import("../serviceability/serviceability.service.js");
   const catalog = await import("../catalog/catalog.service.js");
   const shared = await sharedContent();
@@ -311,8 +365,8 @@ export async function homeFor(user, { latitude = null, longitude = null, veg = n
   let serviceability = null;
   try {
     // A picked point is served on its own; otherwise saved location, then address.
-    serving = await resolveCustomerKitchen(hasPoint ? { latitude, longitude } : { userId });
-    serviceability = await serviceabilityAt({ ...serving.point, userId });
+    serving = await resolveCustomerKitchen(hasPoint ? { latitude, longitude } : { userId, user });
+    serviceability = await serviceabilityAt({ ...serving.point, userId, kitchenId: pickedKitchenId });
   } catch (err) {
     if (err.statusCode !== 409 && err.statusCode !== 400) throw err;
     if (hasPoint) {
@@ -322,15 +376,18 @@ export async function homeFor(user, { latitude = null, longitude = null, veg = n
       serviceability = { serviceable: false, reason: err.statusCode === 400 ? "no_location" : "not_serviceable", message: err.message, kitchen: null, distanceKm: null };
     }
   }
-  const kitchenId = serving ? String(serving.kitchen._id) : null;
-  const city = serving?.kitchen.city || user.currentLocation?.city || null;
+  // Every section follows the kitchen in the header (serviceability made the final pick).
+  const kitchenId = serviceability?.serviceable ? serviceability.kitchen.kitchenId : null;
+  const city = serviceability?.kitchen?.city || user.currentLocation?.city || null;
   const segmentIds = await safely("segments", async () => (await import("../engagement/segment.service.js")).segmentIdsForUser(userId), []);
   const vegFilter = (items) => (vegOnly ? items.filter((item) => item.isVeg) : items);
   const banners = (placement) => bannersFor(shared.banners, { placement, kitchenId, city, segmentIds }).map(toPublicBanner);
 
   const sectionsWork = Promise.all(shared.sections.map(async (section) => {
     const base = { key: section.key, type: section.type, title: section.title, subtitle: section.subtitle };
-    if (section.type === "banners" || section.type === "how_we_cook") return { ...base, items: banners(section.config.placement || "home_hero") };
+    if (section.type === "banners" || section.type === "how_we_cook") {
+      return { ...base, items: banners(section.config.placement || (section.type === "how_we_cook" ? "home_how_we_cook" : "home_hero")) };
+    }
     if (section.type === "features") return { ...base, items: section.config.items || [] };
     if (!kitchenId) return null;
     if (section.type === "categories") return { ...base, items: await safely("categories", () => catalog.customerCategories(kitchenId), []) };
@@ -354,18 +411,22 @@ export async function homeFor(user, { latitude = null, longitude = null, veg = n
     return null;
   }));
 
-  const [sections, cart, unreadNotifications, subscription, deliverTo] = await Promise.all([
+  const [sections, cart, unreadNotifications, subscription, deliverTo, appCopy] = await Promise.all([
     sectionsWork,
     safely("cart", async () => (await import("../cart/cart.service.js")).cartSummary(userId, { kitchenId, freeDeliveryAbovePaise: serviceability?.freeDeliveryAbovePaise ?? null, minOrderPaise: serviceability?.minOrderPaise || 0 }), null),
     safely("unread", async () => (await import("../notification/notification.service.js")).unreadCount(userId), 0),
     safely("subscription", async () => (await import("../subscription/subscription.service.js")).subscriptionCard(userId), null),
-    safely("deliverTo", () => deliverToFor(user, serving?.point || (hasPoint ? { latitude, longitude } : null), serving?.kitchen), null),
+    safely("deliverTo", () => deliverToFor(user, serving?.point || (hasPoint ? { latitude, longitude } : null), serviceability?.kitchen || serving?.kitchen), null),
+    safely("appCopy", async () => (await (await import("../settings/settings.service.js")).resolveSetting("app", { city })).values, {}),
   ]);
 
   return {
     // Seasonal header (gradient/image, status bar, promo card with two images).
     header: toHeaderTheme(pickTheme(shared.themes || [], { city })),
     greeting: greeting(user.name),
+    // Admin-editable copy (Settings → App).
+    headline: appCopy?.homeHeadline || "What are you craving today?",
+    searchPlaceholder: appCopy?.searchPlaceholder || "Search for dishes, biryani, meals...",
     deliverTo,
     vegOnly,
     serviceability,

@@ -29,6 +29,7 @@ const portionSchema = new mongoose.Schema(
     portionId: { type: String, required: true },
     label: { type: String, required: true, trim: true, maxlength: 40 },
     pricePaise: { type: Number, required: true, min: 0 },
+    serves: { type: String, default: null, trim: true, maxlength: 20 },
     isDefault: { type: Boolean, default: false },
   },
   { _id: false },
@@ -53,6 +54,8 @@ const dishContent = {
     label: { type: String, default: null },
     description: { type: String, default: null },
     pricePaise: { type: Number, default: null },
+    originalPricePaise: { type: Number, default: null },
+    imageUrl: { type: String, default: null },
   },
 };
 

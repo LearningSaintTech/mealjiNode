@@ -9,6 +9,8 @@ export async function authMiddleware(req, res, next) {
     const header = req.headers.authorization || "";
     const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
     if (!token) throw new AppError(401, "Authentication required");
+    // Several routers guard the same path: check the token once per request.
+    if (req.auth && req.auth.token === token) return next();
 
     let payload;
     try {
@@ -22,7 +24,7 @@ export async function authMiddleware(req, res, next) {
       throw new AppError(401, "Invalid or expired token");
     }
 
-    const user = await userRepository.findById(payload.userId);
+    const user = await userRepository.findForAuth(payload.userId);
     if (!user || !user.isActive || !user.isNumberVerified || isSuspended(user) || tokenRevoked(user, payload.iat)) {
       throw new AppError(401, "Invalid or expired token");
     }
@@ -33,6 +35,7 @@ export async function authMiddleware(req, res, next) {
       permissions: (user.role?.permissions || []).map((permission) => permission.key),
       jti: payload.jti,
       exp: payload.exp,
+      token,
       user,
     };
     next();

@@ -1,11 +1,25 @@
 import { body } from "express-validator";
 
+// People type "98765 43210", "+91 98765 43210", "098765-43210": keep the
+// 10 digits. An email gets a clear "use your mobile number" (sign-in is OTP).
 const phone = body("phoneNumber")
   .trim()
   .notEmpty()
-  .withMessage("Phone number is required")
+  .withMessage("Enter your mobile number")
+  .bail()
+  .custom((value) => {
+    if (String(value).includes("@")) throw new Error("Sign in with your 10-digit mobile number; email sign-in is not available");
+    return true;
+  })
+  .bail()
+  .customSanitizer((value) => {
+    let digits = String(value).replace(/\D/g, "");
+    if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+    if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+    return digits;
+  })
   .matches(/^[6-9]\d{9}$/)
-  .withMessage("Invalid phone number format");
+  .withMessage("Enter a valid 10-digit mobile number");
 
 const countryCode = body("countryCode")
   .optional()

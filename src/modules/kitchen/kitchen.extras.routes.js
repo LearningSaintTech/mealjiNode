@@ -13,9 +13,9 @@ import { recordAudit } from "../audit/audit.service.js";
 import { entityForKitchen, toEntity } from "../billing/billing.service.js";
 import { roleRepository } from "../role/role.repository.js";
 import { resolveSetting } from "../settings/settings.service.js";
-import { assertOwnFileUrl } from "../upload/upload.service.js";
 import { toPublicUser } from "../user/user.mapper.js";
 import { userRepository } from "../user/user.repository.js";
+import { applyAbout } from "./kitchen.about.js";
 import { toKitchen } from "./kitchen.mapper.js";
 import { Kitchen } from "./kitchen.model.js";
 
@@ -68,11 +68,7 @@ kitchenExtrasRouter.get("/billing-entity", authorize("kitchen.desk"), ownKitchen
 }));
 kitchenExtrasRouter.put("/about", authorize("kitchen.configure"), ownKitchen, asyncHandler(async (req, res) => {
   const kitchen = await Kitchen.findById(req.kitchenId);
-  const about = { ...(kitchen.about?.toObject?.() || {}) };
-  for (const key of ["chefName", "title", "story"]) if (req.body[key] !== undefined) about[key] = req.body[key] ? String(req.body[key]).slice(0, key === "story" ? 2000 : 120) : null;
-  if (req.body.imageUrl !== undefined) about.imageUrl = assertOwnFileUrl(req.body.imageUrl);
-  if (Array.isArray(req.body.gallery)) about.gallery = req.body.gallery.slice(0, 12).map((url) => assertOwnFileUrl(url));
-  kitchen.about = about;
+  applyAbout(kitchen, req.body);
   await kitchen.save();
   await recordAudit(req, { action: "kitchen.about_changed", entityType: "kitchen", entityId: req.kitchenId, kitchenId: req.kitchenId, summary: "Updated the About page", diff: false });
   return ok(res, toKitchen(kitchen).about, "About page saved.");

@@ -10,6 +10,7 @@ import { resolveSetting } from "../settings/settings.service.js";
 import { assertOwnFileUrl } from "../upload/upload.service.js";
 import { KitchenCategory, KitchenCombo, KitchenDish, MasterCategory, MasterDish, MenuChangeRequest } from "./catalog.model.js";
 import { gatedFields, normalizeCategory, normalizeCombo, normalizeDish } from "./catalog.normalize.js";
+import { memoCache } from "../../common/memoCache.js";
 
 const MENU_TTL_SEC = 120;
 const menuKey = (kitchenId) => `menu:${kitchenId}`;
@@ -22,15 +23,51 @@ export function stockLeft(dish, at = new Date()) {
   return Math.max(0, dish.dailyStockLimit - sold);
 }
 
-/** Can this dish be ordered right now (kitchen switches, approval, stock, day)? */
-export function isOrderable(dish, at = new Date()) {
-  if (!dish || !dish.isActive || dish.approvalStatus !== "live" || !dish.isAvailable) return false;
-  if (dish.availableDays?.length && !dish.availableDays.includes(istParts(at).weekday)) return false;
+// When each on-demand meal slot can be ordered (IST, minutes from midnight).
+// A dish with availableSlots is orderable only inside one of its windows.
+export const DISH_SLOT_HOURS = {
+  breakfast: { from: 7 * 60, to: 11 * 60, label: "Breakfast (7–11 am)" },
+  lunch: { from: 11 * 60, to: 16 * 60, label: "Lunch (11 am–4 pm)" },
+  snacks: { from: 16 * 60, to: 19 * 60, label: "Snacks (4–7 pm)" },
+  dinner: { from: 19 * 60, to: 23 * 60 + 30, label: "Dinner (7–11:30 pm)" },
+};
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function inSlot(slots, at) {
+  if (!slots?.length) return true;
+  const { hour, minute } = istParts(at);
+  const now = hour * 60 + minute;
+  return slots.some((slot) => DISH_SLOT_HOURS[slot] && now >= DISH_SLOT_HOURS[slot].from && now < DISH_SLOT_HOURS[slot].to);
+}
+
+/**
+ * Why a dish cannot be ordered right now, or null when it can:
+ * unavailable (not live / switched off), not_today, outside_slot, sold_out.
+ */
+export function unavailableReason(dish, at = new Date()) {
+  if (!dish || !dish.isActive || dish.approvalStatus !== "live" || !dish.isAvailable) return "unavailable";
+  if (dish.availableDays?.length && !dish.availableDays.includes(istParts(at).weekday)) return "not_today";
+  if (!inSlot(dish.availableSlots, at)) return "outside_slot";
   const left = stockLeft(dish, at);
-  return left == null || left > 0;
+  return left == null || left > 0 ? null : "sold_out";
+}
+
+/** Text for the app when a dish cannot be ordered now. */
+export function unavailableMessage(dish, reason) {
+  if (reason === "sold_out") return "Sold out for today";
+  if (reason === "not_today") return `Available on ${dish.availableDays.map((day) => WEEKDAYS[day]).join(", ")}`;
+  if (reason === "outside_slot") return `Available for ${dish.availableSlots.map((slot) => DISH_SLOT_HOURS[slot]?.label || slot).join(", ")}`;
+  if (reason === "unavailable") return "Currently unavailable";
+  return null;
+}
+
+/** Can this dish be ordered right now (kitchen switches, approval, day, meal slot, stock)? */
+export function isOrderable(dish, at = new Date()) {
+  return unavailableReason(dish, at) === null;
 }
 
 export function toDish(dish, at = new Date()) {
+  const reason = unavailableReason(dish, at);
   return {
     dishId: String(dish._id),
     kitchenId: String(dish.kitchen),
@@ -43,7 +80,10 @@ export function toDish(dish, at = new Date()) {
     pricePaise: dish.pricePaise,
     originalPricePaise: dish.originalPricePaise ?? null,
     isVeg: dish.isVeg !== false,
-    isAvailable: isOrderable(dish, at),
+    isAvailable: reason === null,
+    // Why it cannot be ordered now (null when it can): unavailable | not_today | outside_slot | sold_out.
+    unavailableReason: reason,
+    unavailableMessage: unavailableMessage(dish, reason),
     stockLeft: stockLeft(dish, at),
     isBestseller: Boolean(dish.isBestseller),
     badge: dish.badge ?? null,
@@ -54,14 +94,38 @@ export function toDish(dish, at = new Date()) {
     highlights: dish.highlights || [],
     tags: dish.tags || [],
     cuisine: dish.cuisine ?? null,
-    portions: dish.portions || [],
-    mealUpgrade: dish.mealUpgrade?.label ? dish.mealUpgrade : null,
-    customizationGroups: dish.customizationGroups || [],
+    portions: (dish.portions || []).map((portion) => ({ portionId: portion.portionId, label: portion.label, pricePaise: portion.pricePaise, serves: portion.serves || null, isDefault: Boolean(portion.isDefault) })),
+    // “Make it a meal”: pricePaise is added to the dish price when chosen.
+    mealUpgrade: dish.mealUpgrade?.label ? {
+      label: dish.mealUpgrade.label,
+      description: dish.mealUpgrade.description || null,
+      pricePaise: dish.mealUpgrade.pricePaise || 0,
+      originalPricePaise: dish.mealUpgrade.originalPricePaise ?? null,
+      savingsPaise: dish.mealUpgrade.originalPricePaise > dish.mealUpgrade.pricePaise ? dish.mealUpgrade.originalPricePaise - dish.mealUpgrade.pricePaise : 0,
+      imageUrl: dish.mealUpgrade.imageUrl || null,
+    } : null,
+    customizationGroups: (dish.customizationGroups || []).map(toGroup),
     availableSlots: dish.availableSlots || [],
+    availableDays: dish.availableDays || [],
     // Standard name (same as kitchens): ratingAvg. `rating` is kept for older clients.
     ratingAvg: Math.round((dish.ratingAvg || 0) * 10) / 10,
     rating: Math.round((dish.ratingAvg || 0) * 10) / 10,
     ratingCount: dish.ratingCount || 0,
+  };
+}
+
+/** Option group as the app needs it: required, single or multi choice, limits. */
+function toGroup(group) {
+  const minSelect = group.minSelect || 0;
+  const maxSelect = Math.max(group.maxSelect || 1, minSelect || 1);
+  return {
+    groupId: group.groupId,
+    name: group.name,
+    required: minSelect > 0,
+    multiple: maxSelect > 1,
+    minSelect,
+    maxSelect,
+    options: (group.options || []).map((option) => ({ optionId: option.optionId, name: option.name, pricePaise: option.pricePaise || 0, isVeg: option.isVeg !== false, isAvailable: option.isAvailable !== false })),
   };
 }
 
@@ -98,8 +162,19 @@ export function toCategory(category, counts = null) {
 export function toCombo(combo, dishesById = new Map(), at = new Date()) {
   const items = (combo.items || []).map((item) => {
     const dish = dishesById.get(String(item.dish));
-    return { dishId: String(item.dish), qty: item.qty, name: dish?.name || null, isVeg: dish ? dish.isVeg !== false : true };
+    return {
+      dishId: String(item.dish),
+      qty: item.qty,
+      name: dish?.name || null,
+      imageUrl: dish?.images?.[0] || null,
+      pricePaise: dish?.pricePaise ?? null,
+      isVeg: dish ? dish.isVeg !== false : true,
+    };
   });
+  // “Save ₹X”: against the stated original price, else the dishes bought one by one.
+  const itemsTotal = items.every((item) => item.pricePaise != null) ? items.reduce((sum, item) => sum + item.pricePaise * item.qty, 0) : null;
+  const compareAt = combo.originalPricePaise || itemsTotal;
+  const savingsPaise = compareAt && compareAt > combo.pricePaise ? compareAt - combo.pricePaise : 0;
   const allOrderable = items.every((item) => {
     const dish = dishesById.get(item.dishId);
     return dish ? isOrderable(dish, at) : false;
@@ -115,6 +190,8 @@ export function toCombo(combo, dishesById = new Map(), at = new Date()) {
     imageUrl: combo.imageUrl ?? null,
     pricePaise: combo.pricePaise,
     originalPricePaise: combo.originalPricePaise ?? null,
+    itemsTotalPaise: itemsTotal,
+    savingsPaise,
     badge: combo.badge ?? null,
     servesCount: combo.serves || 1,
     serves: combo.serves || 1,
@@ -127,6 +204,12 @@ export function toCombo(combo, dishesById = new Map(), at = new Date()) {
     approvalStatus: combo.approvalStatus,
     sortOrder: combo.sortOrder || 0,
   };
+}
+
+/** A combo for customers: no approval/console fields. */
+export function toCustomerCombo(combo, dishesById, at = new Date()) {
+  const { isActive, approvalStatus, sortOrder, ...view } = toCombo(combo, dishesById, at);
+  return view;
 }
 
 function toRequest(request) {
@@ -153,6 +236,7 @@ function toRequest(request) {
 // ---------------------------------------------------------------- cache
 
 export async function invalidateMenu(kitchenId, reason = "changed") {
+  localMenus.clear(String(kitchenId));
   await storeDel(menuKey(kitchenId)).catch(() => {});
   await publishEventSafe("catalog.changed", { kitchenId: String(kitchenId), reason }, { aggregate: { type: "kitchen", id: kitchenId } });
 }
@@ -545,13 +629,13 @@ export async function deleteMasterDish(dishId) {
 // ---------------------------------------------------------------- customer menu
 
 /** The whole live menu of one kitchen (cached), from which every customer view is cut. */
-const menuLoads = new Map();
+// Parsed menus kept in memory for 10 s (on top of the 2-minute Redis copy), so
+// busy menu/home/search traffic does not re-read and re-parse it every request.
+const localMenus = memoCache(10_000);
 
 /** The kitchen's live menu (cached); concurrent callers share one load. */
 export function kitchenMenu(kitchenId) {
-  const key = String(kitchenId);
-  if (!menuLoads.has(key)) menuLoads.set(key, loadKitchenMenu(kitchenId).finally(() => menuLoads.delete(key)));
-  return menuLoads.get(key);
+  return localMenus.get(String(kitchenId), () => loadKitchenMenu(kitchenId));
 }
 
 async function loadKitchenMenu(kitchenId) {
@@ -563,15 +647,36 @@ async function loadKitchenMenu(kitchenId) {
     KitchenDish.find({ kitchen: kitchenId, isActive: true, approvalStatus: "live" }).sort({ sortOrder: 1, name: 1 }).lean(),
     KitchenCombo.find({ kitchen: kitchenId, isActive: true, approvalStatus: "live" }).sort({ sortOrder: 1 }).lean(),
   ]);
+  // A hidden (inactive) category hides its dishes everywhere; dishes without a category stay.
+  const shown = new Set(categories.map((category) => String(category._id)));
+  const visible = dishes.filter((dish) => !dish.category || shown.has(String(dish.category)));
   const menu = {
     kitchen: { kitchenId: String(kitchen._id), name: kitchen.name },
     categories: categories.map((category) => toCategory(category)),
-    rawDishes: dishes,
+    rawDishes: visible,
     rawCombos: combos,
   };
   await storeSet(menuKey(kitchenId), JSON.stringify(menu), MENU_TTL_SEC).catch(() => {});
   return menu;
 }
+
+// The app's Filters sheet: quick chips, sort options and their meaning.
+export const QUICK_FILTERS = [
+  { value: "veg", label: "Pure Veg" },
+  { value: "fast", label: "Fast Delivery" },
+  { value: "top_rated", label: "Top Rated" },
+];
+export const DISH_SORTS = [
+  { value: "relevance", label: "Relevance" },
+  { value: "rating", label: "Rating: High to Low" },
+  { value: "prep_time", label: "Delivery Time" },
+  { value: "price_asc", label: "Cost: Low to High" },
+  { value: "price_desc", label: "Cost: High to Low" },
+  { value: "popular", label: "Popular" },
+];
+const FAST_PREP_MINUTES = 15;
+const TOP_RATED = 4.5;
+const listParam = (value) => (Array.isArray(value) ? value : String(value || "").split(",")).map((item) => String(item).trim().toLowerCase()).filter(Boolean);
 
 function sortDishes(list, sort) {
   const copy = [...list];
@@ -583,17 +688,44 @@ function sortDishes(list, sort) {
   return copy;
 }
 
-export async function customerMenu(kitchenId, { categoryId, veg, q, sort, cuisine, tag, slot, availableOnly } = {}) {
+/** The kitchen block on menu responses: name, open now, hours, accepting orders. */
+async function kitchenState(kitchenId) {
+  const [{ orderingState }, { kitchenRepository }] = await Promise.all([import("../kitchen/kitchen.hours.js"), import("../kitchen/kitchen.repository.js")]);
+  const kitchen = await kitchenRepository.findActiveById(kitchenId);
+  if (!kitchen) return null;
+  const state = orderingState(kitchen);
+  return {
+    kitchenId: String(kitchen._id),
+    name: kitchen.name,
+    // Can orders be placed right now; when not, why (closed | paused | kitchen_unavailable) and the text to show.
+    isOpenNow: Boolean(state.canOrder),
+    closedReason: state.reason,
+    closedMessage: state.message,
+    nextOpenAt: state.opensAt ?? null,
+    acceptingOrders: Boolean(kitchen.acceptingOrders),
+    opensAt: kitchen.opensAt ?? null,
+    closesAt: kitchen.closesAt ?? null,
+  };
+}
+
+export async function customerMenu(kitchenId, { categoryId, veg, q, sort, cuisine, tag, slot, availableOnly, quick, minPricePaise, maxPricePaise } = {}) {
   const menu = await kitchenMenu(kitchenId);
   const now = new Date();
   const text = String(q || "").trim().toLowerCase();
   let dishes = menu.rawDishes.map((dish) => ({ ...toDish(dish, now), orderCount: dish.orderCount || 0 }));
   if (categoryId) dishes = dishes.filter((dish) => dish.categoryId === categoryId);
-  if (veg === true || veg === "true") dishes = dishes.filter((dish) => dish.isVeg);
-  if (cuisine) dishes = dishes.filter((dish) => dish.cuisine?.toLowerCase() === String(cuisine).toLowerCase());
+  const chips = listParam(quick);
+  if (veg === true || veg === "true" || chips.includes("veg")) dishes = dishes.filter((dish) => dish.isVeg);
+  if (chips.includes("fast")) dishes = dishes.filter((dish) => dish.preparationMinutes != null && dish.preparationMinutes <= FAST_PREP_MINUTES);
+  if (chips.includes("top_rated")) dishes = dishes.filter((dish) => dish.rating >= TOP_RATED);
+  // One or more cuisines (comma-separated): a dish matches any of them.
+  const cuisines = listParam(cuisine);
+  if (cuisines.length) dishes = dishes.filter((dish) => cuisines.includes(String(dish.cuisine || "").toLowerCase()));
   if (tag) dishes = dishes.filter((dish) => dish.tags.includes(String(tag).toLowerCase()));
   if (slot) dishes = dishes.filter((dish) => !dish.availableSlots.length || dish.availableSlots.includes(slot));
   if (availableOnly === true || availableOnly === "true") dishes = dishes.filter((dish) => dish.isAvailable);
+  if (minPricePaise != null && minPricePaise !== "") dishes = dishes.filter((dish) => dish.pricePaise >= Number(minPricePaise));
+  if (maxPricePaise != null && maxPricePaise !== "") dishes = dishes.filter((dish) => dish.pricePaise <= Number(maxPricePaise));
   if (text) dishes = dishes.filter((dish) => dish.name.toLowerCase().includes(text) || dish.tags.some((t) => t.includes(text)) || (dish.cuisine || "").toLowerCase().includes(text));
   dishes = sortDishes(dishes, sort).map(({ orderCount, ...dish }) => dish);
   const byCategory = menu.categories.map((category) => ({ ...category, dishes: dishes.filter((dish) => dish.categoryId === category.categoryId) }))
@@ -601,7 +733,7 @@ export async function customerMenu(kitchenId, { categoryId, veg, q, sort, cuisin
   const uncategorised = dishes.filter((dish) => !dish.categoryId);
   if (uncategorised.length) byCategory.push({ categoryId: null, name: "More", icon: null, subtitle: null, imageUrl: null, sortOrder: 999, isActive: true, dishes: uncategorised });
   // `dishes` = the same dishes as one list in the requested sort order (for /dishes).
-  return { kitchen: menu.kitchen, categories: byCategory, dishes, total: dishes.length };
+  return { kitchen: (await kitchenState(kitchenId)) || menu.kitchen, categories: byCategory, dishes, total: dishes.length };
 }
 
 export async function customerCategories(kitchenId) {
@@ -611,16 +743,36 @@ export async function customerCategories(kitchenId) {
   return menu.categories.map((category) => ({ ...category, dishCount: counts.get(category.categoryId) || 0 })).filter((category) => category.dishCount > 0);
 }
 
-export async function customerDish(kitchenId, dishId) {
+export async function customerDish(kitchenId, dishId, { userId = null } = {}) {
   const menu = await kitchenMenu(kitchenId);
   const dish = menu.rawDishes.find((item) => String(item._id) === String(dishId));
   if (!dish) throw new AppError(404, "Dish not found");
-  return toDish(dish);
+  const view = toDish(dish);
+  if (userId) {
+    const { Favorite } = await import("../favorites/favorites.model.js");
+    view.isFavorite = Boolean(await Favorite.exists({ user: userId, dish: dish._id }));
+  }
+  view.kitchen = await kitchenState(kitchenId);
+  // “From the chef” card: the dish story signed by the kitchen's chef.
+  const { kitchenRepository } = await import("../kitchen/kitchen.repository.js");
+  const about = (await kitchenRepository.findActiveById(kitchenId))?.about || {};
+  view.chef = { name: about.chefName || null, imageUrl: about.imageUrl || null, note: view.story || null };
+  return view;
+}
+
+/** Adds isFavorite to each dish for this user (one query for the whole list). */
+export async function markFavorites(userId, dishes) {
+  if (!userId || !dishes?.length) return dishes;
+  const { Favorite } = await import("../favorites/favorites.model.js");
+  const ids = dishes.map((dish) => dish.dishId);
+  const liked = new Set((await Favorite.find({ user: userId, dish: { $in: ids } }).select("dish").lean()).map((row) => String(row.dish)));
+  return dishes.map((dish) => ({ ...dish, isFavorite: liked.has(dish.dishId) }));
 }
 
 export async function recommendations(kitchenId, dishId, limit = 6) {
   const menu = await kitchenMenu(kitchenId);
   const dish = menu.rawDishes.find((item) => String(item._id) === String(dishId));
+  if (!dish) throw new AppError(404, "Dish not found");
   const pool = menu.rawDishes.filter((item) => String(item._id) !== String(dishId) && isOrderable(item));
   const score = (item) => (dish && String(item.category) !== String(dish.category) ? 2 : 0)
     + (dish && item.isVeg === dish.isVeg ? 1 : 0)
@@ -637,10 +789,34 @@ export async function popularDishes(kitchenId, limit = 10) {
     .map((item) => toDish(item));
 }
 
-export async function customerCombos(kitchenId, { signature = false } = {}) {
+// Combos screen chips: All / For one / For two / Family / Under ₹500.
+export const COMBO_CHIPS = [
+  { value: "all", label: "All" },
+  { value: "one", label: "For one" },
+  { value: "two", label: "For two" },
+  { value: "family", label: "Family" },
+  { value: "under_500", label: "Under ₹500" },
+];
+const audienceOf = (serves) => (serves >= 3 ? "family" : serves === 2 ? "two" : "one");
+
+export async function customerCombos(kitchenId, { signature = false, veg = false, chip = null } = {}) {
   const menu = await kitchenMenu(kitchenId);
   const dishes = new Map(menu.rawDishes.map((dish) => [String(dish._id), dish]));
-  return menu.rawCombos.filter((combo) => !signature || combo.isSignature).map((combo) => toCombo(combo, dishes));
+  return menu.rawCombos.filter((combo) => !signature || combo.isSignature)
+    .map((combo) => {
+      const view = toCustomerCombo(combo, dishes);
+      return { ...view, audience: audienceOf(view.servesCount) };
+    })
+    // A combo with a dish that is no longer on the menu is left out.
+    .filter((combo) => combo.items.every((item) => item.name))
+    .filter((combo) => !(veg === true || veg === "true") || combo.isVeg)
+    .filter((combo) => !chip || chip === "all" || (chip === "under_500" ? combo.pricePaise < 50000 : combo.audience === chip));
+}
+
+export async function customerCombo(kitchenId, comboId) {
+  const combo = (await customerCombos(kitchenId)).find((item) => item.comboId === String(comboId));
+  if (!combo) throw new AppError(404, "Combo not found");
+  return combo;
 }
 
 export async function dishFilters(kitchenId) {
@@ -649,13 +825,8 @@ export async function dishFilters(kitchenId) {
   const tags = [...new Set(menu.rawDishes.flatMap((dish) => dish.tags || []))].sort();
   const prices = menu.rawDishes.map((dish) => dish.pricePaise);
   return {
-    sort: [
-      { value: "relevance", label: "Relevance" },
-      { value: "popular", label: "Popular" },
-      { value: "rating", label: "Rating" },
-      { value: "price_asc", label: "Price: low to high" },
-      { value: "price_desc", label: "Price: high to low" },
-    ],
+    quick: QUICK_FILTERS,
+    sort: DISH_SORTS,
     cuisines,
     tags,
     categories: menu.categories.map((category) => ({ categoryId: category.categoryId, name: category.name })),

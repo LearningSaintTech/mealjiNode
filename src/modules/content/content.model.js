@@ -31,11 +31,19 @@ const bannerSchema = new mongoose.Schema(
 bannerSchema.index({ placement: 1, isActive: 1, sortOrder: 1 });
 export const Banner = mongoose.model("Banner", bannerSchema);
 
+// Onboarding steps. `layout` tells the app which screen design to draw:
+// chef (hero mascot), menu (category grid in items), fresh (benefits in items)
+// or basic (title, subtitle, image).
+export const SLIDE_LAYOUTS = ["basic", "chef", "menu", "fresh"];
 const slideSchema = new mongoose.Schema(
   {
+    layout: { type: String, enum: SLIDE_LAYOUTS, default: "basic" },
     title: { type: String, required: true, maxlength: 120 },
+    highlight: { type: String, default: null, maxlength: 60 },
     subtitle: { type: String, default: null, maxlength: 240 },
+    ctaLabel: { type: String, default: null, maxlength: 30 },
     imageUrl: { type: String, default: null },
+    items: { type: [{ _id: false, title: { type: String, maxlength: 40 }, imageUrl: { type: String, default: null } }], default: [] },
     sortOrder: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
   },

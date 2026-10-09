@@ -84,5 +84,11 @@ export function pickDefined(source, keys) {
  * the API root use it so unknown paths still fall through to a 404.
  */
 export function authFor(prefixes, auth) {
-  return (req, res, next) => (prefixes.some((prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`)) ? auth(req, res, next) : next());
+  // Express matches routes regardless of letter case, so this check must too:
+  // otherwise /SEARCH/TRENDING would reach a protected handler without a token.
+  const lower = prefixes.map((prefix) => prefix.toLowerCase());
+  return (req, res, next) => {
+    const path = req.path.toLowerCase();
+    return lower.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) ? auth(req, res, next) : next();
+  };
 }

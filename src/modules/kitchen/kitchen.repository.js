@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { Kitchen } from "./kitchen.model.js";
+import { Kitchen, kitchenCache } from "./kitchen.model.js";
 
 export const kitchenRepository = {
   async create(data) {
@@ -40,12 +40,19 @@ export const kitchenRepository = {
     ]);
   },
 
+  // Cached for 5 s (cleared on kitchen writes): every customer request needs it.
   async listActiveLocated() {
-    return Kitchen.find({
+    return kitchenCache.get("active", () => Kitchen.find({
       status: "active",
       latitude: { $type: "number" },
       longitude: { $type: "number" },
-    });
+    }).lean());
+  },
+
+  /** An active kitchen from the cached list (falls back to the database). */
+  async findActiveById(id) {
+    const kitchens = await this.listActiveLocated();
+    return kitchens.find((kitchen) => String(kitchen._id) === String(id)) || Kitchen.findById(id).lean();
   },
 
   async list({ status, phone, q, page, limit }) {

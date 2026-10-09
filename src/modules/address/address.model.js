@@ -27,6 +27,13 @@ addressSchema.index({ user: 1, deletedAt: 1, isDefault: -1, updatedAt: -1 });
 
 export const Address = mongoose.model("Address", addressSchema);
 
+const LABEL_NAMES = { home: "Home", work: "Office", other: "Other" };
+
+/** What the app shows on the address card: the custom wording, else Home / Office / Other. */
+export function displayLabel(address) {
+  return address.customLabel || LABEL_NAMES[address.label] || "Other";
+}
+
 export function fullAddress(address) {
   return [address.houseFlat, address.street, address.locality, address.landmark ? `Near ${address.landmark}` : null, address.city, address.state, address.pincode]
     .filter(Boolean)
@@ -38,6 +45,7 @@ export function toAddress(address) {
     addressId: String(address._id),
     label: address.label,
     customLabel: address.customLabel ?? null,
+    displayLabel: displayLabel(address),
     recipientName: address.recipientName ?? null,
     phone: address.phone ?? null,
     houseFlat: address.houseFlat,

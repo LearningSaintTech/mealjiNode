@@ -15,10 +15,29 @@ import { phoneChangePatch } from "../user/user.status.js";
 
 const PHONE_CHANGE = "phone-change";
 
-export async function getProfile(userId) {
-  const user = await userRepository.findById(userId);
+export async function getProfile(userId, { stats = true, user: loaded = null } = {}) {
+  const user = loaded || await userRepository.findById(userId);
   if (!user || user.deletedAt) throw new AppError(404, "Account not found");
-  return toProfile(user);
+  return stats ? { ...toProfile(user), stats: await profileStats(userId) } : toProfile(user);
+}
+
+/**
+ * Profile header counts: orders placed, favourites (dishes still on a menu),
+ * saved addresses and saved payment methods (none are stored yet, so 0).
+ */
+async function profileStats(userId) {
+  const [{ Order }, { Favorite }, { KitchenDish }] = await Promise.all([
+    import("../order/order.model.js"),
+    import("../favorites/favorites.model.js"),
+    import("../catalog/catalog.model.js"),
+  ]);
+  const [orders, favoriteDishes, addresses] = await Promise.all([
+    Order.countDocuments({ user: userId, status: { $nin: ["payment_pending", "payment_failed"] } }),
+    Favorite.find({ user: userId }).select("dish").limit(500).lean(),
+    Address.countDocuments({ user: userId, deletedAt: null }),
+  ]);
+  const favorites = favoriteDishes.length ? await KitchenDish.countDocuments({ _id: { $in: favoriteDishes.map((row) => row.dish) }, isActive: true, approvalStatus: "live" }) : 0;
+  return { orders, favorites, addresses, paymentMethods: 0 };
 }
 
 export async function updateProfile(userId, input) {
@@ -43,8 +62,8 @@ export async function updateProfile(userId, input) {
 const CHANNELS = ["push", "whatsapp", "email", "sms"];
 const TOPICS = ["offers", "rewards", "account"];
 
-export async function getPreferences(userId) {
-  const profile = await getProfile(userId);
+export async function getPreferences(userId, { user = null } = {}) {
+  const profile = await getProfile(userId, { stats: false, user });
   return { ...profile.preferences, consents: await currentConsents(userId) };
 }
 

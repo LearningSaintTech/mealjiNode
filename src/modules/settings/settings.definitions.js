@@ -24,6 +24,9 @@ export const SETTING_DEFINITIONS = {
       { key: "forceUpdate", label: "Force update to the latest version", type: "boolean", default: false, public: true },
       { key: "maintenanceMode", label: "Maintenance mode", type: "boolean", default: false, public: true, help: "Shows the maintenance message instead of the app." },
       { key: "maintenanceMessage", label: "Maintenance message", type: "text", default: "", maxLength: 200, public: true },
+      { key: "homeHeadline", label: "Home headline", type: "text", default: "What are you craving today?", maxLength: 60, public: true, help: "Big line under the greeting on Home." },
+      { key: "searchPlaceholder", label: "Search box hint", type: "text", default: "Search for dishes, biryani, meals...", maxLength: 60, public: true, help: "Grey text in the Home and Search boxes." },
+      { key: "deliveryPromiseLabel", label: "Delivery promise shown in the app", type: "text", default: "25–35 min", maxLength: 40, public: true, help: "Onboarding: “We deliver in …”." },
       {
         key: "mealSlotsShown",
         label: "Meal slots shown in the app",

@@ -26,7 +26,7 @@ const customer = Router();
 customer.use(authFor(["/subscription-plans", "/subscriptions"], authMiddleware));
 
 customer.get("/subscription-plans", query("kitchenId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => {
-  const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId });
+  const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId, user: req.auth.user });
   return ok(res, await plans.plansForKitchen(kitchen._id), "Plans fetched.");
 }));
 customer.get("/subscription-plans/:code", param("code").isString().isLength({ max: 30 }), validate, asyncHandler(async (req, res) => {

@@ -110,8 +110,8 @@ export async function storeLocalUpload({ key, contentType, expires, providedToke
 export function assertOwnFileUrl(url, label = "Image") {
   if (url == null || url === "") return null;
   const value = String(url);
-  const allowed = [publicUrl(""), env.cdnBaseUrl ? `${env.cdnBaseUrl}/` : null].filter(Boolean);
-  if (!env.isProd && /^https?:\/\//.test(value)) return value;
+  // Our storage, our CDN, or the hosted demo seed images — never another site, in any environment.
+  const allowed = [publicUrl(""), env.cdnBaseUrl ? `${env.cdnBaseUrl}/` : null, env.seedImageBaseUrl ? `${env.seedImageBaseUrl}/` : null].filter(Boolean);
   if (!allowed.some((prefix) => value.startsWith(prefix))) throw new AppError(422, `${label} must be uploaded through MealJi`);
   return value;
 }

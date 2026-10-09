@@ -7,3 +7,4 @@ report-exports
 warehouse
 
 .seed-backups/
+test-reports/

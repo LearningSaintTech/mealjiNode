@@ -19,4 +19,9 @@ const roleSchema = new mongoose.Schema(
 
 roleSchema.index({ kitchen: 1 }, { sparse: true });
 
+// Role edits clear the sign-in role cache (user.repository.js) in this process.
+const roleCacheClear = async () => (await import("../user/user.repository.js")).roleCache.clear();
+roleSchema.post("save", roleCacheClear);
+for (const op of ["updateOne", "updateMany", "findOneAndUpdate", "deleteOne", "deleteMany"]) roleSchema.post(op, roleCacheClear);
+
 export const Role = mongoose.model("Role", roleSchema);
