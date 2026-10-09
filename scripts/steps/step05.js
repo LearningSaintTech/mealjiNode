@@ -71,8 +71,9 @@ export default async function step05(ctx) {
   });
   await s.run("05-12", "Cart bar: item count and “Shop for ₹X more” to free delivery", "Floating bar: Unlock Free delivery / Shop For ₹99 more / Cart badge", () => {
     const cart = home.cart || {};
-    const expected = Math.max(0, (cart.freeDeliveryAbovePaise || 0) - (cart.subtotalPaise || 0));
-    return { ok: Number.isInteger(cart.itemCount) && cart.amountToFreeDeliveryPaise === expected && Number.isInteger(home.unreadNotifications), detail: `items ${cart.itemCount}, ₹${cart.amountToFreeDeliveryPaise / 100} to free delivery, ${home.unreadNotifications} unread` };
+    // Meal Ji Plus members already get free delivery: nothing more to add.
+    const expected = cart.deliveryAlwaysFree ? 0 : Math.max(0, (cart.freeDeliveryAbovePaise || 0) - (cart.subtotalPaise || 0));
+    return { ok: Number.isInteger(cart.itemCount) && cart.amountToFreeDeliveryPaise === expected && Number.isInteger(home.unreadNotifications), detail: `items ${cart.itemCount}, ₹${cart.amountToFreeDeliveryPaise / 100} to free delivery${cart.deliveryAlwaysFree ? " (Plus member: always free)" : ""}, ${home.unreadNotifications} unread` };
   });
   await s.run("05-13", "Veg toggle: only veg dishes and combos", "Header Veg / All switch", async () => {
     const veg = await me.call("GET", "/home?veg=true");

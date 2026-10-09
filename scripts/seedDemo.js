@@ -749,7 +749,8 @@ async function seedAddresses(kitchens) {
 // with realistic gaps between the steps.
 async function backdateOrder(orderId, placedAt, random) {
   const order = await Order.findById(orderId).lean();
-  const gaps = { placed: 0, accepted: 2 + Math.floor(random() * 4), preparing: 1, ready: 18 + Math.floor(random() * 12), dispatched: 2 + Math.floor(random() * 4), delivered: 16 + Math.floor(random() * 18), cancelled: 4 };
+  // Realistic timings: about 20–40 min from acceptance to the door.
+  const gaps = { placed: 0, accepted: 2 + Math.floor(random() * 4), preparing: 1, ready: 10 + Math.floor(random() * 8), dispatched: 1 + Math.floor(random() * 3), delivered: 8 + Math.floor(random() * 10), cancelled: 4 };
   let at = placedAt.getTime();
   const times = {};
   const history = order.statusHistory.map((entry) => {
@@ -757,7 +758,9 @@ async function backdateOrder(orderId, placedAt, random) {
     times[entry.status] = new Date(at);
     return { ...entry, at: new Date(at) };
   });
-  const set = { createdAt: placedAt, updatedAt: new Date(at), statusHistory: history, placedAt: times.placed || placedAt, estimatedDeliveryAt: new Date(placedAt.getTime() + minutes(order.etaMinutes || 40)) };
+  // The promise is counted from acceptance, like real orders (transition to accepted).
+  const promisedFrom = (times.accepted || placedAt).getTime();
+  const set = { createdAt: placedAt, updatedAt: new Date(at), statusHistory: history, placedAt: times.placed || placedAt, estimatedDeliveryAt: new Date(promisedFrom + minutes(order.etaMinutes || 30)) };
   for (const [status, field] of Object.entries({ accepted: "acceptedAt", ready: "readyAt", dispatched: "dispatchedAt", delivered: "deliveredAt", cancelled: "cancelledAt" })) if (times[status]) set[field] = times[status];
   if (order.rating?.at) set["rating.at"] = new Date(at + minutes(30 + Math.floor(random() * 240)));
   await Order.collection.updateOne({ _id: order._id }, { $set: set });
@@ -934,6 +937,56 @@ async function withKitchensOpen(kitchens, run) {
   }
 }
 
+// ------------------------------------------------------------------ notifications inbox
+
+// The Notifications screen's other tabs (Offers, Account) with the app's own
+// wording, so every tab has something to show for the demo customers.
+async function seedInbox(customers) {
+  const { Notification } = await import("../src/modules/notification/notification.model.js");
+  const hours = (n) => new Date(Date.now() - n * 3_600_000);
+  const ITEMS = [
+    { category: "offers", title: "Special Offer Just for You", body: "Get ₹150 off on Butter Chicken Bowls. Use code FOODIE150.", icon: "gift", iconColor: "#EA580C", deepLink: { url: "mealji://offers" }, createdAt: hours(26) },
+    { category: "account", title: "We'd Love Your Feedback", body: "How was your last order? Tell us what you loved and help us serve you better.", icon: "heart", iconColor: "#E11D48", deepLink: { url: "mealji://orders" }, createdAt: hours(80) },
+    { category: "account", title: "We're Now in 50+ Cities!", body: "Good food now closer to you. Thanks for being part of the Meal Ji journey!", icon: "megaphone", iconColor: "#2563EB", createdAt: hours(24 * 9) },
+  ];
+  for (const { user } of Object.values(customers)) {
+    for (const item of ITEMS) {
+      if (await Notification.exists({ user: user._id, title: item.title })) continue;
+      await Notification.create({ ...item, user: user._id, isRead: false });
+    }
+  }
+}
+
+// ------------------------------------------------------------------ order timings
+
+// Demo orders from older seed runs took 40–70 min against a ~30 min promise, so
+// every past order read “30 min late”. Give them the same realistic spread as
+// new seeds (a few minutes early to a few minutes late). Runs once.
+async function realignDemoPromises() {
+  const state = mongoose.connection.db.collection("seedstate");
+  if (await state.findOne({ _id: "order-promises-v2" })) return;
+  const demoUsers = await User.find({ phoneNumber: { $in: DEMO_CUSTOMERS.map((c) => c.phone) } }).select("_id").lean();
+  const orders = await Order.find({ user: { $in: demoUsers.map((u) => u._id) }, status: "delivered", deliveredAt: { $ne: null } }).select("deliveredAt acceptedAt placedAt").lean();
+  let n = 0;
+  for (const order of orders) {
+    const offsetMin = ((n * 7) % 13) - 6; // −6 … +6 minutes around the delivery time
+    await Order.collection.updateOne({ _id: order._id }, { $set: { estimatedDeliveryAt: new Date(new Date(order.deliveredAt).getTime() + offsetMin * 60_000) } });
+    n += 1;
+  }
+  await state.updateOne({ _id: "order-promises-v2" }, { $set: { at: new Date(), orders: n } }, { upsert: true });
+}
+
+// ------------------------------------------------------------------ app settings
+
+// Switches the app's screens need on for the demo: Checkout's “Schedule for later”.
+async function seedAppSettings(actor) {
+  const { resolveSetting, updateSetting } = await import("../src/modules/settings/settings.service.js");
+  const app = (await resolveSetting("app")).values;
+  if (app.featureScheduledDelivery) return;
+  const req = { auth: { userId: actor.userId ? String(actor.userId) : null, role: actor.role, user: { name: actor.name } }, headers: {}, ip: "127.0.0.1" };
+  await updateSetting("app", { values: { featureScheduledDelivery: true }, reason: "Demo: Checkout shows Schedule for later" }, { req });
+}
+
 // ------------------------------------------------------------------ favourites and search
 
 // Favourites for the demo customers (Favourites screen, hearts) and a week of
@@ -1000,6 +1053,9 @@ export async function seedDemoData({ fresh = false } = {}) {
   for (const customer of Object.values(customers)) await computeTraits(customer.user._id);
   await seedEngagement(actor);
   await seedFavoritesAndSearches(customers);
+  await realignDemoPromises();
+  await seedInbox(customers);
+  await seedAppSettings(actor);
   await segments.refreshSegmentSizes();
 
   logger.info({

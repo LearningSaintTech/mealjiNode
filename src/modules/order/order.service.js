@@ -9,6 +9,7 @@ import { withTransaction } from "../../config/database.js";
 import { logger } from "../../config/logger.js";
 import { publishEvent, publishEventSafe } from "../../events/eventBus.js";
 import { createGatewayOrder } from "../../infrastructure/payments/gateway.js";
+import { storeDel, storeSetNx } from "../../infrastructure/redisStore.js";
 import { publish } from "../../realtime/hub.js";
 import { Address, addressSnapshot } from "../address/address.model.js";
 import { buildCart } from "../cart/cart.service.js";
@@ -31,7 +32,73 @@ function stepsView(order) {
   return (order.kitchenSteps || []).map((step) => ({ key: step.key, label: step.label, state: step.state, at: step.at }));
 }
 
+const PAYMENT_LABELS = { upi: "UPI", card: "Card", netbanking: "Net Banking", wallet: "Wallet", cod: "Cash on Delivery" };
+const IST_LABEL = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+const IST_TIME = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", hour12: true });
+const istLabel = (date) => (date ? IST_LABEL.format(new Date(date)).replace(/\bam\b/, "AM").replace(/\bpm\b/, "PM") : null);
+const istTime = (date) => (date ? IST_TIME.format(new Date(date)).replace(/\bam\b/, "AM").replace(/\bpm\b/, "PM") : null);
+
+// Order delivered screen: the feedback chips; Cancel order: the reasons sheet.
+export const RATING_TAGS = ["Delicious", "Fresh", "Warm", "On time", "Would reorder"];
+export const CANCEL_REASONS = ["Ordered by mistake", "Taking too long", "Changed my mind", "Wrong address", "Other"];
+
+/** “Today”, “Yesterday”, “4 days ago”, “Last week”, “2 weeks ago”, else the date (IST days). */
+function relativeDay(date, now = new Date()) {
+  if (!date) return null;
+  const day = (value) => Math.floor((new Date(value).getTime() + 330 * 60_000) / 86_400_000);
+  const diff = day(now) - day(date);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return `${diff} days ago`;
+  if (diff < 14) return "Last week";
+  if (diff < 31) return `${Math.floor(diff / 7)} weeks ago`;
+  return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" }).format(new Date(date));
+}
+
+/** “Butter chicken bowl + butter naan” (2 items), “Dal ramen, gulab cheesecake +2 more”. */
+function itemsTitle(items = []) {
+  const names = items.map((item) => (item.qty > 1 ? `${item.name} x ${item.qty}` : item.name));
+  if (names.length <= 2) return names.join(" + ");
+  return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+}
+
+/** “2 min early” / “5 min late” / “On time” against the promised time. */
+function punctuality(order) {
+  if (!order.deliveredAt || !order.estimatedDeliveryAt) return null;
+  const minutes = Math.round((new Date(order.estimatedDeliveryAt) - new Date(order.deliveredAt)) / 60_000);
+  if (minutes >= 1) return `${minutes} min early`;
+  if (minutes <= -1) return `${-minutes} min late`;
+  return "On time";
+}
+
+/** “Large • Extra Butter Jeera Rice • + Complete Meal”, or “Regular”. */
+function itemOptionsText(item) {
+  const parts = [item.portion?.label, ...(item.options || []).map((option) => option.name), item.mealUpgrade?.label ? `+ ${item.mealUpgrade.label}` : null].filter(Boolean);
+  return parts.length ? parts.join(" • ") : "Regular";
+}
+
+/**
+ * The 4-step bar on Order confirmed / tracking: Order confirmed → Preparing
+ * your food → Out for delivery → Delivered (pickup: Ready for pickup → Picked up).
+ */
+function progressOf(order) {
+  const pickup = order.deliveryMode === "pickup";
+  const steps = [
+    { key: "confirmed", label: "Order confirmed", at: order.placedAt },
+    { key: "preparing", label: "Preparing your food", at: order.acceptedAt },
+    { key: pickup ? "ready" : "out_for_delivery", label: pickup ? "Ready for pickup" : "Out for delivery", at: pickup ? order.readyAt : order.dispatchedAt },
+    { key: "delivered", label: pickup ? "Picked up" : "Delivered", at: order.deliveredAt },
+  ];
+  const reached = { payment_pending: -1, payment_failed: -1, placed: 0, accepted: 1, preparing: 1, ready: pickup ? 2 : 1, dispatched: 2, delivered: 3, cancelled: -1 }[order.status] ?? -1;
+  return steps.map((step, index) => ({
+    ...step,
+    time: istTime(step.at),
+    state: order.status === "cancelled" ? "cancelled" : index < reached || order.status === "delivered" ? "done" : index === reached ? (index === 0 && order.status === "placed" ? "done" : "active") : "pending",
+  }));
+}
+
 export function toOrder(order, { view = "customer" } = {}) {
+  const paid = ["paid", "partially_refunded", "refunded"].includes(order.paymentStatus);
   const base = {
     orderId: String(order._id),
     orderNumber: order.orderNumber,
@@ -53,8 +120,24 @@ export function toOrder(order, { view = "customer" } = {}) {
       specialInstructions: item.specialInstructions || null,
       unitPricePaise: item.unitPricePaise,
       totalPaise: item.totalPaise,
+      optionsText: itemOptionsText(item),
     })),
     itemCount: (order.items || []).reduce((sum, item) => sum + item.qty, 0),
+    // Ready-to-show text for Order confirmed (times in IST).
+    placedAtLabel: istLabel(order.placedAt || order.createdAt),
+    etaLabel: order.scheduledFor ? `Scheduled for ${istLabel(order.scheduledFor)}` : order.etaMinutes ? `${order.etaMinutes} minutes` : null,
+    progress: progressOf(order),
+    // Orders list and Order delivered.
+    title: itemsTitle(order.items),
+    dateLabel: relativeDay(order.placedAt || order.createdAt),
+    arrivingByLabel: ACTIVE_STATUSES.includes(order.status) && order.estimatedDeliveryAt ? istTime(order.estimatedDeliveryAt) : null,
+    deliveredAtLabel: istTime(order.deliveredAt),
+    punctualityLabel: punctuality(order),
+    canRate: order.status === "delivered" && !order.rating?.at,
+    ratingTags: order.status === "delivered" && !order.rating?.at ? RATING_TAGS : [],
+    paymentMethodLabel: PAYMENT_LABELS[order.paymentMethod] || order.paymentMethod,
+    amountPaidPaise: paid ? order.bill?.grandTotalPaise ?? 0 : 0,
+    amountDueOnDeliveryPaise: order.paymentStatus === "cod_pending" ? order.bill?.grandTotalPaise ?? 0 : 0,
     address: order.address || null,
     deliveryMode: order.deliveryMode,
     scheduledFor: order.scheduledFor || null,
@@ -145,8 +228,22 @@ function stepsFrom(policy) {
  * points. Online payments return the gateway order to open checkout with; COD
  * orders are placed straight away. The cart is cleared once the order exists.
  */
-export async function placeOrder(userId, input, { platform = null } = {}) {
-  const cart = await buildCart(userId, input);
+export async function placeOrder(userId, input, options = {}) {
+  // One placement at a time per customer: a double tap on Pay must never make
+  // two orders (the cart is only emptied once the first order exists).
+  const lockKey = `order:placing:${userId}`;
+  const locked = await storeSetNx(lockKey, "1", 60).catch(() => true);
+  if (!locked) throw new AppError(409, "Your order is already being placed", [{ field: "order", message: "ORDER_IN_PROGRESS" }]);
+  try {
+    return await placeOrderLocked(userId, input, options);
+  } finally {
+    await storeDel(lockKey).catch(() => {});
+  }
+}
+
+async function placeOrderLocked(userId, input, { platform = null, user: signedIn = null } = {}) {
+  const rawCart = await Cart.findOne({ user: userId });
+  const cart = await buildCart(userId, input, { user: signedIn, cart: rawCart });
   if (!cart.canCheckout) {
     const blocker = cart.blockers.find((item) => !item.soft) || cart.blockers[0];
     throw new AppError(409, blocker?.message || "Your cart cannot be ordered yet", cart.blockers.map((item) => ({ field: "cart", message: item.code })));
@@ -156,10 +253,10 @@ export async function placeOrder(userId, input, { platform = null } = {}) {
   const method = cart.paymentMethods.find((item) => item.method === paymentMethod);
   if (!method?.enabled) throw new AppError(422, "Choose an available payment method");
 
-  const [user, kitchen, rawCart] = await Promise.all([
-    User.findById(userId).lean(),
-    Kitchen.findById(cart.kitchen.kitchenId).lean(),
-    Cart.findOne({ user: userId }).lean(),
+  const { kitchenRepository } = await import("../kitchen/kitchen.repository.js");
+  const [user, kitchen] = await Promise.all([
+    signedIn || User.findById(userId).lean(),
+    kitchenRepository.findActiveById(cart.kitchen.kitchenId),
   ]);
   const policy = (await resolveSetting("order_policy", { kitchenId: kitchen._id, city: kitchen.city })).values;
   const address = cart.deliveryMode === "delivery" ? await Address.findById(cart.address.addressId).lean() : null;
@@ -199,7 +296,8 @@ export async function placeOrder(userId, input, { platform = null } = {}) {
       customer: { name: user.name, phone: user.phoneNumber },
       address: address ? addressSnapshot(address) : null,
       deliveryMode: cart.deliveryMode,
-      scheduledFor: input.scheduledFor ? new Date(input.scheduledFor) : null,
+      // Only a slot the cart validated (buildCart blocks times that are not offered).
+      scheduledFor: cart.delivery?.type === "scheduled" ? new Date(cart.delivery.scheduledFor) : null,
       bill,
       couponCode: cart.coupon?.valid ? cart.coupon.code : null,
       pointsUsed: cart.points?.usedPoints || 0,
@@ -209,7 +307,7 @@ export async function placeOrder(userId, input, { platform = null } = {}) {
       statusHistory: [{ status: cod ? "placed" : "payment_pending", at: now, by: { userId: String(userId), role: "customer", name: user.name } }],
       kitchenSteps: stepsFrom(policy),
       etaMinutes: cart.etaMinutes,
-      estimatedDeliveryAt: new Date(now.getTime() + cart.etaMinutes * 60_000),
+      estimatedDeliveryAt: cart.delivery?.type === "scheduled" ? new Date(cart.delivery.scheduledFor) : new Date(now.getTime() + cart.etaMinutes * 60_000),
       placedAt: cod ? now : null,
       expiresAt: cod ? null : new Date(now.getTime() + policy.unpaidOrderExpiryMinutes * 60_000),
       chefNote: rawCart?.chefNote || null,
@@ -232,15 +330,25 @@ export async function placeOrder(userId, input, { platform = null } = {}) {
     return created;
   });
 
-  await Cart.updateOne({ user: userId }, { $set: { items: [], couponCode: null, usePoints: false, tipPaise: 0, chefNote: null } });
+  await Cart.updateOne({ user: userId }, { $set: { items: [], couponCode: null, usePoints: false, tipPaise: 0, chefNote: null, scheduledFor: null }, $inc: { __v: 1 } });
 
+  // C. If the gateway is down the order still exists: the app shows “Retry
+  // payment” (POST /orders/{id}/retry-payment) instead of losing the cart.
   let payment = null;
-  if (!cod) payment = await startPayment(order, user);
+  let paymentError = null;
+  if (!cod) {
+    try {
+      payment = await startPayment(order, user);
+    } catch (err) {
+      logger.error({ err: err.message, orderId: String(order._id) }, "Could not start payment");
+      paymentError = { message: "We could not open the payment page. Tap Retry payment.", retryable: true };
+    }
+  }
   if (cod) {
     broadcast(order);
     if (policy.acceptMode === "auto") await transition(order._id, "accepted", { actor: "system", note: "Accepted automatically" }).catch((err) => logger.warn({ err: err.message }, "Auto-accept failed"));
   }
-  return { order: toOrder(await Order.findById(order._id).lean()), payment };
+  return { order: toOrder(await Order.findById(order._id).lean()), payment, paymentError };
 }
 
 /** Creates (or re-creates for a retry) the gateway order for an unpaid order. */
@@ -383,11 +491,14 @@ export async function listMyOrders(userId, { page = 1, limit = 20, status }) {
   const filter = { user: userId };
   if (status === "active") filter.status = { $in: [...ACTIVE_STATUSES, "payment_pending"] };
   if (status === "past") filter.status = { $in: ["delivered", "cancelled", "payment_failed"] };
-  const [items, total] = await Promise.all([
+  const [items, total, active, past] = await Promise.all([
     Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     Order.countDocuments(filter),
+    // Tab badges: Current (n) and Past (n).
+    Order.countDocuments({ user: userId, status: { $in: [...ACTIVE_STATUSES, "payment_pending"] } }),
+    Order.countDocuments({ user: userId, status: { $in: ["delivered", "cancelled", "payment_failed"] } }),
   ]);
-  return { items: items.map((order) => toOrder(order)), page, limit, total };
+  return { items: items.map((order) => toOrder(order)), page, limit, total, hasMore: page * limit < total, counts: { active, past } };
 }
 
 export async function getMyOrder(userId, orderId) {
@@ -414,8 +525,11 @@ export async function liveView(userId, orderId) {
     currentActivity: (order.kitchenSteps || []).find((step) => step.state === "active")?.label || null,
     etaMinutes: minutesLeft,
     estimatedDeliveryAt: order.estimatedDeliveryAt,
+    // “Arriving by 9:25 PM • 14 min”
+    arrivingByLabel: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? `Arriving by ${istTime(order.estimatedDeliveryAt)}${minutesLeft != null ? ` • ${minutesLeft} min` : ""}` : null,
     rider: order.rider?.name ? { name: order.rider.name, phoneMasked: order.rider.phone ? maskPhone(order.rider.phone) : null, vehicleNumber: order.rider.vehicleNumber || null } : null,
     canCancel: customerCanCancel(order, (await resolveSetting("order_policy", { kitchenId: order.kitchen })).values),
+    cancelReasons: CANCEL_REASONS,
   };
 }
 
@@ -423,7 +537,8 @@ export async function trackingView(userId, orderId) {
   const order = await getMyOrder(userId, orderId);
   const { DeliveryJob } = await import("../delivery/delivery.model.js");
   const job = order.deliveryJob ? await DeliveryJob.findById(order.deliveryJob).lean() : null;
-  const kitchen = await Kitchen.findById(order.kitchen).select("latitude longitude name").lean();
+  const { kitchenRepository } = await import("../kitchen/kitchen.repository.js");
+  const kitchen = await kitchenRepository.findActiveById(order.kitchen);
   return {
     orderId: String(order._id),
     status: order.status,
@@ -453,42 +568,43 @@ export async function rateOrder(userId, orderId, input) {
   if (order.rating?.at) throw new AppError(409, "You already rated this order");
   const policy = (await resolveSetting("order_policy", { kitchenId: order.kitchen })).values;
   if (Date.now() - new Date(order.deliveredAt).getTime() > policy.ratingWindowDays * 24 * 3600_000) throw new AppError(409, "The rating window for this order has closed");
-  order.rating = {
+  const rating = {
     food: input.foodRating,
     delivery: input.deliveryRating ?? null,
-    tags: (input.tags || []).slice(0, 10),
+    tags: (input.tags || []).filter((tag) => typeof tag === "string").map((tag) => tag.trim().slice(0, 40)).filter(Boolean).slice(0, 10),
     comment: input.comment ? String(input.comment).slice(0, 500) : null,
-    dishRatings: (input.dishRatings || []).slice(0, 20).filter((item) => order.items.some((line) => String(line.dish) === String(item.dishId))),
+    dishRatings: (input.dishRatings || []).slice(0, 20)
+      .filter((item) => Number.isInteger(Number(item?.rating)) && item.rating >= 1 && item.rating <= 5 && order.items.some((line) => String(line.dish) === String(item.dishId)))
+      .map((item) => ({ dishId: item.dishId, rating: Number(item.rating) })),
     at: new Date(),
   };
-  await order.save();
-  // Rolling averages on dishes and the kitchen.
-  const dishScores = order.rating.dishRatings.length ? order.rating.dishRatings : order.items.filter((item) => item.dish).map((item) => ({ dishId: item.dish, rating: input.foodRating }));
-  for (const score of dishScores) {
-    const dish = await KitchenDish.findById(score.dishId).select("ratingAvg ratingCount");
-    if (!dish) continue;
-    const count = (dish.ratingCount || 0) + 1;
-    dish.ratingAvg = ((dish.ratingAvg || 0) * (count - 1) + Number(score.rating)) / count;
-    dish.ratingCount = count;
-    await dish.save();
-  }
-  const kitchen = await Kitchen.findById(order.kitchen).select("ratingAvg ratingCount");
-  if (kitchen) {
-    const count = (kitchen.ratingCount || 0) + 1;
-    kitchen.ratingAvg = ((kitchen.ratingAvg || 0) * (count - 1) + input.foodRating) / count;
-    kitchen.ratingCount = count;
-    await kitchen.save();
-  }
+  // Two taps on Submit: only the first one claims the rating.
+  const claimed = await Order.updateOne({ _id: order._id, "rating.at": null }, { $set: { rating } });
+  if (!claimed.modifiedCount) throw new AppError(409, "You already rated this order");
+  // Rolling averages, updated in one atomic step per document (no lost updates).
+  const addScore = (score) => [{ $set: {
+    ratingAvg: { $divide: [{ $add: [{ $multiply: [{ $ifNull: ["$ratingAvg", 0] }, { $ifNull: ["$ratingCount", 0] }] }, score] }, { $add: [{ $ifNull: ["$ratingCount", 0] }, 1] }] },
+    ratingCount: { $add: [{ $ifNull: ["$ratingCount", 0] }, 1] },
+  } }];
+  const dishScores = rating.dishRatings.length ? rating.dishRatings : order.items.filter((item) => item.dish).map((item) => ({ dishId: item.dish, rating: input.foodRating }));
+  for (const score of dishScores) await KitchenDish.updateOne({ _id: score.dishId }, addScore(Number(score.rating)));
+  await Kitchen.updateOne({ _id: order.kitchen }, addScore(input.foodRating));
+  order.rating = rating;
   await publishEventSafe("order.rated", { orderId: String(order._id), userId: String(userId), kitchenId: String(order.kitchen), foodRating: input.foodRating, deliveryRating: input.deliveryRating ?? null }, { aggregate: { type: "order", id: order._id } });
   return toOrder(order.toObject());
 }
 
 /** Puts a past order's items back into the cart (only what is still orderable). */
-export async function reorder(userId, orderId) {
+export async function reorder(userId, orderId, { replaceCart = false } = {}) {
   const order = await getMyOrder(userId, orderId);
   const { addItem, buildCart: build } = await import("../cart/cart.service.js");
+  // The cart holds another kitchen's food: ask first (same answer as Add to cart).
+  const current = await Cart.findOne({ user: userId }).select("kitchen items").lean();
+  if (current?.items?.length && current.kitchen && String(current.kitchen) !== String(order.kitchen) && !replaceCart) {
+    throw new AppError(409, "Your cart has items from another kitchen. Replace them?", [{ field: "cart", message: "CART_KITCHEN_MISMATCH" }]);
+  }
   const skipped = [];
-  let first = true;
+  let first = replaceCart;
   for (const item of order.items) {
     try {
       await addItem(userId, {
@@ -506,7 +622,8 @@ export async function reorder(userId, orderId) {
       skipped.push({ name: item.name, reason: err.message });
     }
   }
-  return { cart: await build(userId), skipped };
+  const cart = await build(userId);
+  return { cart, skipped, added: order.items.length - skipped.length, message: skipped.length ? `${skipped.length} item${skipped.length === 1 ? " is" : "s are"} not available right now` : null };
 }
 
 export async function usualDishes(userId, kitchenId, limit = 6) {

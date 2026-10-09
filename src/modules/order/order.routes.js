@@ -31,7 +31,7 @@ customerOrderRouter.post(
   body("platform").optional().isIn(["android", "ios", "web"]),
   validate,
   idempotent(),
-  asyncHandler(async (req, res) => ok(res, await orders.placeOrder(req.auth.userId, req.body), "Order created.", 201)),
+  asyncHandler(async (req, res) => ok(res, await orders.placeOrder(req.auth.userId, req.body, { user: req.auth.user }), "Order created.", 201)),
 );
 customerOrderRouter.get("/", pageQuery, query("status").optional().isIn(["active", "past"]), validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
@@ -55,7 +55,7 @@ customerOrderRouter.post(
   validate,
   asyncHandler(async (req, res) => ok(res, await orders.rateOrder(req.auth.userId, req.params.id, req.body), "Thanks for rating.")),
 );
-customerOrderRouter.post("/:id/reorder", idParam(), validate, asyncHandler(async (req, res) => ok(res, await orders.reorder(req.auth.userId, req.params.id), "Added to your cart.")));
+customerOrderRouter.post("/:id/reorder", idParam(), body("replaceCart").optional().isBoolean().withMessage("replaceCart is true or false"), validate, asyncHandler(async (req, res) => ok(res, await orders.reorder(req.auth.userId, req.params.id, { replaceCart: req.body?.replaceCart === true }), "Added to your cart.")));
 customerOrderRouter.get("/:id/receipt", idParam(), query("format").optional().isIn(["json", "pdf"]), validate, asyncHandler(async (req, res) => {
   const order = await orders.getMyOrder(req.auth.userId, req.params.id);
   const invoice = order.invoice ? await Invoice.findById(order.invoice).lean() : null;

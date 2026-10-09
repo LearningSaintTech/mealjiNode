@@ -49,5 +49,7 @@ const redemptionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 redemptionSchema.index({ coupon: 1, user: 1, status: 1 });
+// The cart counts a customer's past redemptions on every view: needs user first.
+redemptionSchema.index({ user: 1, status: 1 });
 redemptionSchema.index({ order: 1 }, { unique: true, sparse: true });
 export const CouponRedemption = mongoose.model("CouponRedemption", redemptionSchema);

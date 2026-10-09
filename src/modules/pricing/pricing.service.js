@@ -33,7 +33,7 @@ export async function priceLines({ kitchen, lines, address = null, deliveryMode 
   let bill = draft;
   if (freeDelivery && draft.deliveryFeePaise > 0) {
     bill = computeBill({ lines, pricing: { ...pricing.values, deliveryFeeMode: "flat", deliveryFeePaise: 0 }, tax: tax.values, deliveryMode, distanceKm: km, discountPaise, tipPaise, isPlusMember, interState, at });
-    bill = { ...bill, deliveryFeeFullPaise: draft.deliveryFeePaise, deliveryFeeWaived: true, savingsPaise: bill.savingsPaise + draft.deliveryFeePaise };
+    bill = { ...bill, deliveryFeeFullPaise: draft.deliveryFeePaise, deliveryFeeWaived: true, savingsPaise: bill.savingsPaise + draft.deliveryFeePaise, amountToFreeDeliveryPaise: 0 };
   }
   let points = { available: 0, usable: 0, usedPoints: 0, valuePaise: loyalty.values.pointValuePaise };
   if (user && loyalty.values.enabled) {

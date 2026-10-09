@@ -29,6 +29,8 @@ const maxVus = Math.max(...STAGES);
 const users = await db.collection("users").aggregate([{ $match: { loadTest: true } }, { $sample: { size: maxVus * 2 } }, { $project: { _id: 1, phoneNumber: 1 } }]).toArray();
 const kitchen = await db.collection("kitchens").findOne({ status: "active", name: /koramangala/i });
 const dishIds = (await db.collection("kitchendishes").find({ kitchen: kitchen._id, isActive: true, approvalStatus: "live" }).project({ _id: 1 }).toArray()).map((dish) => String(dish._id));
+// Dishes that can go in a cart with no choices (no required option groups).
+const plainDishIds = (await db.collection("kitchendishes").find({ kitchen: kitchen._id, isActive: true, approvalStatus: "live", "customizationGroups.minSelect": { $not: { $gt: 0 } } }).project({ _id: 1 }).limit(100).toArray()).map((dish) => String(dish._id));
 const comboIds = (await db.collection("kitchencombos").find({ kitchen: kitchen._id, isActive: true }).project({ _id: 1 }).toArray()).map((combo) => String(combo._id));
 const point = { latitude: kitchen.latitude, longitude: kitchen.longitude };
 await mongoose.disconnect();
@@ -125,6 +127,47 @@ const SCREENS = [
       await call(vu, "DELETE /users/me/favorites/:id", "write", "DELETE", `/users/me/favorites/${dishId}`);
     }
     await call(vu, "GET /users/me/favorites", "read", "GET", "/users/me/favorites");
+  }],
+  [6, "08 Cart and checkout", async (vu) => {
+    if (!vu.cartReady) {
+      await call(vu, "DELETE /cart", "write", "DELETE", "/cart");
+      vu.cartReady = true;
+    }
+    const added = await call(vu, "POST /cart/items", "write", "POST", "/cart/items", { dishId: pick(plainDishIds) }, { expect: [201, 409] });
+    await call(vu, "GET /cart", "heavy", "GET", "/cart");
+    const line = added.data?.items?.[0];
+    if (line && Math.random() < 0.5) await call(vu, "PATCH /cart/items/:id", "write", "PATCH", `/cart/items/${line.lineId}`, { qty: 1 + Math.floor(Math.random() * 3) });
+    if (Math.random() < 0.4) await call(vu, "GET /promos/available", "read", "GET", "/promos/available");
+    if (Math.random() < 0.3) await call(vu, "GET /delivery/slots", "read", "GET", "/delivery/slots");
+    if (Math.random() < 0.3) await call(vu, "GET /cart/recommendations", "read", "GET", "/cart/recommendations");
+    await call(vu, "POST /checkout/summary", "heavy", "POST", "/checkout/summary", { paymentMethod: "upi" });
+    if (added.data?.items?.length > 6) await call(vu, "DELETE /cart", "write", "DELETE", "/cart");
+  }],
+  [2, "09 Place order and pay", async (vu) => {
+    await call(vu, "DELETE /cart", "write", "DELETE", "/cart");
+    await call(vu, "POST /cart/items", "write", "POST", "/cart/items", { dishId: pick(plainDishIds), qty: 2 }, { expect: [201, 409] });
+    const online = Math.random() < 0.5;
+    const placed = await call(vu, "POST /orders", "write", "POST", "/orders", { paymentMethod: online ? "upi" : "cod" }, { expect: [201, 409] });
+    const orderId = placed.data?.order?.orderId;
+    if (online && placed.data?.payment?.gatewayOrderId) {
+      await call(vu, "POST /payments/test/complete (pay + verify)", "write", "POST", "/payments/test/complete", { gatewayOrderId: placed.data.payment.gatewayOrderId });
+    }
+    if (orderId) await call(vu, "GET /orders/:id", "read", "GET", `/orders/${orderId}`);
+  }],
+  [4, "10 Orders and tracking", async (vu) => {
+    const list = await call(vu, "GET /orders (tabs)", "read", "GET", `/orders?status=${Math.random() < 0.5 ? "active" : "past"}&limit=10`);
+    const pick1 = list.data?.items?.[0];
+    if (pick1) {
+      await call(vu, "GET /orders/:id", "read", "GET", `/orders/${pick1.orderId}`);
+      if (Math.random() < 0.5) await call(vu, "GET /orders/:id/live", "read", "GET", `/orders/${pick1.orderId}/live`);
+      if (Math.random() < 0.3) await call(vu, "GET /orders/:id/tracking", "read", "GET", `/orders/${pick1.orderId}/tracking`);
+    }
+  }],
+  [3, "11 Notifications", async (vu) => {
+    await call(vu, "GET /notifications/unread-count", "read", "GET", "/notifications/unread-count");
+    const inbox = await call(vu, "GET /notifications", "read", "GET", `/notifications?category=${pick(["all", "orders", "offers", "rewards", "account"])}&limit=20`);
+    const unread = inbox.data?.items?.find((n) => !n.isRead);
+    if (unread && Math.random() < 0.5) await call(vu, "PATCH /notifications/:id/read", "write", "PATCH", `/notifications/${unread.notificationId}/read`);
   }],
 ];
 const totalWeight = SCREENS.reduce((sum, [weight]) => sum + weight, 0);

@@ -5,6 +5,7 @@ import { financialYear, nextSequence } from "../../common/sequence.js";
 import { istDateKey } from "../../common/time.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
 import { BillingEntity, Invoice } from "./billing.model.js";
+import { memoCache } from "../../common/memoCache.js";
 
 const ENTITY_FIELDS = ["legalName", "tradeName", "gstin", "fssai", "pan", "addressLine", "city", "state", "stateCode", "pincode", "email", "phone", "invoicePrefix", "logoUrl", "signatory", "bank", "isActive"];
 
@@ -52,6 +53,7 @@ export async function createEntity(input) {
   try {
     const entity = await BillingEntity.create({ ...data, isDefault: first || input.isDefault === true });
     if (entity.isDefault && !first) await BillingEntity.updateMany({ _id: { $ne: entity._id } }, { $set: { isDefault: false } });
+    entityCache.clear();
     return toEntity(entity);
   } catch (err) {
     if (err?.code === 11000) throw new AppError(409, "Another entity already uses this invoice prefix");
@@ -75,6 +77,7 @@ export async function updateEntity(entityId, input) {
     if (err?.code === 11000) throw new AppError(409, "Another entity already uses this invoice prefix");
     throw err;
   }
+  entityCache.clear();
   return { before, after: toEntity(entity) };
 }
 
@@ -85,12 +88,21 @@ export async function mapKitchen(kitchenId, entityId) {
   const before = kitchen.billingEntity ? String(kitchen.billingEntity) : null;
   kitchen.billingEntity = entityId || null;
   await kitchen.save();
+  entityCache.clear();
   return { kitchenId: String(kitchen._id), name: kitchen.name, before, after: entityId || null };
 }
 
 /** The entity that invoices for a kitchen: its mapping, else the default entity. */
-export async function entityForKitchen(kitchenId) {
-  const kitchen = kitchenId ? await Kitchen.findById(kitchenId).select("billingEntity").lean() : null;
+// The invoicing entity behind a kitchen (for GST on every bill): 30 s in memory.
+export const entityCache = memoCache(30_000);
+
+export function entityForKitchen(kitchenId) {
+  return entityCache.get(String(kitchenId || ""), () => loadEntityForKitchen(kitchenId));
+}
+
+async function loadEntityForKitchen(kitchenId) {
+  const { kitchenRepository } = await import("../kitchen/kitchen.repository.js");
+  const kitchen = kitchenId ? await kitchenRepository.findActiveById(kitchenId) : null;
   if (kitchen?.billingEntity) {
     const mapped = await BillingEntity.findById(kitchen.billingEntity).lean();
     if (mapped?.isActive !== false && mapped) return mapped;

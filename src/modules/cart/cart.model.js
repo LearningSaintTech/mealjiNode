@@ -34,7 +34,9 @@ const cartSchema = new mongoose.Schema(
     address: { type: ObjectId, ref: "Address", default: null },
     scheduledFor: { type: Date, default: null },
   },
-  { timestamps: true },
+  // Two quick taps must never overwrite each other: a save fails when the
+  // cart changed since it was read, and cart.service retries on fresh data.
+  { timestamps: true, optimisticConcurrency: true },
 );
 cartSchema.index({ updatedAt: -1 });
 

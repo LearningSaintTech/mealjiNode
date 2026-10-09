@@ -18,7 +18,7 @@ import * as notifications from "./notification.service.js";
 // ------------------------------------------------------------------ app
 export const customerNotificationRouter = Router();
 customerNotificationRouter.use(authFor(["/notifications", "/devices"], authMiddleware));
-customerNotificationRouter.get("/notifications", pageQuery, query("category").optional().isIn(INBOX_CATEGORIES), query("unread").optional().isBoolean().toBoolean(), validate, asyncHandler(async (req, res) => {
+customerNotificationRouter.get("/notifications", pageQuery, query("category").optional().isIn(["all", ...INBOX_CATEGORIES]).withMessage("category: all, orders, offers, rewards or account"), query("unread").optional().isBoolean().toBoolean(), validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
   return ok(res, await notifications.listInbox(req.auth.userId, { ...req.query, page, limit }), "Notifications fetched.");
 }));

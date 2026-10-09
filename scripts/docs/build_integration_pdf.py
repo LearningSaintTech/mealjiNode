@@ -240,8 +240,78 @@ APP_NEEDS = {
             "The Profile tile count is `stats.favorites` from `GET /users/me`.",
         ],
     },
+    "08": {
+        "screens": "Cart, Checkout (Bill summary), Offers",
+        "needs": [
+            "Cart: kitchen name and ETA (“Meal Ji • 26 min delivery”), lines with photo, veg mark, name, choices (“Large • + Butter Naan”, or “Regular”), price and a −/+ stepper (below 1 removes), Customize, clear cart, “Add a few more favorites?” suggestions, “Apply promo code”, and the bottom bar with the total and Checkout.",
+            "Checkout (the app's Checkout route is the Bill summary screen): Delivery Address card (Deliver to / + Add new address), Delivery Details (“Standard Delivery · 26 min (Today)” or “Schedule for later”), Payment Method list (“UPI (Recommended) · Pay with any UPI app”, “Credit / Debit Card”, “Cash on Delivery”), Order Summary, Bill Details (Item total (n items), Delivery fee, Packaging charge, Taxes (GST), Total amount) with “You're saving ₹X on this order!”, Special Instructions, and Pay ₹X.",
+            "Offers: today the app has only the “Apply promo code” row (no offers sheet yet); the API returns a ready list of usable offers for that sheet. The Offers tab in the app is the Rewards (points) screen — step 12.",
+            "Home floating bar: “Unlock Free delivery · Shop for ₹X more” and the cart count.",
+        ],
+        "flow": [
+            "Add: `POST /cart/items` from Dish detail (with `portionId`, `optionIds`, `mealUpgrade`), a card's Add + or Combos (`comboId`). On 409 `CART_KITCHEN_MISMATCH` ask “Replace your cart?” and resend with `replaceCart: true`.",
+            "Cart screen: `GET /cart`; stepper → `PATCH /cart/items/{lineId}` with `qty` (0 removes); trash → `DELETE /cart`; suggestions → `GET /cart/recommendations`.",
+            "Offers: `GET /promos/available` → `POST /cart/promo` with the code (show `message` on 422) → `DELETE /cart/promo`.",
+            "Checkout: `GET /delivery/slots` for Schedule for later; save choices with `PATCH /cart` (`addressId`, `scheduledFor`, `tipPaise`, `usePoints`, `chefNote`). Use `POST /checkout/summary` to try a payment method without saving it.",
+            "Print `billLines` top to bottom and the `savingsMessage`; never add up money in the app. Disable Pay when `canCheckout` is false and show the first blocker's `message`.",
+            "Pay ₹X → place the order (step 9).",
+        ],
+    },
+    "09": {
+        "screens": "Payment (Pay ₹X), Order confirmed, Payment methods",
+        "needs": [
+            "Pay ₹X on the Checkout (Bill summary) screen with UPI (Recommended), Credit / Debit Card, Wallets (Paytm, PhonePe, GPay) or Cash on Delivery, and “Save this payment method for faster checkout”.",
+            "The app has a Razorpay placeholder (services/payment/razorpay.ts) expecting: create order → open checkout with order id + amount in paise → verify razorpay_payment_id, razorpay_order_id, razorpay_signature. No payment SDK is installed yet (react-native-razorpay).",
+            "Order confirmed: “Your order is confirmed!”, “Order #MJ… Placed on 9 Oct 2026, 9:41 AM”, Estimated delivery “26 minutes”, the 4-step bar (Order confirmed → Preparing your food → Out for delivery → Delivered), Track order / View receipt, the item list with options and Total paid.",
+            "Profile → Payment Methods: saved cards (“Visa •••• 4242”, Expires 12/26, Default) and UPI.",
+            "Not in the app yet: payment failed / pending / retry screens — the API supports them (Payment failed, Retry payment).",
+        ],
+        "flow": [
+            "Pay ₹X: `POST /orders` with `paymentMethod` and a new `Idempotency-Key` header per tap. Disable the button until it answers.",
+            "Cash on delivery: the order is placed → open Order confirmed with `order.orderId`.",
+            "Online: open Razorpay checkout with `payment.keyId`, `payment.gatewayOrderId` (order_id), `payment.amountPaise`, `payment.prefill`, `payment.description`.",
+            "Success → `POST /payments/verify` with the three razorpay_* values → Order confirmed. Closed / declined → `POST /payments/failed`, show “Payment failed” with Retry → `POST /orders/{orderId}/retry-payment` and open checkout again.",
+            "`paymentError` on placement = could not open payment: show Retry payment for that order.",
+            "Order confirmed: `GET /orders/{orderId}` (placedAtLabel, etaLabel, progress, items with optionsText, paymentMethodLabel, amountPaidPaise). View receipt: `GET /orders/{orderId}/receipt` (`?format=pdf`). Track order: step 10.",
+            "Save this payment method: after Verify, `POST /payment-methods` with the `paymentId`; list / default / delete on Profile → Payment Methods.",
+            "Locally (no Razorpay keys) use `POST /payments/test/complete` in place of the Razorpay sheet.",
+        ],
+    },
+    "10": {
+        "screens": "Order confirmed, Order status, Tracking, Order delivered, Orders list, Order details",
+        "needs": [
+            "Orders tab: Current and Past tabs with counts, current card (“CHARRING · ARRIVING 9:25 PM”, items, total, Track Order), past cards (“4 days ago”, “Butter chicken bowl + butter naan”, Delivered · ₹548, Reorder), empty state “No orders yet” with Popular Picks.",
+            "Order status (“Live Kitchen”): “Right now: Charring the chicken.”, “Arriving by 9:25 PM • 14 min”, the kitchen's own steps with times (Order received → Marinating chicken → Charring in the tandoor → Plating & packing → Rider heading out).",
+            "Tracking: ETA, rider card (name, rating, call, chat), preparation stages, order summary and address. The app has no map library; it already has a WebSocket client using track:subscribe, track:location and track:status — the same events the API sends.",
+            "Order delivered: “Delivered at 9:23 PM · 2 min early”, Food and Delivery stars, tags Delicious / Fresh / Warm / On time / Would reorder, Reorder, Submit.",
+            "Order details is a placeholder in the app; View receipt and Track order buttons have no actions yet. No cancel UI exists yet (the API offers reasons).",
+        ],
+        "flow": [
+            "Orders tab: `GET /orders?status=active|past&page=1&limit=10`; tab badges from `counts`; load more while `hasMore`. Empty → Popular dishes (`GET /menu/popular`).",
+            "Track order / current card → Order status: `GET /orders/{id}/live`, and keep it fresh over the WebSocket (`track:subscribe` with the order id; refresh on `order:status`, `order:kitchen_step`, `track:location`).",
+            "Tracking map: `GET /orders/{id}/tracking` (kitchen, destination, rider, last position). Rider photo, rating and in-app chat are not in the API yet; call uses the masked number.",
+            "Cancel (only while `canCancel`): `PATCH /orders/{id}/cancel` with one of `cancelReasons`.",
+            "Order delivered (`canRate`): `POST /orders/{id}/rating` with `foodRating`, `deliveryRating`, `tags` from `ratingTags`.",
+            "Reorder: `POST /orders/{id}/reorder` (on 409 CART_KITCHEN_MISMATCH ask, then `replaceCart: true`) → open Cart.",
+            "View receipt: `GET /orders/{id}/receipt?format=pdf`; all invoices: `GET /invoices`.",
+        ],
+    },
+    "11": {
+        "screens": "Notifications (and the bell on Home)",
+        "needs": [
+            "Notifications screen: tabs All / Orders / Offers / Rewards / Account, sections Today / Yesterday / This Week / Earlier, rows with icon (box, moto, star, gift, crown, heart, megaphone), title, time (“2m ago”, “Yesterday, 5:30 PM”, “Mon, 12 Sep”, “5 Sep”), body and an unread dot, and “Mark all as read”.",
+            "Push: the app has a Firebase placeholder (services/firebase/firebase.ts) — @react-native-firebase/messaging is not installed yet; it will give an FCM token to register.",
+        ],
+        "flow": [
+            "Bell badge: `unreadNotifications` from `GET /home` (or `GET /notifications/unread-count`).",
+            "Notifications screen: `GET /notifications?category=<tab>&page=1&limit=20`; draw `tabs` with their unread counts, group rows by `group`, show `timeLabel` and `icon`; load more while `hasMore`.",
+            "Tap a row: `PATCH /notifications/{id}/read`, then open `deepLink.url` (mealji://orders/{orderId} → Order details, mealji://offers, mealji://rewards/history…). “Mark all as read”: `PATCH /notifications/read-all`.",
+            "Push: after sign-in and on token refresh `POST /devices` (deviceId = the x-device-id value, fcmToken, platform, appVersion); on log out `DELETE /devices/{deviceId}` before `/auth/logout`. When a push is opened: `POST /notifications/track` with its `messageId`.",
+            "Order updates (confirmed, cooking, ready, on the way, delivered), points and offers arrive in the inbox automatically; demo numbers never get SMS.",
+        ],
+    },
 }
-STEPS = ["01", "02", "03", "04", "05", "06", "07"]
+STEPS = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]
 
 folders = {f["name"][5:7]: f for f in collection["item"] if re.match(r"^Step \d\d ", f["name"])}
 results = {s["step"]: s for s in report["steps"]}
@@ -379,15 +449,22 @@ s += [p("Many users at once", H2),
           ["GET /users/me/favorites", "13", "5"],
           ["GET /users/me", "10", "7"],
           ["GET /users/me/preferences", "11", "4"],
+          ["POST /cart/items (add to cart)", "15.3", "8.2"],
+          ["GET /promos/available", "17.8", "8.1"],
+          ["GET /cart / POST /checkout/summary", "9.1 / 9.2", "4 / 4"],
           ["Every signed-in call (sign-in check)", "2–8", "1"],
       ], [90 * mm, 30 * mm, W - 120 * mm]),
-      p("Same laptop, same 10 concurrent users: 44 → 129 requests/s, p95 569 → 161 ms (about 3× more capacity per server process).", SMALL)]
+      p("With step 9 (placing orders and paying) in the mix, 25 concurrent: 160 requests/s, p95 319 ms; placing an order p95 606 ms and pay + verify 650 ms (about 19 database calls each at the laptop's 2 ms per call) — just over the 500 ms write target here, expected to drop on production servers.", SMALL),
+      p("Same laptop, same 10 concurrent users: 44 → 129 requests/s, p95 569 → 161 ms (about 3× more capacity per server process). With step 8 added: 143 requests/s, p95 138 ms, every endpoint within target. With 8 processes: 25 concurrent ≈ 960 active users at 192 requests/s, p95 236 ms (all pass); 50 concurrent at 297 requests/s, p95 402 ms (a few write calls just over target).", SMALL)]
 s += [p("What was changed for scale", H3)] + bullets([
     "The sign-in check ran once per router (up to 4 times per request); now once, with roles and permissions cached for 30 s.",
     "The serving kitchen, active kitchen list, app config, live Meal Ji Plus plans and resolved settings are kept in memory for a few seconds (cleared immediately on changes), instead of being read from MongoDB/Redis on every request.",
     "Parsed menus are kept in memory for 10 s; menu edits clear them.",
     "Place names for a saved location are cached per point (~10 m) for 30 days: far fewer paid Google calls.",
     "Profile counts are only computed for the profile; preferences no longer load them.",
+    "Cart: dishes and combos are priced from the cached live menu (stock is still re-checked when the order is placed); the offers list no longer re-prices the whole bill; GST entity per kitchen cached 30 s.",
+    "Two quick taps on + used to lose items (8 taps → 1 in the cart). The cart now detects a parallel save and retries on fresh data (optimistic concurrency).",
+    "New index for a customer's coupon history (the cart reads it on every view): reads 1 record instead of scanning all redemptions.",
     "One API process uses one CPU core (about 140 requests/s on the test laptop). `npm run start:cluster` runs one process per core; background jobs run once in `npm run worker`. Live updates go through Redis, so this needs no sticky sessions.",
 ])
 s += [p("Limits of these numbers", H3)] + bullets([
@@ -412,6 +489,10 @@ s += bullets([
     "Menu / dish / combos: dishes of hidden categories disappear everywhere; dishes say why they cannot be ordered (`unavailableReason`, `unavailableMessage`, including breakfast/lunch/snacks/dinner hours); option groups say `required`/`multiple`; portions carry `serves`; “Make it a meal” has image, original price and saving; dish detail has `chef`, `isFavorite` and the kitchen's open state; combos carry item photos and prices, `savingsPaise`, `audience` and chips; `GET /combos/{id}` and the app's `GET /kitchens/{id}/menu` were added; every filter value is validated (422).",
     "Search / favourites: typo-tolerant search (“briyani”), suggestions and popular dishes for zero results, recent searches no longer store every typed letter, remove one recent search, search near a chosen point; favourites only for live dishes, 201/200 on repeat, `orderableHere` and `kitchenName`; profile `stats` (orders, favourites, addresses).",
     "Sign-in tokens are now pinned to HS256 and verified with a cached key.",
+    "Notifications: items now carry the app's icon names, `group` (Today / Yesterday / This Week / Earlier) and `timeLabel`; the list returns `tabs` with unread counts and `hasMore`; `category=all` is accepted; Out for delivery uses the scooter icon; the seed adds Offers and Account examples for the demo customers.",
+    "Order tracking and history: two taps on Submit could rate an order twice, and parallel ratings could overwrite dish/kitchen averages — now one rating per order and atomic averages. Reorder silently replaced a cart from another kitchen; it now asks (409 CART_KITCHEN_MISMATCH) unless `replaceCart: true`. Added for the screens: list `counts` (tab badges) and `hasMore`, `title`, `dateLabel`, `arrivingByLabel`, `deliveredAtLabel`, `punctualityLabel`, `canRate`, `ratingTags`, `cancelReasons`. Demo order history now has realistic delivery times.",
+    "Place order and pay: a double tap on Pay made several orders (3 taps → 3 orders, stock taken 3 times); now one order per customer at a time (409 ORDER_IN_PROGRESS) plus Idempotency-Key replays. An old checkout paid after a retry used to charge twice with no refund; the extra payment is now refunded automatically and the order stays paid. The scheduled time comes from the validated cart (made-up times are refused). If the gateway is down the order is kept with `paymentError` and Retry payment. Wallets are offered like in the app; Order confirmed gets `placedAtLabel`, `etaLabel`, `progress`, `optionsText`, `paymentMethodLabel`, amounts paid / due; saved methods no longer expose the gateway token.",
+    "Cart / checkout: parallel taps no longer lose items; editing a line validates portion/options and merges identical lines; unavailable combos cannot be added; the default address is used automatically; ready-to-print `billLines`, `optionsText`, `etaLabel`, `savingsMessage`, `freeDeliveryMessage`, payment method labels; Schedule for later (`scheduledFor`, only offered slots); free delivery now applies from the threshold up (₹299 or more) and Meal Ji Plus members never see “₹X more”; profile `stats.paymentMethods` counts saved cards/UPI.",
     "Addresses: `label` accepts Home / Office / Other or any custom text; responses add `displayLabel`. `latitude`/`longitude` are optional — the server places the address from its text or pincode, and refuses an address it cannot find with a 422 on `pincode`.",
 ])
 doc = SimpleDocTemplate(OUT, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=18 * mm,

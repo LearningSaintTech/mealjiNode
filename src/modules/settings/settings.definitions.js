@@ -114,7 +114,7 @@ export const SETTING_DEFINITIONS = {
       { key: "deliveryFeePaise", label: "Flat delivery fee", type: "money", default: 4000, min: 0, max: 100_000, kitchenEditable: true },
       { key: "deliverySlabs", label: "Distance slabs", type: "slabs", default: [{ uptoKm: 2, feePaise: 2000 }, { uptoKm: 4, feePaise: 3000 }, { uptoKm: 8, feePaise: 4000 }], help: "Fee for each distance band. Beyond the last band the last fee applies." },
       { key: "quoteMarkupPercent", label: "Markup on the partner's quote (%)", type: "integer", default: 0, min: -100, max: 200, help: "Negative values subsidise delivery." },
-      { key: "freeDeliveryAbovePaise", label: "Free delivery above", type: "money", default: 29_900, min: 0, max: 10_000_000, kitchenEditable: true, help: "Item total strictly above this delivers free. 0 means never free." },
+      { key: "freeDeliveryAbovePaise", label: "Free delivery above", type: "money", default: 29_900, min: 0, max: 10_000_000, kitchenEditable: true, help: "An item total of this amount or more delivers free. 0 means never free." },
       { key: "plusFreeDelivery", label: "Free delivery for MealJi Plus members", type: "boolean", default: true },
       {
         key: "packagingMode",

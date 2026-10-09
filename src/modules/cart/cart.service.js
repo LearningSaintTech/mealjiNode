@@ -3,22 +3,109 @@ import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { Address, addressSnapshot } from "../address/address.model.js";
-import { isOrderable, popularDishes, unavailableMessage, unavailableReason } from "../catalog/catalog.service.js";
+import { isOrderable, kitchenMenu, markFavorites, popularDishes, unavailableMessage, unavailableReason } from "../catalog/catalog.service.js";
+import { kitchenRepository } from "../kitchen/kitchen.repository.js";
 import { KitchenCombo, KitchenDish } from "../catalog/catalog.model.js";
 import { checkCode } from "../coupon/coupon.service.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
-import { orderingState } from "../kitchen/kitchen.hours.js";
+import { hoursOn, isOpenAt, orderingState } from "../kitchen/kitchen.hours.js";
+import { addIstDays, istDateKey, istDateTime, parseHhmm } from "../../common/time.js";
+import { resolveSetting } from "../settings/settings.service.js";
 import { priceLines } from "../pricing/pricing.service.js";
 import { kitchenCovers } from "../serviceability/serviceability.service.js";
 import { User } from "../user/user.model.js";
 import { Cart } from "./cart.model.js";
 
 const PAYMENT_METHODS = ["upi", "card", "netbanking", "wallet", "cod"];
+// How the checkout lists each way to pay (the app's own wording).
+const PAYMENT_LABELS = {
+  upi: { label: "UPI (Recommended)", description: "Pay with any UPI app" },
+  card: { label: "Credit / Debit Card", description: "Visa, Mastercard, RuPay" },
+  netbanking: { label: "Net Banking", description: "All major banks" },
+  wallet: { label: "Wallets", description: "Paytm, PhonePe, GPay" },
+  cod: { label: "Cash on Delivery", description: "Pay when you receive" },
+};
+const rupees = (paise) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+
+/** “Large • Extra Butter Jeera Rice • + Complete Meal”, or “Regular” with no choices. */
+function optionsText(line) {
+  const parts = [line.portion?.label, ...(line.options || []).map((option) => option.name), line.mealUpgrade ? `+ ${line.mealUpgrade.label}` : null].filter(Boolean);
+  return parts.length ? parts.join(" • ") : "Regular";
+}
+
+/**
+ * The bill as rows the app prints top to bottom (no maths in the app):
+ * Item total, Delivery fee (FREE with the struck-out fee), Packaging, fees,
+ * Taxes (GST), Coupon discount, Tip, Points, then Total amount.
+ */
+function billLines(bill, coupon) {
+  const rows = [{ key: "items", label: `Item total (${bill.itemCount} item${bill.itemCount === 1 ? "" : "s"})`, amountPaise: bill.itemTotalPaise }];
+  if (bill.deliveryFeeWaived) rows.push({ key: "delivery", label: "Delivery fee", amountPaise: 0, text: "FREE", strikePaise: bill.deliveryFeeFullPaise });
+  else if (bill.deliveryFeePaise) rows.push({ key: "delivery", label: "Delivery fee", amountPaise: bill.deliveryFeePaise });
+  if (bill.packagingPaise) rows.push({ key: "packaging", label: "Packaging charge", amountPaise: bill.packagingPaise });
+  if (bill.platformFeePaise) rows.push({ key: "platform", label: "Platform fee", amountPaise: bill.platformFeePaise });
+  if (bill.smallOrderFeePaise) rows.push({ key: "small_order", label: "Small order fee", amountPaise: bill.smallOrderFeePaise });
+  if (bill.surgeFeePaise) rows.push({ key: "surge", label: "Busy-time fee", amountPaise: bill.surgeFeePaise });
+  if (!bill.taxes.pricesIncludeTax && bill.taxes.total) rows.push({ key: "taxes", label: "Taxes (GST)", amountPaise: bill.taxes.total });
+  else if (bill.taxes.total) rows.push({ key: "taxes", label: "Taxes (GST)", amountPaise: bill.taxes.total - (bill.taxes.lines?.[0]?.total || 0), note: "Food prices include GST" });
+  if (bill.discountPaise) rows.push({ key: "discount", label: coupon?.code ? `Coupon discount (${coupon.code})` : "Discount", amountPaise: -bill.discountPaise });
+  if (bill.tipPaise) rows.push({ key: "tip", label: "Tip for your rider", amountPaise: bill.tipPaise });
+  if (bill.pointsPaise) rows.push({ key: "points", label: "Meal Ji points used", amountPaise: -bill.pointsPaise });
+  rows.push({ key: "total", label: "Total amount", amountPaise: bill.grandTotalPaise, isTotal: true });
+  return rows;
+}
+
+// ---- delivery time: as soon as possible, or a half-hour slot today/tomorrow
+
+/** Delivery options for a kitchen (shared by GET /delivery/slots and the cart). */
+export async function deliverySlots(kitchen, now = new Date()) {
+  const app = (await resolveSetting("app")).values;
+  const options = [{ type: "asap", label: "As soon as possible", available: Boolean(kitchen && isOpenAt(kitchen, now) && kitchen.acceptingOrders) }];
+  const scheduled = [];
+  if (kitchen && app.featureScheduledDelivery) {
+    for (const offset of [0, 1]) {
+      const dateKey = addIstDays(istDateKey(now), offset);
+      const hours = hoursOn(kitchen, dateKey);
+      if (hours.closed) continue;
+      const start = parseHhmm(hours.opensAt);
+      const end = parseHhmm(hours.closesAt) > start ? parseHhmm(hours.closesAt) : 24 * 60;
+      for (let minute = Math.ceil(start / 30) * 30 + 30; minute + 30 <= end; minute += 30) {
+        const from = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+        const to = `${String(Math.floor((minute + 30) / 60)).padStart(2, "0")}:${String((minute + 30) % 60).padStart(2, "0")}`;
+        const at = istDateTime(dateKey, from);
+        if (at.getTime() < now.getTime() + 45 * 60 * 1000) continue;
+        scheduled.push({ date: dateKey, from, to, startsAt: at, label: `${offset ? "Tomorrow" : "Today"} ${from}–${to}` });
+      }
+    }
+  }
+  return { options, scheduled, scheduledEnabled: Boolean(app.featureScheduledDelivery) };
+}
 
 const lineKey = (line) => [line.kind, String(line.dish || line.combo), line.portionId || "", line.mealUpgrade ? 1 : 0, [...(line.optionIds || [])].sort().join(",")].join("|");
 
 async function getCart(userId) {
   return (await Cart.findOne({ user: userId })) || new Cart({ user: userId, items: [] });
+}
+
+const CONFLICT_RETRIES = 8;
+const isConflict = (err) => err?.name === "VersionError" || err?.code === 11000;
+
+/**
+ * Read → change → save, retried on a fresh copy when another request saved
+ * the cart in between (parallel taps on +, two devices). `change` may run more
+ * than once, so it only edits the cart it is given.
+ */
+async function mutateCart(userId, change, { event = true, user = null } = {}) {
+  for (let attempt = 1; ; attempt += 1) {
+    const cart = await getCart(userId);
+    await change(cart);
+    try {
+      return await saveAndBuild(cart, userId, event, user);
+    } catch (err) {
+      if (!isConflict(err) || attempt >= CONFLICT_RETRIES) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 5 + Math.random() * 20 * attempt));
+    }
+  }
 }
 
 /** Validates options against the dish's groups and returns the chosen options. */
@@ -75,7 +162,9 @@ export function priceLine(line, dishes, combos, at = new Date()) {
   const { chosen, errors } = chosenOptions(dish, line.optionIds);
   const extras = upgrade + chosen.reduce((sum, option) => sum + option.pricePaise, 0);
   const unit = base + extras;
-  const original = (!portion && dish.originalPricePaise > dish.pricePaise ? dish.originalPricePaise : base) + extras;
+  // Struck-out price: the dish's MRP (when no portion is chosen) and the meal upgrade's own saving.
+  const upgradeSaving = upgrade && dish.mealUpgrade.originalPricePaise > upgrade ? dish.mealUpgrade.originalPricePaise - upgrade : 0;
+  const original = (!portion && dish.originalPricePaise > dish.pricePaise ? dish.originalPricePaise : base) + extras + upgradeSaving;
   const available = isOrderable(dish, at) && !errors.length && (!line.portionId || Boolean(portion));
   return {
     lineId: line.lineId,
@@ -100,12 +189,14 @@ export function priceLine(line, dishes, combos, at = new Date()) {
   };
 }
 
-async function menuMaps(items) {
-  const dishIds = items.filter((item) => item.kind !== "combo").map((item) => item.dish);
-  const combos = await KitchenCombo.find({ _id: { $in: items.filter((item) => item.kind === "combo").map((item) => item.combo) } }).lean();
-  const comboDishIds = combos.flatMap((combo) => (combo.items || []).map((item) => item.dish));
-  const dishes = await KitchenDish.find({ _id: { $in: [...dishIds, ...comboDishIds] } }).lean();
-  return { dishes: new Map(dishes.map((dish) => [String(dish._id), dish])), combos: new Map(combos.map((combo) => [String(combo._id), combo])) };
+/**
+ * Dishes and combos for pricing, from the kitchen's cached live menu (refreshed
+ * within 10 s of an edit). Dishes no longer on the menu are simply missing,
+ * which prices the line as “removed”. Stock is re-checked atomically at order time.
+ */
+async function menuMaps(kitchenId) {
+  const menu = await kitchenMenu(String(kitchenId));
+  return { dishes: new Map(menu.rawDishes.map((dish) => [String(dish._id), dish])), combos: new Map(menu.rawCombos.map((combo) => [String(combo._id), combo])) };
 }
 
 /**
@@ -114,14 +205,17 @@ async function menuMaps(items) {
  * pricing and tax settings, the coupon re-validated, points capped, plus the
  * reasons checkout is blocked (if any).
  */
-export async function buildCart(userId, overrides = {}) {
-  const cart = await getCart(userId);
-  const user = await User.findById(userId).lean();
+export async function buildCart(userId, overrides = {}, { user: loaded = null, cart: saved = null } = {}) {
+  const cart = saved || await getCart(userId);
+  // The signed-in user is already loaded by the auth check when the route passes it.
+  const user = loaded || await User.findById(userId).lean();
   const deliveryMode = overrides.deliveryMode || cart.deliveryMode || "delivery";
   const tipPaise = overrides.tipPaise ?? cart.tipPaise ?? 0;
   const usePoints = overrides.usePoints ?? cart.usePoints ?? false;
   const paymentMethod = overrides.paymentMethod || null;
   const addressId = overrides.addressId || (cart.address ? String(cart.address) : null);
+  const autoAddress = !overrides.addressId && !cart.address;
+  const scheduledFor = overrides.scheduledFor !== undefined ? overrides.scheduledFor : cart.scheduledFor || null;
 
   const empty = {
     cartId: cart._id ? String(cart._id) : null,
@@ -140,9 +234,9 @@ export async function buildCart(userId, overrides = {}) {
   };
   if (!cart.items.length || !cart.kitchen) return empty;
 
-  const kitchen = await Kitchen.findById(cart.kitchen).lean();
+  const kitchen = await kitchenRepository.findActiveById(cart.kitchen);
   if (!kitchen) return empty;
-  const { dishes, combos } = await menuMaps(cart.items);
+  const { dishes, combos } = await menuMaps(cart.kitchen);
   const now = new Date();
   const lines = cart.items.map((line) => priceLine(line, dishes, combos, now));
   const orderable = lines.filter((line) => line.isAvailable);
@@ -151,6 +245,11 @@ export async function buildCart(userId, overrides = {}) {
   let address = null;
   if (deliveryMode === "delivery" && addressId) {
     address = await Address.findOne({ _id: objectId(addressId, "address ID"), user: userId, deletedAt: null }).lean();
+  }
+  // Nothing chosen yet: use the default address (else the newest one this kitchen delivers to).
+  if (deliveryMode === "delivery" && !address && autoAddress) {
+    const saved = await Address.find({ user: userId, deletedAt: null }).sort({ isDefault: -1, updatedAt: -1 }).limit(20).lean();
+    address = saved.find((item) => kitchenCovers(kitchen, item.latitude, item.longitude)) || saved[0] || null;
   }
 
   let coupon = null;
@@ -179,7 +278,11 @@ export async function buildCart(userId, overrides = {}) {
 
   const blockers = [];
   const state = orderingState(kitchen, now);
-  if (!state.canOrder) blockers.push({ code: "KITCHEN_CLOSED", message: state.message, opensAt: state.opensAt || null });
+  const slots = await deliverySlots(kitchen, now);
+  const slot = scheduledFor ? slots.scheduled.find((item) => item.startsAt.getTime() === new Date(scheduledFor).getTime()) : null;
+  if (scheduledFor && !slot) blockers.push({ code: "SLOT_UNAVAILABLE", message: "That delivery time is no longer available. Choose another time." });
+  // A scheduled order can be placed while the kitchen is closed now.
+  if (!state.canOrder && !slot) blockers.push({ code: "KITCHEN_CLOSED", message: state.message, opensAt: state.opensAt || null });
   const unavailable = lines.filter((line) => !line.isAvailable);
   if (unavailable.length) blockers.push({ code: "ITEMS_UNAVAILABLE", message: `${unavailable.length} item(s) are not available. Remove them to continue.`, lineIds: unavailable.map((line) => line.lineId) });
   if (!orderable.length) blockers.push({ code: "EMPTY", message: "Nothing in your cart can be ordered" });
@@ -202,10 +305,17 @@ export async function buildCart(userId, overrides = {}) {
   return {
     cartId: String(cart._id),
     kitchen: { kitchenId: String(kitchen._id), name: kitchen.name, isOpenNow: state.canOrder, message: state.message },
-    items: lines,
+    items: lines.map((line) => ({ ...line, optionsText: optionsText(line) })),
     itemCount: orderable.reduce((sum, line) => sum + line.qty, 0),
     coupon,
     bill: priced.bill,
+    billLines: billLines(priced.bill, coupon),
+    savingsMessage: priced.bill.savingsPaise > 0 ? `You're saving ${rupees(priced.bill.savingsPaise)} on this order!` : null,
+    freeDeliveryMessage: priced.bill.amountToFreeDeliveryPaise > 0 ? `Add ${rupees(priced.bill.amountToFreeDeliveryPaise)} more for free delivery` : null,
+    etaLabel: deliveryMode === "pickup" ? `Ready in ${priced.etaMinutes} min` : `${priced.etaMinutes} min`,
+    delivery: slot
+      ? { type: "scheduled", scheduledFor: slot.startsAt, label: slot.label }
+      : { type: "asap", scheduledFor: null, label: deliveryMode === "pickup" ? `Pickup in ${priced.etaMinutes} min` : `${priced.etaMinutes} min (Today)` },
     points: priced.points,
     tip: priced.tip,
     etaMinutes: priced.etaMinutes,
@@ -215,8 +325,9 @@ export async function buildCart(userId, overrides = {}) {
     usePoints: Boolean(usePoints),
     chefNote: cart.chefNote || null,
     address: address ? addressSnapshot(address) : null,
-    paymentMethods: PAYMENT_METHODS.filter((method) => method !== "wallet").map((method) => ({
+    paymentMethods: PAYMENT_METHODS.map((method) => ({
       method,
+      ...PAYMENT_LABELS[method],
       enabled: method === "cod" ? codAllowed : true,
       note: method === "cod" && !codAllowed ? (priced.policy.codEnabled ? `Up to ₹${Math.round(priced.policy.codMaxOrderPaise / 100)}` : "Not available") : null,
     })),
@@ -232,10 +343,10 @@ export async function buildCart(userId, overrides = {}) {
  * kitchen serving the customer. `fromOtherKitchen` = the cart was filled at a
  * different kitchen than the one serving this location now.
  */
-export async function cartSummary(userId, { kitchenId = null, freeDeliveryAbovePaise = null, minOrderPaise = 0 } = {}) {
+export async function cartSummary(userId, { kitchenId = null, freeDeliveryAbovePaise = null, minOrderPaise = 0, deliveryAlwaysFree = false } = {}) {
   const cart = await Cart.findOne({ user: userId }).lean();
   if (!cart?.items?.length) {
-    return { itemCount: 0, kitchenId: null, subtotalPaise: 0, freeDeliveryAbovePaise, amountToFreeDeliveryPaise: freeDeliveryAbovePaise, amountToMinOrderPaise: minOrderPaise || 0, fromOtherKitchen: false, updatedAt: null };
+    return { itemCount: 0, kitchenId: null, subtotalPaise: 0, freeDeliveryAbovePaise, amountToFreeDeliveryPaise: deliveryAlwaysFree ? 0 : freeDeliveryAbovePaise, deliveryAlwaysFree, amountToMinOrderPaise: minOrderPaise || 0, fromOtherKitchen: false, updatedAt: null };
   }
   const subtotalPaise = cart.items.reduce((sum, line) => sum + (line.seenUnitPricePaise || 0) * line.qty, 0);
   const cartKitchen = cart.kitchen ? String(cart.kitchen) : null;
@@ -244,28 +355,31 @@ export async function cartSummary(userId, { kitchenId = null, freeDeliveryAboveP
     kitchenId: cartKitchen,
     subtotalPaise,
     freeDeliveryAbovePaise,
-    amountToFreeDeliveryPaise: freeDeliveryAbovePaise ? Math.max(0, freeDeliveryAbovePaise - subtotalPaise) : null,
+    amountToFreeDeliveryPaise: deliveryAlwaysFree ? 0 : freeDeliveryAbovePaise ? Math.max(0, freeDeliveryAbovePaise - subtotalPaise) : null,
+    deliveryAlwaysFree,
     amountToMinOrderPaise: Math.max(0, (minOrderPaise || 0) - subtotalPaise),
     fromOtherKitchen: Boolean(kitchenId && cartKitchen && cartKitchen !== String(kitchenId)),
     updatedAt: cart.updatedAt,
   };
 }
 
-async function saveAndBuild(cart, userId, event = true) {
+async function saveAndBuild(cart, userId, event = true, user = null) {
   await cart.save();
   if (event) {
     await publishEventSafe("cart.updated", { userId: String(userId), kitchenId: cart.kitchen ? String(cart.kitchen) : null, itemCount: cart.items.reduce((sum, line) => sum + line.qty, 0) }, { aggregate: { type: "cart", id: cart._id } });
   }
-  return buildCart(userId);
+  return buildCart(userId, {}, { cart, user });
 }
 
-export async function addItem(userId, input) {
-  const cart = await getCart(userId);
+export async function addItem(userId, input, { user = null } = {}) {
   let kitchenId;
   let line;
   if (input.comboId) {
     const combo = await KitchenCombo.findOne({ _id: objectId(input.comboId, "combo ID"), isActive: true, approvalStatus: "live" }).lean();
     if (!combo) throw new AppError(404, "Combo not found");
+    const comboDishes = await KitchenDish.find({ _id: { $in: (combo.items || []).map((item) => item.dish) } }).lean();
+    const blocked = (combo.items || []).map((item) => comboDishes.find((dish) => String(dish._id) === String(item.dish))).find((dish) => !isOrderable(dish));
+    if (!combo.isAvailable || blocked !== undefined) throw new AppError(409, `${combo.title} is not available right now`);
     kitchenId = String(combo.kitchen);
     line = { kind: "combo", combo: combo._id, qty: input.qty || 1, seenUnitPricePaise: combo.pricePaise };
   } else {
@@ -291,74 +405,91 @@ export async function addItem(userId, input) {
     };
   }
 
-  if (cart.kitchen && cart.items.length && String(cart.kitchen) !== kitchenId) {
-    if (!input.replaceCart) {
-      throw new AppError(409, "Your cart has items from another kitchen. Replace them?", [{ field: "cart", message: "CART_KITCHEN_MISMATCH" }]);
-    }
-    cart.items = [];
-    cart.couponCode = null;
-  }
-  cart.kitchen = kitchenId;
-  const key = lineKey(line);
-  const existing = cart.items.find((item) => lineKey(item) === key);
-  if (existing) {
-    existing.qty = Math.min(50, existing.qty + line.qty);
-    if (line.specialInstructions) existing.specialInstructions = line.specialInstructions;
-  } else {
-    if (cart.items.length >= 40) throw new AppError(409, "Your cart is full");
-    cart.items.push({ ...line, lineId: crypto.randomBytes(6).toString("hex") });
-  }
-  return saveAndBuild(cart, userId);
-}
-
-export async function updateItem(userId, lineId, { qty, specialInstructions, optionIds, portionId, mealUpgrade }) {
-  const cart = await getCart(userId);
-  const line = cart.items.find((item) => item.lineId === lineId);
-  if (!line) throw new AppError(404, "Cart item not found");
-  if (qty === 0) {
-    cart.items = cart.items.filter((item) => item.lineId !== lineId);
-  } else {
-    if (qty != null) line.qty = qty;
-    if (specialInstructions !== undefined) line.specialInstructions = specialInstructions || null;
-    if (line.kind === "dish" && (optionIds !== undefined || portionId !== undefined || mealUpgrade !== undefined)) {
-      const dish = await KitchenDish.findById(line.dish).lean();
-      if (!dish) throw new AppError(404, "Dish not found");
-      if (optionIds !== undefined) {
-        const { errors } = chosenOptions(dish, optionIds);
-        if (errors.length) throw new AppError(422, "Validation failed", errors.map((message) => ({ field: "optionIds", message })));
-        line.optionIds = optionIds;
+  return mutateCart(userId, (cart) => {
+    if (cart.kitchen && cart.items.length && String(cart.kitchen) !== kitchenId) {
+      if (!input.replaceCart) {
+        throw new AppError(409, "Your cart has items from another kitchen. Replace them?", [{ field: "cart", message: "CART_KITCHEN_MISMATCH" }]);
       }
-      if (portionId !== undefined) line.portionId = portionId;
-      if (mealUpgrade !== undefined) line.mealUpgrade = Boolean(mealUpgrade);
+      cart.items = [];
+      cart.couponCode = null;
     }
-  }
-  if (!cart.items.length) cart.couponCode = null;
-  return saveAndBuild(cart, userId);
+    cart.kitchen = kitchenId;
+    const key = lineKey(line);
+    const existing = cart.items.find((item) => lineKey(item) === key);
+    if (existing) {
+      existing.qty = Math.min(50, existing.qty + line.qty);
+      if (line.specialInstructions) existing.specialInstructions = line.specialInstructions;
+    } else {
+      if (cart.items.length >= 40) throw new AppError(409, "Your cart is full");
+      cart.items.push({ ...line, lineId: crypto.randomBytes(6).toString("hex") });
+    }
+  }, { user });
 }
 
-export async function removeItem(userId, lineId) {
-  return updateItem(userId, lineId, { qty: 0 });
+export async function updateItem(userId, lineId, { qty, specialInstructions, optionIds, portionId, mealUpgrade }, { user = null } = {}) {
+  const current = (await getCart(userId)).items.find((item) => item.lineId === lineId);
+  if (!current) throw new AppError(404, "Cart item not found");
+  // Validate new choices against the dish before touching the cart.
+  let dish = null;
+  if (current.kind === "dish" && qty !== 0 && (optionIds !== undefined || portionId !== undefined || mealUpgrade !== undefined)) {
+    dish = await KitchenDish.findById(current.dish).lean();
+    if (!dish) throw new AppError(404, "Dish not found");
+    if (optionIds !== undefined) {
+      const { errors } = chosenOptions(dish, optionIds);
+      if (errors.length) throw new AppError(422, "Validation failed", errors.map((message) => ({ field: "optionIds", message })));
+    }
+    if (portionId && !(dish.portions || []).some((portion) => portion.portionId === portionId)) {
+      throw new AppError(422, "Choose a valid portion", [{ field: "portionId", message: "Choose a valid portion" }]);
+    }
+    if (mealUpgrade && !dish.mealUpgrade?.label) throw new AppError(422, "This dish has no meal upgrade", [{ field: "mealUpgrade", message: "This dish has no meal upgrade" }]);
+  }
+  return mutateCart(userId, (cart) => {
+    const line = cart.items.find((item) => item.lineId === lineId);
+    if (!line) throw new AppError(404, "Cart item not found");
+    if (qty === 0) {
+      cart.items = cart.items.filter((item) => item.lineId !== lineId);
+    } else {
+      if (qty != null) line.qty = qty;
+      if (specialInstructions !== undefined) line.specialInstructions = specialInstructions || null;
+      if (dish) {
+        if (optionIds !== undefined) line.optionIds = optionIds;
+        if (portionId !== undefined) line.portionId = portionId || (dish.portions || []).find((item) => item.isDefault)?.portionId || null;
+        if (mealUpgrade !== undefined) line.mealUpgrade = Boolean(mealUpgrade);
+        // Same choices as another line now: merge them into one line.
+        const twin = cart.items.find((item) => item !== line && lineKey(item) === lineKey(line));
+        if (twin) {
+          twin.qty = Math.min(50, twin.qty + line.qty);
+          cart.items = cart.items.filter((item) => item !== line);
+        }
+      }
+    }
+    if (!cart.items.length) cart.couponCode = null;
+  }, { user });
+}
+
+export async function removeItem(userId, lineId, options = {}) {
+  return updateItem(userId, lineId, { qty: 0 }, options);
 }
 
 export async function clearCart(userId) {
-  await Cart.updateOne({ user: userId }, { $set: { items: [], couponCode: null, kitchen: null, usePoints: false, tipPaise: 0, chefNote: null } });
+  // $inc __v: a save still holding the old cart must not undo the clear.
+  await Cart.updateOne({ user: userId }, { $set: { items: [], couponCode: null, kitchen: null, usePoints: false, tipPaise: 0, chefNote: null }, $inc: { __v: 1 } });
   return buildCart(userId);
 }
 
-export async function updateCart(userId, input) {
-  const cart = await getCart(userId);
-  if (input.tipPaise !== undefined) cart.tipPaise = input.tipPaise;
-  if (input.usePoints !== undefined) cart.usePoints = Boolean(input.usePoints);
-  if (input.chefNote !== undefined) cart.chefNote = input.chefNote || null;
-  if (input.deliveryMode !== undefined) cart.deliveryMode = input.deliveryMode;
-  if (input.addressId !== undefined) {
-    if (input.addressId) {
-      const address = await Address.findOne({ _id: objectId(input.addressId, "address ID"), user: userId, deletedAt: null }).lean();
-      if (!address) throw new AppError(404, "Address not found");
-    }
-    cart.address = input.addressId || null;
+export async function updateCart(userId, input, { user = null } = {}) {
+  if (input.addressId) {
+    const address = await Address.findOne({ _id: objectId(input.addressId, "address ID"), user: userId, deletedAt: null }).lean();
+    if (!address) throw new AppError(404, "Address not found");
   }
-  return saveAndBuild(cart, userId, false);
+  return mutateCart(userId, (cart) => {
+    if (input.tipPaise !== undefined) cart.tipPaise = input.tipPaise;
+    if (input.usePoints !== undefined) cart.usePoints = Boolean(input.usePoints);
+    if (input.chefNote !== undefined) cart.chefNote = input.chefNote || null;
+    if (input.deliveryMode !== undefined) cart.deliveryMode = input.deliveryMode;
+    if (input.addressId !== undefined) cart.address = input.addressId || null;
+    if (input.scheduledFor !== undefined) cart.scheduledFor = input.scheduledFor ? new Date(input.scheduledFor) : null;
+  }, { event: false, user });
 }
 
 export async function applyPromo(userId, code) {
@@ -369,13 +500,22 @@ export async function applyPromo(userId, code) {
   const itemTotalPaise = view.items.filter((line) => line.isAvailable).reduce((sum, line) => sum + line.totalPaise, 0);
   const { result } = await checkCode(code, { userId, kitchenId: cart.kitchen, city: kitchen?.city, itemTotalPaise });
   if (!result.valid) throw new AppError(422, result.message, [{ field: "code", message: result.reason }]);
-  cart.couponCode = String(code).trim().toUpperCase();
-  await publishEventSafe("coupon.applied", { userId: String(userId), code: cart.couponCode });
-  return saveAndBuild(cart, userId, false);
+  const couponCode = String(code).trim().toUpperCase();
+  await publishEventSafe("coupon.applied", { userId: String(userId), code: couponCode });
+  return mutateCart(userId, (fresh) => {
+    fresh.couponCode = couponCode;
+  }, { event: false });
+}
+
+/** Item total of the orderable lines (what offers are checked against). */
+export async function cartItemTotal(cart) {
+  if (!cart?.items?.length || !cart.kitchen) return 0;
+  const { dishes, combos } = await menuMaps(cart.kitchen);
+  return cart.items.map((line) => priceLine(line, dishes, combos)).filter((line) => line.isAvailable).reduce((sum, line) => sum + line.totalPaise, 0);
 }
 
 export async function removePromo(userId) {
-  await Cart.updateOne({ user: userId }, { $set: { couponCode: null } });
+  await Cart.updateOne({ user: userId }, { $set: { couponCode: null }, $inc: { __v: 1 } });
   return buildCart(userId);
 }
 
@@ -383,7 +523,7 @@ export async function cartRecommendations(userId) {
   const cart = await Cart.findOne({ user: userId }).lean();
   if (!cart?.kitchen) return [];
   const inCart = new Set((cart.items || []).map((item) => String(item.dish)));
-  return (await popularDishes(String(cart.kitchen), 12)).filter((dish) => !inCart.has(dish.dishId)).slice(0, 6);
+  return markFavorites(userId, (await popularDishes(String(cart.kitchen), 12)).filter((dish) => !inCart.has(dish.dishId)).slice(0, 6));
 }
 
 export { PAYMENT_METHODS };

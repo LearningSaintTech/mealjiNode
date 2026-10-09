@@ -62,7 +62,7 @@ if (!kitchens.length || !role) {
 }
 
 if (RESET) {
-  for (const name of ["users", "addresses", "favorites", "searchlogs", "orders", "notifications", "kitchendishes"]) {
+  for (const name of ["users", "addresses", "favorites", "searchlogs", "orders", "notifications", "kitchendishes", "couponredemptions", "carts"]) {
     const { deletedCount } = await db.collection(name).deleteMany({ loadTest: true });
     console.log(`  removed ${deletedCount} old load rows from ${name}`);
   }
@@ -153,8 +153,19 @@ if (newUsers.length) {
   }));
 }
 
+// ---- past coupon use (one per customer; also filled in for customers made by an earlier run)
+if (!(await db.collection("couponredemptions").countDocuments({ loadTest: true }))) {
+  const coupons = await db.collection("coupons").find({}).project({ _id: 1, code: 1 }).toArray();
+  if (coupons.length) {
+    await insertAll(db.collection("couponredemptions"), users.length, (i) => {
+      const coupon = coupons[i % coupons.length];
+      return { coupon: coupon._id, code: coupon.code, user: users[i]._id, discountPaise: 5000, status: "redeemed", loadTest: true, createdAt: daysAgo(90) };
+    });
+  }
+}
+
 // Make sure every index the API declares exists on the big collections.
-const models = ["../../src/modules/user/user.model.js", "../../src/modules/address/address.model.js", "../../src/modules/favorites/favorites.model.js", "../../src/modules/order/order.model.js", "../../src/modules/notification/notification.model.js", "../../src/modules/catalog/catalog.model.js", "../../src/modules/search/search.routes.js"];
+const models = ["../../src/modules/coupon/coupon.model.js", "../../src/modules/cart/cart.model.js", "../../src/modules/user/user.model.js", "../../src/modules/address/address.model.js", "../../src/modules/favorites/favorites.model.js", "../../src/modules/order/order.model.js", "../../src/modules/notification/notification.model.js", "../../src/modules/catalog/catalog.model.js", "../../src/modules/search/search.routes.js"];
 for (const file of models) await import(file);
 await Promise.all(Object.values(mongoose.models).map((model) => model.syncIndexes().catch((err) => console.warn(`  index sync ${model.modelName}: ${err.message}`))));
 

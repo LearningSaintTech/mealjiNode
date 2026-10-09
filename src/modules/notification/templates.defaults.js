@@ -1,12 +1,12 @@
 // Default copy for every transactional message. An admin-saved template with
 // the same key replaces it. Variables use {{path}} and are filled from `data`.
 
-const order = (title, body, extra = {}) => ({
+const order = (title, body, extra = {}, icon = "box") => ({
   category: "transactional",
   inboxCategory: "orders",
   channels: {
     push: { title, body, deepLink: "mealji://orders/{{order.orderId}}" },
-    inapp: { title, body, icon: "bag", iconColor: "#EA580C", deepLink: "mealji://orders/{{order.orderId}}" },
+    inapp: { title, body, icon, iconColor: "#EA580C", deepLink: "mealji://orders/{{order.orderId}}" },
     sms: { text: `MealJi: ${body}` },
     ...extra,
   },
@@ -30,7 +30,7 @@ export const DEFAULT_TEMPLATES = {
   "order.ready": order("Ready", "Order {{order.orderNumber}} is ready{{order.pickupSuffix}}."),
   "order.dispatched": order("On the way", "Order {{order.orderNumber}} is out for delivery.", {
     whatsapp: { providerTemplateName: "order_out_for_delivery", language: "en", waCategory: "utility", variables: ["order.orderNumber"], approvalStatus: "pending" },
-  }),
+  }, "moto"),
   "order.delivered": order("Delivered", "Enjoy your meal! Rate order {{order.orderNumber}} to earn points."),
   "order.cancelled": order("Order cancelled", "Order {{order.orderNumber}} was cancelled. {{order.refundNote}}"),
   "payment.failed": order("Payment failed", "Payment for order {{order.orderNumber}} did not go through. Tap to retry."),

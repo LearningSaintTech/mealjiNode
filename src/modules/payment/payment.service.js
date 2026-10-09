@@ -71,6 +71,14 @@ export async function onPaymentCaptured(payment, { gatewayPaymentId = null, meth
       // Paid after the order was closed: refund it straight away.
       await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
       await requestRefund({ orderId: order._id, amountPaise: claimed.amountPaise, reason: "Payment received after the order was cancelled", actor: { role: "system" }, permissions: ["refunds.approve"] });
+    } else {
+      // The order was already paid by another payment (e.g. an old checkout
+      // finished after a retry): give this second payment back in full.
+      const other = await Payment.exists({ refType: "order", refId: order._id, _id: { $ne: claimed._id }, status: { $in: ["captured", "partially_refunded"] } });
+      if (other) {
+        await requestRefund({ orderId: order._id, paymentId: claimed._id, amountPaise: claimed.amountPaise, reason: "Duplicate payment for an order that was already paid", actor: { role: "system" }, permissions: ["refunds.approve"], duplicate: true });
+        logger.warn({ orderId: String(order._id), paymentId: String(claimed._id) }, "Duplicate payment refunded");
+      }
     }
     await invoiceOrder(await Order.findById(order._id).lean());
   } else if (claimed.refType === "subscription") {
@@ -135,6 +143,7 @@ export function toRefund(refund) {
     reviewNote: refund.reviewNote,
     processedAt: refund.processedAt,
     failureReason: refund.failureReason,
+    duplicatePayment: Boolean(refund.duplicatePayment),
     createdAt: refund.createdAt,
   };
 }
@@ -178,7 +187,8 @@ async function afterRefundProcessed(refund) {
       await payment.save();
     }
   }
-  if (refund.order) {
+  // Giving back a duplicate payment does not refund the order (it is still paid once).
+  if (refund.order && !refund.duplicatePayment) {
     const order = await Order.findById(refund.order);
     if (order) {
       order.refundedPaise = (order.refundedPaise || 0) + refund.amountPaise;
@@ -193,7 +203,7 @@ async function afterRefundProcessed(refund) {
  * Starts a refund. Amounts above the support limit (order policy) wait for
  * someone with refunds.approve, unless the requester holds it.
  */
-export async function requestRefund({ orderId = null, subscriptionId = null, paymentId = null, amountPaise, reason, actor, permissions = [] }) {
+export async function requestRefund({ orderId = null, subscriptionId = null, paymentId = null, amountPaise, reason, actor, permissions = [], duplicate = false }) {
   if (!Number.isInteger(amountPaise) || amountPaise <= 0) throw new AppError(422, "Refund amount must be paise above 0");
   let payment = paymentId ? await Payment.findById(paymentId) : null;
   let order = null;
@@ -204,7 +214,9 @@ export async function requestRefund({ orderId = null, subscriptionId = null, pay
     const pending = await Refund.aggregate([{ $match: { order: order._id, status: { $in: ["pending_approval", "processing", "processed"] } } }, { $group: { _id: null, total: { $sum: "$amountPaise" } } }]);
     const already = pending[0]?.total || 0;
     const paid = order.paymentMethod === "cod" ? (order.paymentStatus === "cod_collected" ? order.bill.grandTotalPaise : 0) : (payment?.amountPaise || 0);
-    if (amountPaise + already > paid) throw new AppError(422, `At most ₹${((paid - already) / 100).toFixed(2)} can be refunded`);
+    if (duplicate) {
+      if (amountPaise > (payment?.amountPaise || 0) - (payment?.refundedPaise || 0)) throw new AppError(422, "Refund is more than this payment");
+    } else if (amountPaise + already > paid) throw new AppError(422, `At most ₹${((paid - already) / 100).toFixed(2)} can be refunded`);
   } else if (subscriptionId) {
     payment = payment || await Payment.findOne({ refType: "subscription", refId: subscriptionId, status: { $in: ["captured", "partially_refunded"] } }).sort({ createdAt: -1 });
     if (!payment || amountPaise > payment.amountPaise - (payment.refundedPaise || 0)) throw new AppError(422, "Refund is more than what was paid");
@@ -221,6 +233,7 @@ export async function requestRefund({ orderId = null, subscriptionId = null, pay
     amountPaise,
     reason,
     status: needsApproval ? "pending_approval" : "processing",
+    duplicatePayment: Boolean(duplicate),
     requestedBy: { userId: actor?.userId || null, name: actor?.name || null, role: actor?.role || null },
   });
   if (!needsApproval) await processRefund(refund._id);

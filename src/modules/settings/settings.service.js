@@ -135,7 +135,7 @@ async function invalidate(key, scopeType, scopeId) {
 }
 
 async function kitchenContext(kitchenId) {
-  const kitchen = await kitchenRepository.findById(kitchenId);
+  const kitchen = await kitchenRepository.findActiveById(kitchenId);
   if (!kitchen) throw new AppError(404, "Kitchen not found");
   return { kitchenId: String(kitchen._id), city: normalizeCity(kitchen.city), name: kitchen.name };
 }

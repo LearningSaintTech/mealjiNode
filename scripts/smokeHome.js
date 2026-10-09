@@ -162,8 +162,13 @@ async function main() {
   check(typeof home?.unreadNotifications === "number" && home?.cart && "subscription" in (home || {}), "cart, unread count and Plus card fields");
   check(byKey.usual?.items?.length > 0, "returning customer sees 'Your usual?'", `${byKey.usual?.items?.length || 0} dishes`);
 
-  const fresh = new Client("smoke-new-device-01");
-  await signIn(fresh, NEW_CUSTOMER);
+  // A truly new customer, made for this check and removed afterwards (a demo
+  // number that someone has ordered with is no longer “new”).
+  const { newCustomer } = await import("./steps/harness.js");
+  const tempCtx = { cleanups: [] };
+  const fresh = (await newCustomer(tempCtx)).client;
+  cleanups.push(async () => { for (const undo of tempCtx.cleanups) await undo().catch(() => {}); });
+  await fresh.call("PUT", "/users/me/location", { latitude: 12.942795, longitude: 77.624478 });
   const freshHome = await expect(fresh, "GET", "/home", 200, "home for a new customer (saved location)");
   check(!sectionKeys(freshHome.data).includes("usual"), "new customer: 'Your usual?' hidden");
   await fresh.call("PUT", "/users/me/location", NOT_SERVED);

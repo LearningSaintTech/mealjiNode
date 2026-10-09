@@ -413,7 +413,12 @@ export async function homeFor(user, { latitude = null, longitude = null, veg = n
 
   const [sections, cart, unreadNotifications, subscription, deliverTo, appCopy] = await Promise.all([
     sectionsWork,
-    safely("cart", async () => (await import("../cart/cart.service.js")).cartSummary(userId, { kitchenId, freeDeliveryAbovePaise: serviceability?.freeDeliveryAbovePaise ?? null, minOrderPaise: serviceability?.minOrderPaise || 0 }), null),
+    safely("cart", async () => {
+      // Meal Ji Plus members get free delivery already: the bar shows no “₹X more”.
+      const plus = user.subscription?.status === "active" && kitchenId
+        && (await (await import("../settings/settings.service.js")).resolveSetting("pricing", { kitchenId })).values.plusFreeDelivery;
+      return (await import("../cart/cart.service.js")).cartSummary(userId, { kitchenId, freeDeliveryAbovePaise: serviceability?.freeDeliveryAbovePaise ?? null, minOrderPaise: serviceability?.minOrderPaise || 0, deliveryAlwaysFree: Boolean(plus) });
+    }, null),
     safely("unread", async () => (await import("../notification/notification.service.js")).unreadCount(userId), 0),
     safely("subscription", async () => (await import("../subscription/subscription.service.js")).subscriptionCard(userId), null),
     safely("deliverTo", () => deliverToFor(user, serving?.point || (hasPoint ? { latitude, longitude } : null), serviceability?.kitchen || serving?.kitchen), null),

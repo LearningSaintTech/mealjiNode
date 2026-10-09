@@ -51,7 +51,8 @@ export function computeBill(input) {
     }
   }
   const threshold = pricing.freeDeliveryAbovePaise || 0;
-  const freeByThreshold = threshold > 0 && itemTotalPaise > threshold;
+  // Free delivery from the threshold up (“₹299 or more”), so the app can say “₹X more” in whole rupees.
+  const freeByThreshold = threshold > 0 && itemTotalPaise >= threshold;
   const freeByPlus = Boolean(input.isPlusMember && pricing.plusFreeDelivery);
   const deliveryWaived = !pickup && deliveryFeeFullPaise > 0 && (freeByThreshold || freeByPlus);
   const deliveryFeePaise = deliveryWaived ? 0 : deliveryFeeFullPaise;
@@ -130,7 +131,8 @@ export function computeBill(input) {
     savingsPaise: discountPaise + mrpSavingsPaise + (deliveryWaived ? deliveryFeeFullPaise : 0),
     grandTotalPaise,
     freeDeliveryAbovePaise: threshold || null,
-    amountToFreeDeliveryPaise: !pickup && threshold > 0 && !freeByThreshold ? threshold - itemTotalPaise + 1 : 0,
+    // Nothing more to add when delivery is already free (threshold met, Plus member).
+    amountToFreeDeliveryPaise: !pickup && threshold > 0 && !freeByThreshold && !deliveryWaived ? threshold - itemTotalPaise : 0,
     lines: lineTotals,
   };
 }

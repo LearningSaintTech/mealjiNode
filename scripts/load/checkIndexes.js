@@ -31,6 +31,11 @@ const CHECKS = [
   ["07 favourites list", "favorites", { find: { user: user._id }, sort: { createdAt: -1 }, limit: 200 }],
   ["07 search: recent", "searchlogs", { aggregate: [{ $match: { user: user._id, hiddenFromRecent: false } }, { $sort: { createdAt: -1 } }, { $limit: 200 }] }],
   ["07 search: typing (last minute)", "searchlogs", { find: { user: user._id, createdAt: { $gte: new Date(Date.now() - 60_000) } }, sort: { createdAt: -1 }, limit: 1 }],
+  ["08 cart: the customer's cart", "carts", { find: { user: user._id } }],
+  ["08 offers: customer's past coupon use", "couponredemptions", { aggregate: [{ $match: { user: user._id, status: { $in: ["reserved", "redeemed"] } } }, { $group: { _id: "$coupon", total: { $sum: 1 } } }] }],
+  ["08 offers: delivered orders (first-order offers)", "orders", { find: { user: user._id, status: "delivered" } }],
+  ["11 inbox page (a tab)", "notifications", { find: { user: user._id, category: "orders" }, sort: { createdAt: -1 }, limit: 20 }],
+  ["11 unread per tab", "notifications", { aggregate: [{ $match: { user: user._id, isRead: false } }, { $group: { _id: "$category", n: { $sum: 1 } } }] }],
   ["07 search: trending (7 days)", "searchlogs", { aggregate: [{ $match: { createdAt: { $gte: weekAgo }, results: { $gt: 0 } } }, { $group: { _id: "$normalized", n: { $sum: 1 } } }], allowScan: true }],
 ];
 

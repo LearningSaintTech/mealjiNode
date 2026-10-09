@@ -271,14 +271,57 @@ export async function notify({ userId, templateKey, data = {}, channels = null, 
 
 // ------------------------------------------------------------------ inbox & devices
 
-export function toInboxItem(item) {
+// The app draws these icons: box, moto, star, gift, crown, heart, megaphone.
+const APP_ICONS = { box: "box", bag: "box", utensils: "box", moto: "moto", scooter: "moto", star: "star", gift: "gift", wallet: "gift", crown: "crown", heart: "heart", help: "heart", megaphone: "megaphone", sparkles: "megaphone", info: "megaphone" };
+export const INBOX_TABS = [
+  { key: "all", label: "All" },
+  { key: "orders", label: "Orders" },
+  { key: "offers", label: "Offers" },
+  { key: "rewards", label: "Rewards" },
+  { key: "account", label: "Account" },
+];
+const IST_MS = 330 * 60_000;
+const istDay = (date) => Math.floor((new Date(date).getTime() + IST_MS) / 86_400_000);
+const fmt = (options) => new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", ...options });
+const TIME = fmt({ hour: "numeric", minute: "2-digit", hour12: true });
+const WEEKDAY_DATE = fmt({ weekday: "short", day: "numeric", month: "short" });
+const DAY_MONTH = fmt({ day: "numeric", month: "short" });
+const ampm = (text) => text.replace(/\bam\b/i, "AM").replace(/\bpm\b/i, "PM");
+
+/** Section heading on the Notifications screen: Today, Yesterday, This Week, Earlier. */
+function inboxGroup(date, now = new Date()) {
+  const diff = istDay(now) - istDay(date);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return "This Week";
+  return "Earlier";
+}
+
+/** “2m ago”, “1h ago”, “Yesterday, 5:30 PM”, “Mon, 12 Sep”, “5 Sep”. */
+function inboxTime(date, now = new Date()) {
+  const minutes = Math.floor((now - new Date(date)) / 60_000);
+  const diff = istDay(now) - istDay(date);
+  if (diff <= 0) {
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    return `${Math.floor(minutes / 60)}h ago`;
+  }
+  if (diff === 1) return `Yesterday, ${ampm(TIME.format(new Date(date)))}`;
+  // The app's style: “Mon, 12 Sep”, “5 Sep” (en-IN would print “Sept”).
+  if (diff < 7) return WEEKDAY_DATE.format(new Date(date)).replace(/^(\w+)\s/, "$1, ").replace("Sept", "Sep");
+  return DAY_MONTH.format(new Date(date)).replace("Sept", "Sep");
+}
+
+export function toInboxItem(item, now = new Date()) {
   return {
     notificationId: String(item._id),
     category: item.category,
     title: item.title,
     body: item.body,
-    icon: item.icon,
+    icon: APP_ICONS[item.icon] || "megaphone",
     iconColor: item.iconColor,
+    group: inboxGroup(item.createdAt, now),
+    timeLabel: inboxTime(item.createdAt, now),
     imageUrl: item.imageUrl,
     deepLink: item.deepLink?.url ? item.deepLink : null,
     messageId: item.messageId,
@@ -293,14 +336,26 @@ export async function unreadCount(userId) {
 
 export async function listInbox(userId, { category, page = 1, limit = 20, unread = false }) {
   const filter = { user: userId };
-  if (category) filter.category = category;
+  if (category && category !== "all") filter.category = category;
   if (unread) filter.isRead = false;
-  const [items, total, unreadTotal] = await Promise.all([
+  const [items, total, unreadByTab] = await Promise.all([
     Notification.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     Notification.countDocuments(filter),
-    unreadCount(userId),
+    Notification.aggregate([{ $match: { user: new mongoose.Types.ObjectId(String(userId)), isRead: false } }, { $group: { _id: "$category", n: { $sum: 1 } } }]),
   ]);
-  return { items: items.map(toInboxItem), page, limit, total, unreadCount: unreadTotal };
+  const unreadPer = Object.fromEntries(unreadByTab.map((row) => [row._id, row.n]));
+  const unreadTotal = unreadByTab.reduce((sum, row) => sum + row.n, 0);
+  const now = new Date();
+  return {
+    items: items.map((item) => toInboxItem(item, now)),
+    page,
+    limit,
+    total,
+    hasMore: page * limit < total,
+    unreadCount: unreadTotal,
+    // Tabs All / Orders / Offers / Rewards / Account with their unread counts.
+    tabs: INBOX_TABS.map((tab) => ({ ...tab, unreadCount: tab.key === "all" ? unreadTotal : unreadPer[tab.key] || 0 })),
+  };
 }
 
 export async function markRead(userId, notificationId) {

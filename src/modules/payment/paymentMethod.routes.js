@@ -46,7 +46,7 @@ const toMethod = (row) => ({
   vpaMasked: row.vpaMasked,
   isDefault: row.isDefault,
   expired: row.expYear ? new Date(row.expYear, row.expMonth || 12, 0) < new Date() : false,
-  gatewayTokenId: row.gatewayTokenId,
+  // The gateway token stays on the server (checkout gets it through the order).
 });
 
 function maskVpa(vpa) {

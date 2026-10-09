@@ -10,14 +10,16 @@ import { istDateTime } from "../src/common/time.js";
 const pricing = { deliveryFeeMode: "flat", deliveryFeePaise: 4000, freeDeliveryAbovePaise: 29900, packagingMode: "per_order", packagingPaise: 2000, tipEnabled: true };
 const tax = { foodGstPercent: 5, deliveryGstPercent: 18, packagingGstPercent: 5, platformFeeGstPercent: 18 };
 
-test("bill: free delivery strictly above threshold, GST per charge type", () => {
-  const bill = computeBill({ lines: [{ lineId: "a", qty: 1, unitPricePaise: 29900 }], pricing, tax });
-  assert.equal(bill.deliveryFeePaise, 4000); // equal to threshold is not above it
-  assert.equal(bill.taxes.total, 1496 + 720 + 100);
-  assert.equal(bill.grandTotalPaise, 29900 + 4000 + 2000 + 1496 + 720 + 100);
-  const free = computeBill({ lines: [{ lineId: "a", qty: 1, unitPricePaise: 30000 }], pricing, tax });
-  assert.equal(free.deliveryFeePaise, 0);
+test("bill: free delivery from the threshold up, GST per charge type", () => {
+  const bill = computeBill({ lines: [{ lineId: "a", qty: 1, unitPricePaise: 29800 }], pricing, tax });
+  assert.equal(bill.deliveryFeePaise, 4000); // ₹1 below the threshold pays delivery
+  assert.equal(bill.amountToFreeDeliveryPaise, 100);
+  assert.equal(bill.taxes.total, 1490 + 720 + 100);
+  assert.equal(bill.grandTotalPaise, 29800 + 4000 + 2000 + 1490 + 720 + 100);
+  const free = computeBill({ lines: [{ lineId: "a", qty: 1, unitPricePaise: 29900 }], pricing, tax });
+  assert.equal(free.deliveryFeePaise, 0); // exactly the threshold delivers free
   assert.equal(free.deliveryFeeWaived, true);
+  assert.equal(free.amountToFreeDeliveryPaise, 0);
 });
 
 test("bill: distance slabs, discount before tax, points and tip", () => {

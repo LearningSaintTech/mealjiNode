@@ -23,21 +23,23 @@ export async function getProfile(userId, { stats = true, user: loaded = null } =
 
 /**
  * Profile header counts: orders placed, favourites (dishes still on a menu),
- * saved addresses and saved payment methods (none are stored yet, so 0).
+ * saved addresses and saved payment methods (cards / UPI saved at checkout).
  */
 async function profileStats(userId) {
-  const [{ Order }, { Favorite }, { KitchenDish }] = await Promise.all([
+  const [{ Order }, { Favorite }, { KitchenDish }, { SavedPaymentMethod }] = await Promise.all([
     import("../order/order.model.js"),
     import("../favorites/favorites.model.js"),
     import("../catalog/catalog.model.js"),
+    import("../payment/paymentMethod.routes.js"),
   ]);
-  const [orders, favoriteDishes, addresses] = await Promise.all([
+  const [orders, favoriteDishes, addresses, paymentMethods] = await Promise.all([
     Order.countDocuments({ user: userId, status: { $nin: ["payment_pending", "payment_failed"] } }),
     Favorite.find({ user: userId }).select("dish").limit(500).lean(),
     Address.countDocuments({ user: userId, deletedAt: null }),
+    SavedPaymentMethod.countDocuments({ user: userId }),
   ]);
   const favorites = favoriteDishes.length ? await KitchenDish.countDocuments({ _id: { $in: favoriteDishes.map((row) => row.dish) }, isActive: true, approvalStatus: "live" }) : 0;
-  return { orders, favorites, addresses, paymentMethods: 0 };
+  return { orders, favorites, addresses, paymentMethods };
 }
 
 export async function updateProfile(userId, input) {

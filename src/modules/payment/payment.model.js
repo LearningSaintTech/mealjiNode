@@ -52,6 +52,8 @@ const refundSchema = new mongoose.Schema(
     reviewNote: { type: String, default: null },
     processedAt: { type: Date, default: null },
     failureReason: { type: String, default: null },
+    // A second payment for an already-paid order: returned in full, the order itself stays paid.
+    duplicatePayment: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
