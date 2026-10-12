@@ -6,7 +6,7 @@ import { publishEventSafe } from "../../events/eventBus.js";
 import { publish } from "../../realtime/hub.js";
 import { Order } from "../order/order.model.js";
 import { resolveSetting } from "../settings/settings.service.js";
-import { assertOwnFileUrl } from "../upload/upload.service.js";
+import { assertOwnFileUrl, assertUploadedSize, privateFileLink } from "../upload/upload.service.js";
 import { CannedReply, Faq, SupportCategory, SupportTicket, TicketMessage } from "./support.model.js";
 
 const DEFAULT_CATEGORIES = [
@@ -25,7 +25,7 @@ export function toTicket(ticket, { agent = false } = {}) {
     issueType: ticket.issueType,
     subject: ticket.subject,
     description: ticket.description,
-    attachments: ticket.attachments || [],
+    attachments: (ticket.attachments || []).map(privateFileLink),
     orderId: ticket.order ? String(ticket.order._id || ticket.order) : null,
     orderNumber: ticket.order?.orderNumber || null,
     subscriptionId: ticket.subscription ? String(ticket.subscription) : null,
@@ -52,7 +52,7 @@ export const toFaq = (row) => ({ faqId: String(row._id), category: row.category,
 export const toCategory = (row) => ({ categoryId: row._id ? String(row._id) : null, key: row.key, name: row.name, icon: row.icon || null, issueTypes: row.issueTypes || [], context: row.context, slaHours: row.slaHours ?? null, sortOrder: row.sortOrder || 0, isActive: row.isActive !== false });
 export const toCanned = (row) => ({ replyId: String(row._id), title: row.title, body: row.body, category: row.category || null });
 
-const toMessage = (message) => ({ messageId: String(message._id), author: { name: message.author?.name || null, role: message.author?.role }, body: message.body, attachments: message.attachments || [], internal: Boolean(message.internal), createdAt: message.createdAt });
+const toMessage = (message) => ({ messageId: String(message._id), author: { name: message.author?.name || null, role: message.author?.role }, body: message.body, attachments: (message.attachments || []).map(privateFileLink), internal: Boolean(message.internal), createdAt: message.createdAt });
 
 // ------------------------------------------------------------------ catalogue
 
@@ -100,6 +100,13 @@ export async function createTicket(userId, input) {
     order = await Order.findOne({ _id: objectId(input.orderId, "order ID"), user: userId }).lean();
     if (!order) throw new AppError(404, "Order not found");
   }
+  // Only the customer's own subscription can be attached (an agent may act on it).
+  let subscription = null;
+  if (input.subscriptionId) {
+    const { Subscription } = await import("../subscription/subscription.model.js");
+    subscription = await Subscription.findOne({ _id: objectId(input.subscriptionId, "subscription ID"), user: userId }).select("_id").lean();
+    if (!subscription) throw new AppError(404, "Subscription not found");
+  }
   const sequence = await nextSequence("ticket");
   const slaHours = await slaHoursFor(input.category);
   const ticket = await SupportTicket.create({
@@ -108,11 +115,11 @@ export async function createTicket(userId, input) {
     category: input.category,
     issueType: input.issueType || null,
     order: order?._id || null,
-    subscription: input.subscriptionId || null,
+    subscription: subscription?._id || null,
     kitchen: order?.kitchen || null,
     subject: input.subject || null,
     description: input.description,
-    attachments: (input.attachments || []).slice(0, 5).map((url) => assertOwnFileUrl(url, "Attachment")),
+    attachments: await Promise.all((input.attachments || []).slice(0, 5).map((url) => assertUploadedSize(assertOwnFileUrl(url, "Attachment"), "ticket"))),
     priority: ["order", "payment"].includes(input.category) ? "high" : "normal",
     priorityRank: ["order", "payment"].includes(input.category) ? PRIORITY_RANK.high : PRIORITY_RANK.normal,
     slaDueAt: new Date(Date.now() + slaHours * 3600_000),
@@ -145,7 +152,7 @@ export async function addMessage(ticketId, { body, attachments = [], internal = 
   const ticket = await SupportTicket.findOne(filter);
   if (!ticket) throw new AppError(404, "Ticket not found");
   if (ticket.status === "closed") throw new AppError(409, "This ticket is closed. Open a new one.");
-  const message = await TicketMessage.create({ ticket: ticket._id, author: { userId, name, role }, body, attachments: attachments.slice(0, 5).map((url) => assertOwnFileUrl(url, "Attachment")), internal: role === "agent" && internal });
+  const message = await TicketMessage.create({ ticket: ticket._id, author: { userId, name, role }, body, attachments: await Promise.all(attachments.slice(0, 5).map((url) => assertUploadedSize(assertOwnFileUrl(url, "Attachment"), "ticket"))), internal: role === "agent" && internal });
   ticket.lastMessageAt = new Date();
   if (role === "agent" && !internal) {
     if (!ticket.firstResponseAt) ticket.firstResponseAt = new Date();

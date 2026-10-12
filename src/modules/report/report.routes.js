@@ -56,7 +56,7 @@ const scheduleBody = [
   body("rangeDays").optional().isInt({ min: 1, max: 92 }).toInt(),
   body("recipients").isArray({ min: 1, max: 20 }),
   body("recipients.*").isEmail(),
-  body("isActive").optional().isBoolean(),
+  body("isActive").optional().isBoolean().toBoolean(true),
 ];
 adminReportRouter.post("/reports/schedules", authorize("reports.schedule"), scheduleBody, validate, asyncHandler(async (req, res) => {
   const schedule = new reports.ReportSchedule({ ...req.body, filters: req.body.filters || {}, createdBy: { userId: req.auth.userId, name: req.auth.user?.name } });

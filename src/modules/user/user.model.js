@@ -51,6 +51,8 @@ const userSchema = new mongoose.Schema(
     email: { type: String, default: null, trim: true, lowercase: true, maxlength: 120 },
     emailVerified: { type: Boolean, default: false },
     dob: { type: String, default: null }, // YYYY-MM-DD
+    dobMonthDay: { type: String, default: null }, // "MM-DD" from dob: the birthday job looks people up by it
+    purgedAt: { type: Date, default: undefined }, // set when a closed account was anonymised
     gender: { type: String, enum: ["male", "female", "other", "prefer_not", null], default: null },
     avatarUrl: { type: String, default: null, maxlength: 500 },
     preferences: {
@@ -103,5 +105,8 @@ userSchema.index({ kitchen: 1 }, { sparse: true });
 userSchema.index({ referralCode: 1 }, { unique: true, sparse: true });
 userSchema.index({ deletedAt: 1 }, { sparse: true });
 userSchema.index({ email: 1 }, { sparse: true });
+// Closed accounts still to anonymise (purged ones carry purgedAt and drop out of this index range).
+userSchema.index({ purgedAt: 1, deletedAt: 1 });
+userSchema.index({ dobMonthDay: 1 }, { partialFilterExpression: { dobMonthDay: { $type: "string" } } });
 
 export const User = mongoose.model("User", userSchema);

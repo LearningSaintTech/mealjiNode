@@ -74,6 +74,10 @@ const orderSchema = new mongoose.Schema(
     etaMinutes: { type: Number, default: null },
     estimatedDeliveryAt: { type: Date, default: null },
     placedAt: { type: Date, default: null },
+    // When the daily stock for this order was last taken (released for that same day).
+    stockReservedAt: { type: Date, default: null },
+    // Set once the delivered order's dishes were added to their popularity counts.
+    dishesCountedAt: { type: Date, default: null },
     acceptedAt: { type: Date, default: null },
     readyAt: { type: Date, default: null },
     dispatchedAt: { type: Date, default: null },
@@ -116,6 +120,8 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ orderNumber: 1 }, { unique: true });
 orderSchema.index({ user: 1, createdAt: -1 });
+// Orders tabs and counts (Current / Past), “Ordered 3x”, first-order and delivered checks.
+orderSchema.index({ user: 1, status: 1, createdAt: -1 });
 orderSchema.index({ kitchen: 1, status: 1, createdAt: -1 });
 orderSchema.index({ status: 1, createdAt: -1 });
 orderSchema.index({ status: 1, expiresAt: 1 });

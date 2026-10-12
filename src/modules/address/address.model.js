@@ -24,6 +24,8 @@ const addressSchema = new mongoose.Schema(
 );
 
 addressSchema.index({ user: 1, deletedAt: 1, isDefault: -1, updatedAt: -1 });
+// At most one default address per customer (parallel "make default" taps cannot leave two).
+addressSchema.index({ user: 1 }, { unique: true, partialFilterExpression: { isDefault: true }, name: "one_default_per_user" });
 
 export const Address = mongoose.model("Address", addressSchema);
 
@@ -35,8 +37,8 @@ export function displayLabel(address) {
 }
 
 export function fullAddress(address) {
-  // “Near Sony Signal” stays as typed (no “Near Near …”).
-  const landmark = address.landmark ? (/^near\b/i.test(address.landmark.trim()) ? address.landmark.trim() : `Near ${address.landmark.trim()}`) : null;
+  // The landmark exactly as typed (“Near Sony Signal”, “Opposite Forum Mall”, “Behind the temple”).
+  const landmark = address.landmark ? address.landmark.trim() : null;
   return [address.houseFlat, address.street, address.locality, landmark, address.city, address.state, address.pincode]
     .filter(Boolean)
     .join(", ");

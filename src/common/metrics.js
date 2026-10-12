@@ -33,6 +33,10 @@ export function recordMountPath(req, res, next) {
 
 // Prometheus scrape endpoint. Requires `Authorization: Bearer <METRICS_TOKEN>`
 // when a token is set; disabled in production without one.
+// Background event queue health, read at scrape time (alert on failed > 0 or a growing backlog).
+const outboxGauge = new client.Gauge({ name: "mealji_outbox_events", help: "Domain events waiting or failed", labelNames: ["status"], registers: [registry] });
+const workerGauge = new client.Gauge({ name: "mealji_worker_heartbeat_age_seconds", help: "Seconds since the background worker last checked in", registers: [registry] });
+
 export async function metricsHandler(req, res) {
   if (env.metricsToken) {
     const header = req.headers.authorization || "";
@@ -42,6 +46,17 @@ export async function metricsHandler(req, res) {
     }
   } else if (env.isProd) {
     return res.status(404).json({ success: false, message: "Route not found", errors: null });
+  }
+  try {
+    const { outboxBacklog } = await import("../events/relay.js");
+    const { pending, failed } = await outboxBacklog();
+    outboxGauge.set({ status: "pending" }, pending);
+    outboxGauge.set({ status: "failed" }, failed);
+    const { storeGetOptional } = await import("../infrastructure/redisStore.js");
+    const beat = Number((await storeGetOptional("worker:heartbeat")).value || 0);
+    workerGauge.set(beat ? Math.round((Date.now() - beat) / 1000) : -1);
+  } catch {
+    // metrics must always answer
   }
   res.setHeader("Content-Type", registry.contentType);
   res.end(await registry.metrics());

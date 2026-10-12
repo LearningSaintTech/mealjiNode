@@ -85,6 +85,29 @@ export async function storeSetNx(key, value, ttlSec, { unavailableMessage } = {}
   }
 }
 
+/**
+ * A lock owned by one request: returns a token (or null when someone else holds
+ * it). Fails closed in production when Redis is down (503), so a double tap can
+ * never slip through. Release with releaseLock(key, token).
+ */
+export async function acquireLock(key, ttlSec) {
+  const token = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  return (await storeSetNx(key, token, ttlSec)) ? token : null;
+}
+
+const RELEASE_SCRIPT = 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
+
+/** Deletes the lock only if this request still owns it (it may have expired and been taken by another). */
+export async function releaseLock(key, token) {
+  if (!token) return;
+  try {
+    if (!redisReady()) throw new Error("redis not ready");
+    await redis.eval(RELEASE_SCRIPT, 1, key, token);
+  } catch {
+    if (!env.isProd && memGet(key) === token) memory.delete(key);
+  }
+}
+
 export async function storeDel(...keys) {
   const flat = keys.flat().filter(Boolean);
   if (!flat.length) return;

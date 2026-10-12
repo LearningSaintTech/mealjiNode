@@ -51,7 +51,7 @@ const planSchema = new mongoose.Schema(
 planSchema.index({ code: 1 }, { unique: true });
 planSchema.index({ status: 1, sortOrder: 1 });
 // Plan edits clear the short in-process cache of live plans (plan.service.js).
-export const livePlanCache = memoCache(30_000);
+export const livePlanCache = memoCache(30_000, "plans");
 planSchema.post("save", () => livePlanCache.clear());
 for (const op of ["updateOne", "updateMany", "findOneAndUpdate", "deleteOne", "deleteMany"]) planSchema.post(op, () => livePlanCache.clear());
 export const SubscriptionPlan = mongoose.model("SubscriptionPlan", planSchema);

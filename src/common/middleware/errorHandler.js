@@ -16,8 +16,8 @@ export function errorHandler(err, req, res, next) {
     }));
   } else if (err.name === "CastError") {
     statusCode = 400;
-    message = "Invalid identifier";
-    errors = [{ field: err.path, message: "Invalid identifier" }];
+    message = "This item could not be found";
+    errors = [{ field: err.path, message: "This item could not be found" }];
   } else if (err.code === 11000) {
     statusCode = 409;
     const fields = Object.keys(err.keyPattern || err.keyValue || {});
@@ -27,13 +27,16 @@ export function errorHandler(err, req, res, next) {
     errors = null;
   } else if (err.type === "entity.parse.failed" || (err instanceof SyntaxError && err.status === 400)) {
     statusCode = 400;
-    message = "Invalid JSON body";
+    message = "The request could not be read. Please try again.";
     errors = null;
   } else if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
     statusCode = 401;
     message = "Invalid or expired token";
     errors = null;
   }
+
+  // Customers see `message`: for a list of field problems, the first one is the message.
+  if (message === "Validation failed" && Array.isArray(errors) && errors[0]?.message) message = errors[0].message;
 
   if (statusCode >= 500) {
     req.log?.error({ err }, "Request failed");

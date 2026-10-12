@@ -64,6 +64,16 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/stats", authorize("users.read"), asyncHandler(statsController));
+// Background events that failed (notifications, bookings, invoices…): list and send again.
+router.get("/outbox/failed", authorize("settings.app"), asyncHandler(async (req, res) => {
+  const { listFailedEvents, outboxBacklog } = await import("../../events/relay.js");
+  return res.json({ success: true, message: "Failed events.", data: { counts: await outboxBacklog(), items: await listFailedEvents({ limit: 100 }) } });
+}));
+router.post("/outbox/replay", authorize("settings.app"), asyncHandler(async (req, res) => {
+  const { replayFailedEvents } = await import("../../events/relay.js");
+  const eventId = typeof req.body?.eventId === "string" ? req.body.eventId : null;
+  return res.json({ success: true, message: "Events queued again.", data: { replayed: await replayFailedEvents({ eventId }) } });
+}));
 router.post("/staff", authorize("staff.create"), createStaffValidation, validate, idempotent(), asyncHandler(createStaffController));
 router.get("/users", authorize("users.read"), listUsersValidation, validate, asyncHandler(listUsersController));
 router.get("/users/:userId", authorize("users.read"), userIdParam, validate, asyncHandler(getUserController));

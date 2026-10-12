@@ -80,7 +80,8 @@ const invoiceSchema = new mongoose.Schema(
 );
 
 invoiceSchema.index({ entity: 1, invoiceNumber: 1 }, { unique: true });
-invoiceSchema.index({ refType: 1, refId: 1 });
+// One invoice per order / subscription payment (two parallel runs cannot both issue one).
+invoiceSchema.index({ refType: 1, refId: 1 }, { unique: true });
 invoiceSchema.index({ user: 1, issuedAt: -1 });
 invoiceSchema.index({ issuedAt: -1 });
 

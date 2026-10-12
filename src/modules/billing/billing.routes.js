@@ -25,8 +25,8 @@ const entityBody = (optional) => {
     body("pincode").optional({ values: "falsy" }).matches(/^\d{6}$/).withMessage("Pincode must be 6 digits"),
     body("email").optional({ values: "falsy" }).isEmail(),
     req(body("invoicePrefix")).isString().trim().matches(/^[A-Z0-9]{2,8}$/i).withMessage("Prefix: 2 to 8 letters or digits"),
-    body("isDefault").optional().isBoolean(),
-    body("isActive").optional().isBoolean(),
+    body("isDefault").optional().isBoolean().toBoolean(true),
+    body("isActive").optional().isBoolean().toBoolean(true),
   ];
 };
 

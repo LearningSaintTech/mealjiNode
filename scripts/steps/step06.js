@@ -159,7 +159,7 @@ export default async function step06() {
     const tabsOk = menu.categories.every((c) => /^[a-z0-9-]+$/.test(c.slug) && c.icon);
     return {
       ok: tabsOk && menu.categories.some((c) => c.slug === "biryani") && menuHero[0]?.title === "MEAL COMBOS" && menuHero[0]?.ctaLabel === "Explore Combos" && intro[0]?.eyebrow === "Curated by the chef" && hero[0]?.ctaLabel === "Signature Meal"
-        && detail.highlightBadges.every((b) => b.label && b.icon) && detail.deepLink === `mealji://dish/${detail.dishId}` && detail.shareUrl
+        && detail.highlightBadges.every((b) => b.label && b.icon) && detail.deepLink === `mealji://dish/${detail.dishId}` && detail.shareText && (detail.shareUrl === null || detail.shareUrl.includes(detail.dishId))
         && u.totalPricePaise === detail.pricePaise + u.pricePaise && u.totalOriginalPricePaise - u.totalPricePaise === u.totalSavingsPaise && !combos.some((c) => /^save/i.test(c.badge || "")),
       detail: `tabs ${menu.categories.map((c) => `${c.slug}:${c.icon}`).join(" ")} · ${menuHero[0]?.title} / ${hero[0]?.ctaLabel} · ${detail.highlightBadges.map((b) => `${b.label}:${b.icon}`).join(", ")} · meal ₹${u.totalOriginalPricePaise / 100}→₹${u.totalPricePaise / 100}`,
     };

@@ -42,7 +42,8 @@ async function authenticate(token) {
   }
   if (await isAccessDenied(payload.jti)) return null;
   const user = await userRepository.findById(payload.userId);
-  if (!user || !user.isActive || isSuspended(user) || tokenRevoked(user, payload.iat)) return null;
+  // Same checks as the HTTP sign-in check (including a verified number).
+  if (!user || !user.isActive || !user.isNumberVerified || isSuspended(user) || tokenRevoked(user, payload.iat)) return null;
   return { user, payload };
 }
 
@@ -69,7 +70,8 @@ export async function attachRealtime(server) {
       socket.destroy();
       return;
     }
-    const auth = await authenticate(url.searchParams.get("token") || String(request.headers["sec-websocket-protocol"] || "").split(",")[0].trim());
+    // Prefer the token in the WebSocket subprotocol header (query strings end up in proxy logs).
+    const auth = await authenticate(String(request.headers["sec-websocket-protocol"] || "").split(",").map((part) => part.trim()).find((part) => part.split(".").length === 3) || url.searchParams.get("token"));
     if (!auth) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();

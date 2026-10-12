@@ -23,18 +23,19 @@ router.get("/cart", asyncHandler(async (req, res) => ok(res, await carts.buildCa
 router.post(
   "/cart/items",
   cartWriteLimiter,
-  body("dishId").optional().isMongoId(),
-  body("comboId").optional().isMongoId(),
+  body("dishId").optional().isString().isMongoId(),
+  body("comboId").optional().isString().isMongoId(),
   body().custom((value) => {
-    if (!value.dishId === !value.comboId) throw new Error("Send either dishId or comboId");
+    if (!value.dishId === !value.comboId) throw new Error("Choose a dish or a combo");
     return true;
   }),
   body("qty").optional().isInt({ min: 1, max: 50 }).toInt(),
   body("portionId").optional({ values: "null" }).isString().isLength({ max: 20 }),
-  body("mealUpgrade").optional().isBoolean(),
+  body("mealUpgrade").optional().isBoolean().toBoolean(true),
   body("optionIds").optional().isArray({ max: 30 }),
+  body("optionIds.*").isString().withMessage("Choose options from the list"),
   body("specialInstructions").optional({ values: "null" }).isString().isLength({ max: 200 }),
-  body("replaceCart").optional().isBoolean(),
+  body("replaceCart").optional().isBoolean().toBoolean(true),
   validate,
   asyncHandler(async (req, res) => ok(res, await carts.addItem(req.auth.userId, req.body, { user: req.auth.user }), "Added to cart.", 201)),
 );
@@ -42,11 +43,12 @@ router.patch(
   "/cart/items/:lineId",
   cartWriteLimiter,
   param("lineId").isString().isLength({ min: 4, max: 40 }),
-  body("qty").optional().isInt({ min: 0, max: 50 }).withMessage("Quantity is 0 to 50").toInt(),
+  body("qty").optional().isInt({ min: 0, max: 50 }).withMessage("Quantity must be between 0 and 50").toInt(),
   body("specialInstructions").optional({ values: "null" }).isString().isLength({ max: 200 }),
   body("optionIds").optional().isArray({ max: 30 }),
+  body("optionIds.*").isString().withMessage("Choose options from the list"),
   body("portionId").optional({ values: "null" }).isString().isLength({ max: 20 }),
-  body("mealUpgrade").optional().isBoolean().withMessage("mealUpgrade is true or false"),
+  body("mealUpgrade").optional().isBoolean().withMessage("Choose yes or no").toBoolean(true),
   validate,
   asyncHandler(async (req, res) => ok(res, await carts.updateItem(req.auth.userId, req.params.lineId, req.body, { user: req.auth.user }), "Cart updated.")),
 );
@@ -58,11 +60,11 @@ router.patch(
   "/cart",
   cartWriteLimiter,
   body("tipPaise").optional().isInt({ min: 0, max: 100000 }).toInt(),
-  body("usePoints").optional().isBoolean(),
+  body("usePoints").optional().isBoolean().toBoolean(true),
   body("chefNote").optional({ values: "null" }).isString().isLength({ max: 300 }),
   body("deliveryMode").optional().isIn(["delivery", "pickup"]),
-  body("addressId").optional({ values: "null" }).isMongoId(),
-  body("scheduledFor").optional({ values: "null" }).isISO8601().withMessage("scheduledFor is a date-time from the delivery slots"),
+  body("addressId").optional({ values: "null" }).isString().isMongoId(),
+  body("scheduledFor").optional({ values: "null" }).isISO8601().withMessage("Choose one of the delivery times shown"),
   validate,
   asyncHandler(async (req, res) => {
     if (req.body.scheduledFor) await assertSlot(req.auth.userId, req.body.scheduledFor);
@@ -73,7 +75,7 @@ router.post("/cart/promo", cartWriteLimiter, body("code").isString().trim().isLe
   ok(res, await carts.applyPromo(req.auth.userId, req.body.code), "Offer applied.")
 )));
 router.delete("/cart/promo", asyncHandler(async (req, res) => ok(res, await carts.removePromo(req.auth.userId), "Offer removed.")));
-router.get("/cart/recommendations", query("veg").optional().isBoolean().withMessage("veg is true or false"), validate, asyncHandler(async (req, res) => ok(res, await carts.cartRecommendations(req.auth.userId, { vegOnly: vegOnlyFor(req) }), "Recommendations fetched.")));
+router.get("/cart/recommendations", query("veg").optional().isBoolean().withMessage("Choose Veg or All"), validate, asyncHandler(async (req, res) => ok(res, await carts.cartRecommendations(req.auth.userId, { vegOnly: vegOnlyFor(req) }), "Recommendations fetched.")));
 
 router.get("/promos/available", asyncHandler(async (req, res) => {
   const cart = await Cart.findOne({ user: req.auth.userId }).lean();
@@ -86,24 +88,24 @@ router.get("/promos/available", asyncHandler(async (req, res) => {
 // The full bill for the checkout screen, for the chosen address, mode and payment method.
 router.post(
   "/checkout/summary",
-  body("addressId").optional({ values: "null" }).isMongoId(),
+  body("addressId").optional({ values: "null" }).isString().isMongoId(),
   body("deliveryMode").optional().isIn(["delivery", "pickup"]),
   body("paymentMethod").optional({ values: "null" }).isIn(carts.PAYMENT_METHODS),
   body("tipPaise").optional().isInt({ min: 0, max: 100000 }).toInt(),
-  body("usePoints").optional().isBoolean(),
-  body("scheduledFor").optional({ values: "null" }).isISO8601().withMessage("scheduledFor is a date-time from the delivery slots"),
+  body("usePoints").optional().isBoolean().toBoolean(true),
+  body("scheduledFor").optional({ values: "null" }).isISO8601().withMessage("Choose one of the delivery times shown"),
   validate,
   asyncHandler(async (req, res) => ok(res, await carts.buildCart(req.auth.userId, req.body, { user: req.auth.user }), "Checkout summary.")),
 );
 
 // Delivery options: "as soon as possible" and, when enabled, half-hour windows today and tomorrow.
-router.get("/delivery/slots", query("kitchenId").optional().isMongoId().withMessage("kitchenId is not valid"), validate, asyncHandler(async (req, res) => {
+router.get("/delivery/slots", query("kitchenId").optional().isString().isMongoId().withMessage("This kitchen could not be found"), validate, asyncHandler(async (req, res) => {
   const cart = await Cart.findOne({ user: req.auth.userId }).lean();
   const kitchenId = req.query.kitchenId || (cart?.kitchen ? String(cart.kitchen) : null);
   const kitchen = kitchenId ? await Kitchen.findById(kitchenId).lean() : null;
-  // “Standard Delivery · 31 min (Today)”: the cart's own ETA when there is one.
-  const view = cart?.items?.length && String(cart.kitchen) === String(kitchenId) ? await carts.buildCart(req.auth.userId, {}, { user: req.auth.user, cart: await Cart.findOne({ user: req.auth.userId }) }) : null;
-  return ok(res, await carts.deliverySlots(kitchen, new Date(), { etaMinutes: view?.etaMinutes || null }), "Delivery slots fetched.");
+  // “Standard Delivery · 31 min (Today)”: the cart's own delivery time (without pricing the whole cart).
+  const etaMinutes = cart?.items?.length && String(cart.kitchen) === String(kitchenId) ? await carts.cartEtaMinutes(req.auth.userId, cart, kitchen) : null;
+  return ok(res, await carts.deliverySlots(kitchen, new Date(), { etaMinutes }), "Delivery slots fetched.");
 }));
 
 /** A scheduled time must be one of the slots offered for the cart's kitchen right now. */

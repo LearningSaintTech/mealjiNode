@@ -65,6 +65,20 @@ export async function bookForOrder(orderId, { by = "system", provider = null } =
     attempts: existing ? existing.attempts + 1 : 1,
     history: [{ status: "pending", at: new Date(), by }],
   });
+  // Claim the booking before calling the partner: only the caller that swaps the
+  // order's job (none / the failed one → this one) books. The auto-book event,
+  // the watchdog and a replayed event can no longer book two riders.
+  await job.save();
+  const claim = await Order.updateOne(
+    { _id: order._id, deliveryJob: existing ? existing._id : null, status: { $nin: ["delivered", "cancelled"] } },
+    { $set: { deliveryJob: job._id } },
+  );
+  if (!claim.modifiedCount) {
+    await DeliveryJob.deleteOne({ _id: job._id });
+    const current = await Order.findById(order._id).select("deliveryJob status").lean();
+    if (["delivered", "cancelled"].includes(current?.status)) throw new AppError(409, "This order is closed");
+    return current?.deliveryJob ? DeliveryJob.findById(current.deliveryJob) : null;
+  }
   try {
     const quote = await adapter.quote({ pickup: job.pickup, drop: job.drop });
     if (quote) job.quotePaise = quote.pricePaise;
@@ -81,8 +95,6 @@ export async function bookForOrder(orderId, { by = "system", provider = null } =
     logger.warn({ err: err.message, orderId: String(order._id) }, "Delivery booking failed");
   }
   await job.save();
-  order.deliveryJob = job._id;
-  await order.save();
   await publishEventSafe(job.status === "failed" ? "delivery.failed" : "delivery.booked", { jobId: String(job._id), orderId: String(order._id), provider: job.provider });
   publish(`kitchen:${order.kitchen}`, "kitchen:delivery_updated", toJob(job));
   return job;
@@ -222,7 +234,8 @@ export async function onOrderStatus({ orderId, to, kitchenId }) {
   const settings = await deliverySettings(kitchenId);
   if (!settings.autoBook) return;
   const order = await Order.findById(orderId).select("deliveryMode deliveryJob status").lean();
-  if (!order || order.deliveryMode === "pickup") return;
+  // The order may have closed before this queued event ran: nothing to book (not an error to retry).
+  if (!order || order.deliveryMode === "pickup" || ["delivered", "cancelled"].includes(order.status)) return;
   if (to === settings.bookAt || (to === "ready" && !order.deliveryJob)) {
     if (to === "accepted" && settings.bookOffsetMinutes > 0) return; // the delivery watchdog books after the offset
     await bookForOrder(orderId, { by: "system" });
@@ -237,15 +250,21 @@ export async function deliveryWatchdog() {
     const settings = await deliverySettings(order.kitchen);
     if (!settings.autoBook || settings.bookAt !== "accepted") continue;
     if (Date.now() - new Date(order.acceptedAt).getTime() < settings.bookOffsetMinutes * 60_000) continue;
-    await bookForOrder(order._id).catch(() => {});
-    booked += 1;
+    const job = await bookForOrder(order._id).catch(() => null);
+    if (job && job.status !== "failed") booked += 1;
   }
   const failed = await DeliveryJob.find({ status: "failed", order: { $ne: null }, updatedAt: { $lte: new Date(Date.now() - 2 * 60_000) } }).limit(100);
   for (const job of failed) {
     const settings = await deliverySettings(job.kitchen);
     if (job.attempts > settings.rebookAttempts) continue;
-    await bookForOrder(job.order).catch(() => {});
-    booked += 1;
+    const order = await Order.findById(job.order).select("status").lean();
+    if (!order || ["delivered", "cancelled"].includes(order.status)) {
+      // Closed order: stop retrying this job every minute.
+      await DeliveryJob.updateOne({ _id: job._id, status: "failed" }, { $set: { status: "cancelled" }, $push: { history: { status: "cancelled", at: new Date(), note: "Order closed", by: "system" } } });
+      continue;
+    }
+    const next = await bookForOrder(job.order).catch(() => null);
+    if (next && next.status !== "failed") booked += 1;
   }
   return booked;
 }

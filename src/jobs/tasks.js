@@ -16,7 +16,7 @@ async function purgeDeletedAccounts() {
   const { Order } = await import("../modules/order/order.model.js");
   const { Cart } = await import("../modules/cart/cart.model.js");
   const cutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-  const users = await User.find({ deletedAt: { $lte: cutoff }, name: { $ne: "Deleted user" } }).limit(200).lean();
+  const users = await User.find({ purgedAt: null, deletedAt: { $lte: cutoff } }).limit(200).lean();
   for (const user of users) {
     await Promise.all([
       Address.deleteMany({ user: user._id }),
@@ -26,7 +26,7 @@ async function purgeDeletedAccounts() {
       Order.updateMany({ user: user._id }, { $set: { "customer.name": "Deleted user", "customer.phone": null, "address.recipientName": null, "address.phone": null } }),
     ]);
     await User.updateOne({ _id: user._id }, {
-      $set: { name: "Deleted user", phoneNumber: `deleted-${user._id}`, email: null, dob: null, gender: null, avatarUrl: null, currentLocation: null, isActive: false },
+      $set: { name: "Deleted user", phoneNumber: `deleted-${user._id}`, email: null, dob: null, dobMonthDay: null, gender: null, avatarUrl: null, currentLocation: null, isActive: false, purgedAt: new Date() },
       $unset: { referralCode: 1 },
     });
   }

@@ -199,13 +199,13 @@ export default async function step12(ctx) {
     // Inbox: “You Earned 50 Points!” · “Yay! You earned 50 points for your recent order. …” (Rewards tab, star icon).
     const note = await until(async () => ((await me.call("GET", "/notifications?category=rewards&limit=10")).data?.items || []).find((n) => n.title === "You Earned 50 Points!"));
     if (!note?.body?.startsWith("Yay! You earned 50 points for your recent order.") || note.icon !== "star") return { ok: false, detail: `inbox: ${note?.title} · ${note?.body} · ${note?.icon}` };
-    return { ok: earned?.points === 50 && earned.title === `Order #${order.orderNumber}` && earned.icon === "cart" && review?.points === 100 && review.title === "Review reward" && review.icon === "star" && after === before + 150, detail: `${before} → ${after} · ${earned?.title} ${earned?.pointsLabel} · ${review?.title} ${review?.pointsLabel}` };
+    return { ok: earned?.points === 50 && earned.title === `Order #${order.orderNumber}` && earned.icon === "cart" && review?.points === 100 && review.title === "Review Reward" && review.icon === "star" && after === before + 150, detail: `${before} → ${after} · ${earned?.title} ${earned?.pointsLabel} · ${review?.title} ${review?.pointsLabel}` };
   });
 
   // ---- referrals
   const refs = await me.call("GET", "/referrals/me");
   await s.run("12-12", "My referral code, share text and stats", "Refer a friend", () => ({
-    ok: refs.status === 200 && /^[A-Z0-9]{6,12}$/.test(refs.data?.code || "") && refs.data.shareLink?.includes(refs.data.code) && refs.data.shareText?.includes(refs.data.code) && refs.data.pointsPerReferral === 200 && refs.data.stats && Array.isArray(refs.data.referrals),
+    ok: refs.status === 200 && /^[A-Z0-9]{6,12}$/.test(refs.data?.code || "") && (refs.data.shareLink === null || refs.data.shareLink.includes(refs.data.code)) && refs.data.shareText?.includes(refs.data.code) && refs.data.pointsPerReferral === 200 && refs.data.stats && Array.isArray(refs.data.referrals),
     detail: `${refs.data?.code} · “${refs.data?.shareText}” · ${JSON.stringify(refs.data?.stats)}`,
   }));
   await s.run("12-13", "A friend applies the code once; wrong, own and repeat codes are refused", "Enter a referral code", async () => {
@@ -227,7 +227,7 @@ export default async function step12(ctx) {
       await database.collection("orders").deleteMany({ _id: { $in: orders.map((x) => x._id) } });
     });
     return {
-      ok: own.status === 409 && wrong.status === 404 && short.status === 422 && [a.status, b.status].sort().join() === "200,409" && again.status === 409 && old.status === 409,
+      ok: own.status === 409 && wrong.status === 422 && short.status === 422 && [a.status, b.status].sort().join() === "200,409" && again.status === 409 && old.status === 409,
       detail: `own ${own.status} · wrong ${wrong.status} · too short ${short.status} · two taps ${a.status}/${b.status} · again ${again.status} · existing customer ${old.status}`,
     };
   });
@@ -244,8 +244,8 @@ export default async function step12(ctx) {
     // The friend gets +200 welcome bonus and +50 for the delivered order itself.
     const paid = await until(async () => (await balance(friend)) === friendBefore + 250 && (await balance()) === before + 200);
     const mine = (await me.call("GET", "/referrals/me")).data;
-    const row = (await me.call("GET", "/rewards/history?limit=5")).data.items.find((r) => r.title === "Referral bonus");
-    const theirs = (await friend.call("GET", "/rewards/history?limit=5")).data.items.find((r) => r.title === "Welcome bonus");
+    const row = (await me.call("GET", "/rewards/history?limit=5")).data.items.find((r) => r.title === "Referral Bonus");
+    const theirs = (await friend.call("GET", "/rewards/history?limit=5")).data.items.find((r) => r.title === "Welcome Bonus");
     return { ok: Boolean(pending) && paid && row?.icon === "user" && theirs?.points === 200 && mine.stats.converted >= 1 && mine.referrals.some((r) => r.status === "converted"), detail: `pending first ${Boolean(pending)} · me ${before} → ${await balance()} · friend ${friendBefore} → ${await balance(friend)} · stats ${JSON.stringify(mine.stats)}` };
   });
 
@@ -258,7 +258,7 @@ export default async function step12(ctx) {
     await dailyLoyaltyRun();
     await dailyLoyaltyRun();
     const after = await balance();
-    const row = (await me.call("GET", "/rewards/history?limit=3")).data.items.find((r) => r.title === "Birthday treat");
+    const row = (await me.call("GET", "/rewards/history?limit=3")).data.items.find((r) => r.title === "Birthday Treat");
     return { ok: after === before + 250 && row?.icon === "gift", detail: `${before} → ${after} after two daily runs · “${row?.title}”` };
   });
 

@@ -128,7 +128,9 @@ export function toDish(dish, at = new Date()) {
     mealUpgrade: mealUpgradeView(dish),
     // Share button on Dish detail.
     deepLink: `mealji://dish/${dish._id}`,
-    shareUrl: `${env.publicBaseUrl}/dish/${dish._id}`,
+    // A web link only when the website exists (SHARE_BASE_URL); the app can always share `shareText`.
+    shareUrl: env.shareBaseUrl ? `${env.shareBaseUrl}/dish/${dish._id}` : null,
+    shareText: `${dish.name} on Meal Ji${env.shareBaseUrl ? `: ${env.shareBaseUrl}/dish/${dish._id}` : " — order it in the Meal Ji app"}`,
     customizationGroups: (dish.customizationGroups || []).map(toGroup),
     availableSlots: dish.availableSlots || [],
     availableDays: dish.availableDays || [],
@@ -662,7 +664,7 @@ export async function deleteMasterDish(dishId) {
 /** The whole live menu of one kitchen (cached), from which every customer view is cut. */
 // Parsed menus kept in memory for 10 s (on top of the 2-minute Redis copy), so
 // busy menu/home/search traffic does not re-read and re-parse it every request.
-const localMenus = memoCache(10_000);
+const localMenus = memoCache(10_000, "menus");
 
 /** The kitchen's live menu (cached); concurrent callers share one load. */
 export function kitchenMenu(kitchenId) {
@@ -895,10 +897,13 @@ export async function dishFilters(kitchenId) {
 /** Atomically reserves daily stock for ordered dishes; returns false if any ran out. */
 export async function reserveStock(lines, { session = null, at = new Date() } = {}) {
   const today = istDateKey(at);
+  // One read for all lines; only dishes with a daily limit need a stock update.
+  const limited = new Map((await KitchenDish.find({ _id: { $in: [...new Set(lines.map((line) => String(line.dishId)))] }, dailyStockLimit: { $gt: 0 } })
+    .select("dailyStockLimit stock kitchen").session(session || null).lean()).map((dish) => [String(dish._id), dish]));
   const reserved = [];
   for (const line of lines) {
-    const dish = await KitchenDish.findById(line.dishId).select("dailyStockLimit stock").session(session || null).lean();
-    if (!dish?.dailyStockLimit) continue;
+    const dish = limited.get(String(line.dishId));
+    if (!dish) continue;
     if (dish.stock?.date !== today) {
       await KitchenDish.updateOne({ _id: line.dishId, "stock.date": { $ne: today } }, { $set: { stock: { date: today, sold: 0 } } }, { session: session || undefined });
     }
@@ -914,13 +919,25 @@ export async function reserveStock(lines, { session = null, at = new Date() } = 
     }
     reserved.push(line);
   }
+  await refreshStockShown(reserved.map((line) => limited.get(String(line.dishId))?.kitchen));
   return true;
 }
 
 export async function releaseStock(lines, { at = new Date() } = {}) {
   const today = istDateKey(at);
+  const kitchens = [];
   for (const line of lines) {
-    await KitchenDish.updateOne({ _id: line.dishId, dailyStockLimit: { $gt: 0 }, "stock.date": today, "stock.sold": { $gte: line.qty } }, { $inc: { "stock.sold": -line.qty } });
+    const done = await KitchenDish.findOneAndUpdate({ _id: line.dishId, dailyStockLimit: { $gt: 0 }, "stock.date": today, "stock.sold": { $gte: line.qty } }, { $inc: { "stock.sold": -line.qty } }, { projection: { kitchen: 1 } }).lean();
+    if (done) kitchens.push(done.kitchen);
+  }
+  await refreshStockShown(kitchens);
+}
+
+/** “Only 3 left” must follow sales: drop the cached menus of kitchens whose limited stock changed. */
+async function refreshStockShown(kitchenIds) {
+  for (const id of new Set(kitchenIds.filter(Boolean).map(String))) {
+    localMenus.clear(id);
+    await storeDel(menuKey(id)).catch(() => {});
   }
 }
 

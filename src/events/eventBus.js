@@ -66,9 +66,15 @@ export async function dispatchEvent(event) {
     try {
       await handler(event);
     } catch (err) {
-      logger.error({ err: err.message, event: event.name, eventId: event.eventId, handler: handlerName }, "Event handler failed");
-      failures.push(handlerName);
-      continue;
+      const status = err?.statusCode || 0;
+      if (status >= 400 && status < 500) {
+        // A business refusal ("This order is closed") will not change on a retry: record it as done.
+        logger.warn({ err: err.message, event: event.name, eventId: event.eventId, handler: handlerName }, "Event handler skipped");
+      } else {
+        logger.error({ err: err.message, event: event.name, eventId: event.eventId, handler: handlerName }, "Event handler failed");
+        failures.push(`${handlerName} (${String(err?.message || err).slice(0, 120)})`);
+        continue;
+      }
     }
     await ProcessedEvent.create({ eventId: event.eventId, handler: handlerName }).catch((err) => {
       if (err?.code !== 11000) throw err;

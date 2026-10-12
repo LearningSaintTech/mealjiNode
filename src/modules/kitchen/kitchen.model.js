@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { memoCache } from "../../common/memoCache.js";
 
 // Active, placed kitchens: read on almost every customer request.
-export const kitchenCache = memoCache(5_000);
+export const kitchenCache = memoCache(5_000, "kitchens");
 
 const kitchenSchema = new mongoose.Schema(
   {

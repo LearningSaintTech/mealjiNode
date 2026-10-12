@@ -70,14 +70,31 @@ async function placeAddress(fields, { geocodePincode } = {}) {
 
 const hasPoint = (fields) => Number.isFinite(fields.latitude) && Number.isFinite(fields.longitude);
 
+/** Makes one address the default; the unique index allows one, so a parallel switch is retried. */
+async function makeOnlyDefault(userId, addressId) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await Address.updateMany({ user: userId, isDefault: true, _id: { $ne: addressId } }, { $set: { isDefault: false } });
+    try {
+      await Address.updateOne({ _id: addressId, user: userId, deletedAt: null }, { $set: { isDefault: true } });
+      return;
+    } catch (err) {
+      if (err?.code !== 11000) throw err;
+    }
+  }
+  throw new AppError(409, "Please try again.");
+}
+
 export async function createAddress(userId, input, options = {}) {
   const fields = clean(input);
   if (!hasPoint(fields)) Object.assign(fields, await placeAddress(fields, options));
   const count = await Address.countDocuments({ user: userId, deletedAt: null });
   if (count >= MAX_ADDRESSES) throw new AppError(409, `You can save up to ${MAX_ADDRESSES} addresses`);
   const makeDefault = input.isDefault === true || count === 0;
-  if (makeDefault) await Address.updateMany({ user: userId, isDefault: true }, { $set: { isDefault: false } });
-  const address = await Address.create({ ...fields, user: userId, isDefault: makeDefault });
+  const address = await Address.create({ ...fields, user: userId, isDefault: false });
+  if (makeDefault) {
+    await makeOnlyDefault(userId, address._id);
+    address.isDefault = true;
+  }
   return withServiceability(address);
 }
 
@@ -88,19 +105,19 @@ export async function updateAddress(userId, addressId, input, options = {}) {
   const moved = PLACE_FIELDS.some((key) => key in fields && fields[key] !== address[key]);
   if (moved && !hasPoint(fields)) Object.assign(fields, await placeAddress({ ...address.toObject(), ...fields }, options));
   Object.assign(address, fields);
-  if (input.isDefault === true && !address.isDefault) {
-    await Address.updateMany({ user: userId, isDefault: true }, { $set: { isDefault: false } });
+  const becomeDefault = input.isDefault === true && !address.isDefault;
+  await address.save();
+  if (becomeDefault) {
+    await makeOnlyDefault(userId, address._id);
     address.isDefault = true;
   }
-  await address.save();
   return withServiceability(address);
 }
 
 export async function setDefaultAddress(userId, addressId) {
   const address = await getOwnAddress(userId, addressId);
-  await Address.updateMany({ user: userId, isDefault: true }, { $set: { isDefault: false } });
+  await makeOnlyDefault(userId, address._id);
   address.isDefault = true;
-  await address.save();
   return withServiceability(address);
 }
 
@@ -113,7 +130,7 @@ export async function deleteAddress(userId, addressId) {
   await address.save();
   if (wasDefault) {
     const next = await Address.findOne({ user: userId, deletedAt: null }).sort({ updatedAt: -1 });
-    if (next) await Address.updateOne({ _id: next._id }, { $set: { isDefault: true } });
+    if (next) await makeOnlyDefault(userId, next._id).catch(() => {});
   }
   return { addressId: String(address._id), deleted: true };
 }

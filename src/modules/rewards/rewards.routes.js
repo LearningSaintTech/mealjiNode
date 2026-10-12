@@ -17,7 +17,7 @@ customer.get("/rewards/overview", asyncHandler(async (req, res) => ok(res, await
 customer.get("/rewards/summary", asyncHandler(async (req, res) => ok(res, await rewards.summary(req.auth.userId), "Rewards summary.")));
 customer.get("/rewards/catalog", asyncHandler(async (req, res) => ok(res, await rewards.catalog(req.auth.userId), "Reward catalogue.")));
 customer.get("/rewards/earn-methods", asyncHandler(async (req, res) => ok(res, await rewards.earnMethods(), "Ways to earn.")));
-customer.get("/rewards/history", pageQuery, query("period").optional().isIn(rewards.HISTORY_PERIODS.map((p) => p.key)).withMessage("period is this_month, last_month or all"), validate, asyncHandler(async (req, res) => {
+customer.get("/rewards/history", pageQuery, query("period").optional().isIn(rewards.HISTORY_PERIODS.map((p) => p.key)).withMessage("Choose This Month, Last Month or All time"), validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
   return ok(res, await rewards.history(req.auth.userId, { page, limit, period: req.query.period || "all" }), "Points history.");
 }));

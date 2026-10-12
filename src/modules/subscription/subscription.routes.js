@@ -70,8 +70,8 @@ customer.put(
 );
 customer.get("/subscriptions/me/shift-preview", query("date").isISO8601({ strict: true }), query("slot").optional().isIn(SLOT_KEYS), validate, asyncHandler(async (req, res) => ok(res, await meals.shiftPreview(req.auth.userId, req.query), "Shift preview.")));
 customer.post("/subscriptions/me/shift", body("date").isISO8601({ strict: true }), body("slot").optional({ values: "null" }).isIn(SLOT_KEYS), validate, idempotent(), asyncHandler(async (req, res) => ok(res, await meals.shift(req.auth.userId, req.body), "Meal shifted.")));
-customer.get("/subscriptions/me/change-plan/preview", query("planCode").isString(), validate, asyncHandler(async (req, res) => ok(res, await subs.changePlanPreview(req.auth.userId, req.query.planCode), "Plan change preview.")));
-customer.post("/subscriptions/me/change-plan", body("planCode").isString(), validate, asyncHandler(async (req, res) => ok(res, await subs.changePlan(req.auth.userId, req.body.planCode), "Plan change scheduled.")));
+customer.get("/subscriptions/me/change-plan/preview", query("planCode").isString().trim().toUpperCase(), validate, asyncHandler(async (req, res) => ok(res, await subs.changePlanPreview(req.auth.userId, req.query.planCode), "Plan change preview.")));
+customer.post("/subscriptions/me/change-plan", body("planCode").isString().trim().toUpperCase(), validate, asyncHandler(async (req, res) => ok(res, await subs.changePlan(req.auth.userId, req.body.planCode), "Plan change scheduled.")));
 customer.get("/subscriptions/me/pause-options", asyncHandler(async (req, res) => ok(res, await subs.pauseOptions(req.auth.userId), "Pause options.")));
 customer.post("/subscriptions/me/pause", body("months").isInt({ min: 1, max: 12 }).toInt(), validate, asyncHandler(async (req, res) => ok(res, await subs.pause(req.auth.userId, req.body), "Pause scheduled.")));
 customer.post("/subscriptions/me/resume", asyncHandler(async (req, res) => ok(res, await subs.resume(req.auth.userId), "Subscription resumed.")));

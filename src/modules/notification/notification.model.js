@@ -49,6 +49,8 @@ const notificationSchema = new mongoose.Schema(
   { timestamps: { createdAt: true, updatedAt: false } },
 );
 notificationSchema.index({ user: 1, createdAt: -1 });
+// One tab of the inbox (Orders / Offers / Rewards / Account), newest first.
+notificationSchema.index({ user: 1, category: 1, createdAt: -1 });
 notificationSchema.index({ user: 1, isRead: 1 });
 notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 180 * 24 * 3600 });
 export const Notification = mongoose.model("Notification", notificationSchema);

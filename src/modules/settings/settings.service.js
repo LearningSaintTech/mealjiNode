@@ -126,7 +126,7 @@ async function scopeValues(key, scopeType, scopeId) {
 
 // The public app config is read on every app launch: cached 30 s per instance,
 // cleared whenever a setting changes here.
-const appConfigCache = memoCache(30_000);
+const appConfigCache = memoCache(30_000, "app-config");
 
 async function invalidate(key, scopeType, scopeId) {
   await storeDel(cacheKey(key, scopeType, scopeId)).catch(() => {});
@@ -147,7 +147,7 @@ async function kitchenContext(kitchenId) {
  */
 // Resolved settings are read many times per request (home, delivery checks):
 // kept in memory for 5 s per key + city + kitchen, cleared on any setting change.
-const resolvedCache = memoCache(5_000);
+const resolvedCache = memoCache(5_000, "settings");
 
 export function resolveSetting(key, { kitchenId = null, city = null } = {}) {
   requireDefinition(key);

@@ -86,12 +86,27 @@ export function createApp() {
     }
     // OTP, sessions, rate limits and caches need Redis: not ready without it.
     const ready = mongo === "up" && redis.status === "ready";
+    // The separate worker checks in every 30 s; "stale" means jobs and events have stopped.
+    let worker = workersActive() ? "in_api" : "unknown";
+    let events = null;
+    try {
+      if (!workersActive()) {
+        const { storeGetOptional } = await import("./infrastructure/redisStore.js");
+        const beat = Number((await storeGetOptional("worker:heartbeat")).value || 0);
+        worker = beat && Date.now() - beat < 120_000 ? "up" : "stale";
+      }
+      if (mongo === "up") events = await (await import("./events/relay.js")).outboxBacklog();
+    } catch {
+      // health must always answer
+    }
     const data = {
       status: ready ? "ready" : "not_ready",
       mongo,
       redis: redis.status === "ready" ? "up" : "down",
       // "off" when this process runs no workers (production api); the worker reports its own.
       queues: workersActive() ? "up" : env.runWorkersInApi ? "down" : "off",
+      worker,
+      events,
     };
     res.status(ready ? 200 : 503).json({ success: ready, message: data.status, data });
   });

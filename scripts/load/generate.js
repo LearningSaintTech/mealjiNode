@@ -168,7 +168,7 @@ if (!(await db.collection("couponredemptions").countDocuments({ loadTest: true }
 
 // ---- loyalty: points ledgers (heavy users have 50x the rows), reward codes, referrals
 if (!(await db.collection("rewardtransactions").countDocuments({ loadTest: true }))) {
-  const SOURCES = [["order", "Order #MJ-LOAD", 50], ["review", "Review reward", 100], ["referral", "Referral bonus", 200], ["birthday", "Birthday treat", 250]];
+  const SOURCES = [["order", "Order #MJ-LOAD", 50], ["review", "Review Reward", 100], ["referral", "Referral Bonus", 200], ["birthday", "Birthday Treat", 250]];
   const plan = users.map((user, index) => ({ user, rows: index % 100 === 0 ? SIZE.pointsPerUser * 50 : SIZE.pointsPerUser }));
   const total = plan.reduce((sum, item) => sum + item.rows, 0);
   let cursor = 0;

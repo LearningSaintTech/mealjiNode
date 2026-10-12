@@ -150,5 +150,29 @@ export default async function step09(ctx) {
     const paid = (await me.call("GET", `/orders/${upi.order.orderId}`)).data;
     return { ok: cod.totalLabel === "To pay on delivery" && cod.totalPaise === cod.bill.grandTotalPaise && paid.totalLabel === "Total paid" && paid.amountPaidPaise === paid.totalPaise, detail: `COD “${cod.totalLabel}” ₹${cod.totalPaise / 100} · UPI “${paid.totalLabel}” ₹${paid.totalPaise / 100}` };
   });
+  await s.run("09-14", "Payment arriving while the customer cancels: never cancelled-and-paid without a refund", "Pay ₹X vs Cancel at the same moment", async () => {
+    await me.call("DELETE", "/cart");
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 2 });
+    const upi = (await me.call("POST", "/orders", { paymentMethod: "upi" })).data;
+    if (upi?.order?.orderId) made.push(upi.order.orderId);
+    const [pay, cancel] = await Promise.all([
+      me.call("POST", "/payments/test/complete", { gatewayOrderId: upi.payment.gatewayOrderId }),
+      me.call("PATCH", `/orders/${upi.order.orderId}/cancel`, { reason: "Changed my mind" }),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const order = (await me.call("GET", `/orders/${upi.order.orderId}`)).data;
+    const safe = order.status !== "cancelled" || ["refunded", "partially_refunded"].includes(order.paymentStatus) || order.paymentStatus !== "paid";
+    return { ok: safe, detail: `pay ${pay.status} / cancel ${cancel.status} → ${order.status}, payment ${order.paymentStatus}` };
+  });
+  await s.run("09-15", "Two taps on Retry payment: one goes through", "Retry payment (double tap)", async () => {
+    await me.call("DELETE", "/cart");
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 2 });
+    const upi = (await me.call("POST", "/orders", { paymentMethod: "upi" })).data;
+    if (upi?.order?.orderId) made.push(upi.order.orderId);
+    const { transition } = await import("../../src/modules/order/order.service.js");
+    await transition(upi.order.orderId, "payment_failed", { actor: "system", note: "step 09 test" });
+    const [a, b] = await Promise.all([me.call("POST", `/orders/${upi.order.orderId}/retry-payment`), me.call("POST", `/orders/${upi.order.orderId}/retry-payment`)]);
+    return { ok: [a.status, b.status].sort().join() === "200,409", detail: `taps ${a.status}/${b.status} · “${(a.status === 409 ? a : b).message}”` };
+  });
   return s;
 }

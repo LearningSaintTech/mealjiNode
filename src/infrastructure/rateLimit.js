@@ -147,6 +147,8 @@ export function accountLimiter(prefix, { limit, windowSec }) {
     try {
       const subject = req.auth?.userId || deviceId(req) || clientIp(req);
       await checkRateLimit({ key: `rate:${prefix}:${subject}`, limit, windowSec });
+      // Signed-out callers choose their own device id: also cap the IP (10× the per-device limit).
+      if (!req.auth?.userId) await checkRateLimit({ key: `rate:${prefix}:ip:${clientIp(req)}`, limit: limit * 10, windowSec });
       next();
     } catch (err) {
       next(err);

@@ -25,7 +25,11 @@ export async function authMiddleware(req, res, next) {
     }
 
     const user = await userRepository.findForAuth(payload.userId);
-    if (!user || !user.isActive || !user.isNumberVerified || isSuspended(user) || tokenRevoked(user, payload.iat)) {
+    // A suspended account is told why (403), instead of being silently signed out.
+    if (user && user.isActive && isSuspended(user)) {
+      throw new AppError(403, "Your account is suspended. Please contact support.", [{ field: "account", message: "ACCOUNT_SUSPENDED" }]);
+    }
+    if (!user || !user.isActive || !user.isNumberVerified || tokenRevoked(user, payload.iat)) {
       throw new AppError(401, "Invalid or expired token");
     }
 

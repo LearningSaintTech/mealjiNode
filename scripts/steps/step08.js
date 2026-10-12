@@ -237,5 +237,15 @@ export default async function step08(ctx) {
     const [asap, later] = slots.options;
     return { ok: asap.label === "Standard Delivery" && asap.sub === `${cart.etaMinutes} min (Today)` && asap.icon === "bike" && (!slots.scheduledEnabled || (later?.label === "Schedule for later" && later.sub === "Choose date & time")), detail: slots.options.map((o) => `${o.label} · ${o.sub}`).join(" | ") };
   });
+  await s.run("08-27", "Yes/no sent as text: \"false\" means false", "Checkout: Use points switch", async () => {
+    await me.call("DELETE", "/cart");
+    const papad = ((await me.call("GET", "/dishes?limit=100")).data.items || []).find((d) => d.name === "Masala Papad");
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 2 });
+    const on = (await me.call("PATCH", "/cart", { usePoints: true })).data.usePoints;
+    const off = (await me.call("PATCH", "/cart", { usePoints: "false" })).data.usePoints;
+    const bad = await me.call("PATCH", "/cart", { tipPaise: "lots" });
+    await me.call("DELETE", "/cart");
+    return { ok: on === true && off === false && bad.status === 422 && bad.message && bad.message !== "Validation failed" && bad.message !== "Invalid value", detail: `true → ${on}, "false" → ${off} · bad tip: ${bad.status} “${bad.message}”` };
+  });
   return s;
 }

@@ -389,10 +389,11 @@ export async function removeDevice(userId, deviceId) {
 // ------------------------------------------------------------------ tracking
 
 /** Opened / clicked / delivered tracking from the app, links and provider webhooks. */
-export async function trackMessage(messageId, event, { channel = null, valuePaise = 0 } = {}) {
+export async function trackMessage(messageId, event, { channel = null, valuePaise = 0, userId = undefined } = {}) {
   const field = { delivered: "deliveredAt", opened: "openedAt", clicked: "clickedAt", converted: "convertedAt" }[event];
   if (!field) return { tracked: false };
-  const filter = { messageId, ...(channel ? { channel } : {}), [field]: null };
+  // When a customer reports it, only their own messages count (no faking others' stats).
+  const filter = { messageId, ...(channel ? { channel } : {}), ...(userId !== undefined ? { user: userId } : {}), [field]: null };
   const update = { $set: { [field]: new Date() } };
   if (event !== "converted") update.$set.status = event;
   if (event === "converted") update.$set.conversionValuePaise = valuePaise;

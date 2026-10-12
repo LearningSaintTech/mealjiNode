@@ -50,7 +50,7 @@ function menuManagementRoutes({ platform }) {
   router.get(
     "/dishes",
     read,
-    query("categoryId").optional({ values: "falsy" }).isMongoId(),
+    query("categoryId").optional({ values: "falsy" }).isString().isMongoId(),
     query("status").optional().isIn(["active", "archived", "pending", "sold_out", "all"]),
     query("q").optional().isString().isLength({ max: 60 }),
     validate,
@@ -75,7 +75,7 @@ function menuManagementRoutes({ platform }) {
     "/dishes/:id/availability",
     availability,
     idParam(),
-    body("isAvailable").optional().isBoolean(),
+    body("isAvailable").optional().isBoolean().toBoolean(true),
     body("dailyStockLimit").optional().isInt({ min: 0, max: 100000 }).toInt(),
     validate,
     asyncHandler(async (req, res) => {
@@ -94,7 +94,7 @@ function menuManagementRoutes({ platform }) {
     edit,
     body("masterDishIds").isArray({ min: 1, max: 100 }),
     body("masterDishIds.*").isMongoId(),
-    body("categoryId").optional({ values: "null" }).isMongoId(),
+    body("categoryId").optional({ values: "null" }).isString().isMongoId(),
     validate,
     asyncHandler(async (req, res) => {
       const data = await catalog.importMasterDishes(kitchenOf(req), req.body, { actor: actorOf(req), platform });
@@ -168,7 +168,7 @@ adminCatalogRouter.get(
   authorize("menu_changes.approve"),
   pageQuery,
   query("status").optional().isIn(["pending", "approved", "rejected", "superseded", "all"]),
-  query("kitchenId").optional({ values: "falsy" }).isMongoId(),
+  query("kitchenId").optional({ values: "falsy" }).isString().isMongoId(),
   validate,
   asyncHandler(async (req, res) => {
     const { page, limit } = paging(req.query);
@@ -212,13 +212,13 @@ async function servingKitchen(req) {
 // Every filter is checked, so a wrong value is a clear 422 instead of being ignored.
 const dishFilterQuery = [
   ...dishFilterValidators,
-  query("q").optional().isString().withMessage("q must be text").bail().isLength({ max: 60 }).withMessage("Search up to 60 characters"),
+  query("q").optional().isString().withMessage("Type what to search for").bail().isLength({ max: 60 }).withMessage("Search up to 60 characters"),
 ];
 
 const kitchenQuery = [
-  query("kitchenId").optional({ values: "falsy" }).isMongoId().withMessage("kitchenId is not valid"),
-  query("latitude").optional().isFloat({ min: -90, max: 90 }).withMessage("latitude is not valid"),
-  query("longitude").optional().isFloat({ min: -180, max: 180 }).withMessage("longitude is not valid"),
+  query("kitchenId").optional({ values: "falsy" }).isString().isMongoId().withMessage("This kitchen could not be found"),
+  query("latitude").optional().isFloat({ min: -90, max: 90 }).withMessage("Your location could not be read. Please try again."),
+  query("longitude").optional().isFloat({ min: -180, max: 180 }).withMessage("Your location could not be read. Please try again."),
 ];
 
 customerCatalogRouter.get("/menu/categories", kitchenQuery, validate, asyncHandler(async (req, res) => ok(res, await catalog.customerCategories(await servingKitchen(req)), "Categories fetched.")));
@@ -239,17 +239,17 @@ customerCatalogRouter.get("/kitchens/:id/menu", idParam(), dishFilterQuery, vali
   req.query.kitchenId = req.params.id;
   return menuResponse(req, res, await servingKitchen(req));
 }));
-customerCatalogRouter.get("/menu/popular", kitchenQuery, query("veg").optional().isBoolean().withMessage("veg is true or false"), validate, asyncHandler(async (req, res) => (
+customerCatalogRouter.get("/menu/popular", kitchenQuery, query("veg").optional().isBoolean().withMessage("Choose Veg or All"), validate, asyncHandler(async (req, res) => (
   ok(res, await catalog.markFavorites(req.auth.userId, vegFilter(req.vegOnly, await catalog.popularDishes(await servingKitchen(req), req.vegOnly ? 30 : 10)).slice(0, 10)), "Popular dishes fetched.")
 )));
 customerCatalogRouter.get("/menu/items/:id", kitchenQuery, idParam(), validate, asyncHandler(async (req, res) => ok(res, await catalog.customerDish(await servingKitchen(req), req.params.id, { userId: req.auth.userId }), "Dish fetched.")));
-customerCatalogRouter.get("/menu/items/:id/recommendations", kitchenQuery, idParam(), query("veg").optional().isBoolean().withMessage("veg is true or false"), validate, asyncHandler(async (req, res) => (
+customerCatalogRouter.get("/menu/items/:id/recommendations", kitchenQuery, idParam(), query("veg").optional().isBoolean().withMessage("Choose Veg or All"), validate, asyncHandler(async (req, res) => (
   ok(res, await catalog.markFavorites(req.auth.userId, vegFilter(req.vegOnly, await catalog.recommendations(await servingKitchen(req), req.params.id, req.vegOnly ? 30 : 6)).slice(0, 6)), "Recommendations fetched.")
 )));
 const comboQuery = [
   ...kitchenQuery,
-  query("veg").optional().isBoolean().withMessage("veg is true or false"),
-  query("chip").optional().isIn(catalog.COMBO_CHIPS.map((item) => item.value)).withMessage(`chip: ${catalog.COMBO_CHIPS.map((item) => item.value).join(", ")}`),
+  query("veg").optional().isBoolean().withMessage("Choose Veg or All"),
+  query("chip").optional().isIn(catalog.COMBO_CHIPS.map((item) => item.value)).withMessage("Choose a filter from the list"),
 ];
 customerCatalogRouter.get("/combos", comboQuery, validate, asyncHandler(async (req, res) => ok(res, await catalog.customerCombos(await servingKitchen(req), { veg: req.vegOnly, chip: req.query.chip }), "Combos fetched.")));
 customerCatalogRouter.get("/combos/filters", (req, res) => ok(res, { chips: catalog.COMBO_CHIPS }, "Combo filters."));
@@ -258,8 +258,8 @@ customerCatalogRouter.get("/combos/:id", kitchenQuery, idParam(), validate, asyn
 customerCatalogRouter.get(
   "/dishes",
   kitchenQuery,
-  query("page").optional().isInt({ min: 1, max: 1000 }).withMessage("page is not valid").toInt(),
-  query("limit").optional().isInt({ min: 1, max: 100 }).withMessage("limit is 1 to 100").toInt(),
+  query("page").optional().isInt({ min: 1, max: 1000 }).withMessage("Page must be a number from 1 to 1000").toInt(),
+  query("limit").optional().isInt({ min: 1, max: 100 }).withMessage("Show between 1 and 100 items").toInt(),
   dishFilterQuery,
   validate,
   asyncHandler(async (req, res) => {

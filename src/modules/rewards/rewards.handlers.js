@@ -2,9 +2,8 @@
 export function registerHandlers(subscribe) {
   // Referral pays out on the referee's first delivered order.
   subscribe("order.delivered", "loyalty.referral_conversion", async (event) => {
-    const { Order } = await import("../order/order.model.js");
-    const delivered = await Order.countDocuments({ user: event.payload.userId, status: "delivered" });
-    if (delivered !== 1) return;
+    // Pays out on the first delivered order handled while the referral is still pending
+    // (a second delivery landing first no longer skips it; convertReferral only acts once).
     const { convertReferral } = await import("./rewards.service.js");
     await convertReferral(event.payload.userId, event.payload.orderId);
   });

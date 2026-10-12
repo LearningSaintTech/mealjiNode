@@ -11,6 +11,8 @@ import { Kitchen } from "../kitchen/kitchen.model.js";
 import { hoursOn, isOpenAt, orderingState } from "../kitchen/kitchen.hours.js";
 import { addIstDays, istDateKey, istDateTime, parseHhmm } from "../../common/time.js";
 import { resolveSetting } from "../settings/settings.service.js";
+import { distanceKm } from "../../common/geo.js";
+import { estimateEtaMinutes } from "../pricing/pricing.engine.js";
 import { priceLines } from "../pricing/pricing.service.js";
 import { kitchenCovers } from "../serviceability/serviceability.service.js";
 import { User } from "../user/user.model.js";
@@ -56,6 +58,25 @@ function billLines(bill, coupon) {
 }
 
 // ---- delivery time: as soon as possible, or a half-hour slot today/tomorrow
+
+/**
+ * The cart's delivery time without pricing the whole cart: kitchen prep time,
+ * distance to the chosen (or default) address and the delivery settings.
+ */
+export async function cartEtaMinutes(userId, cart, kitchen) {
+  if (!kitchen) return null;
+  const addressId = cart?.address ? String(cart.address) : null;
+  const address = addressId
+    ? await Address.findOne({ _id: addressId, user: userId, deletedAt: null }).select("latitude longitude").lean()
+    : await Address.findOne({ user: userId, deletedAt: null }).sort({ isDefault: -1, updatedAt: -1 }).select("latitude longitude").lean();
+  const [policy, delivery] = await Promise.all([
+    resolveSetting("order_policy", { kitchenId: String(kitchen._id), city: kitchen.city }),
+    resolveSetting("delivery", { kitchenId: String(kitchen._id), city: kitchen.city }),
+  ]);
+  // Same rounding as the bill's ETA, so both show the same minutes.
+  const km = address && kitchen.latitude != null ? Math.round(distanceKm(kitchen.latitude, kitchen.longitude, address.latitude, address.longitude) * 100) / 100 : 0;
+  return estimateEtaMinutes({ prepMinutes: policy.values.avgPrepMinutes, distanceKm: km, minutesPerKm: delivery.values.minutesPerKm, bufferMinutes: delivery.values.etaBufferMinutes, pickup: cart?.deliveryMode === "pickup" });
+}
 
 /** Delivery options for a kitchen (shared by GET /delivery/slots and the cart). */
 export async function deliverySlots(kitchen, now = new Date(), { etaMinutes = null } = {}) {
@@ -238,7 +259,21 @@ export async function buildCart(userId, overrides = {}, { user: loaded = null, c
   if (!cart.items.length || !cart.kitchen) return empty;
 
   const kitchen = await kitchenRepository.findActiveById(cart.kitchen);
-  if (!kitchen) return empty;
+  if (!kitchen) {
+    // The kitchen was switched off: keep showing what is in the cart, with the reason.
+    const { Kitchen: KitchenModel } = await import("../kitchen/kitchen.model.js");
+    const closed = await KitchenModel.findById(cart.kitchen).select("name").lean();
+    const maps = await menuMaps(cart.kitchen).catch(() => ({ dishes: new Map(), combos: new Map() }));
+    const items = cart.items.map((line) => ({ ...priceLine(line, maps.dishes, maps.combos), isAvailable: false, issue: "kitchen_unavailable" }));
+    const message = "This kitchen is not taking orders right now";
+    return {
+      ...empty,
+      kitchen: closed ? { kitchenId: String(cart.kitchen), name: closed.name, isOpenNow: false, message } : null,
+      items,
+      itemCount: items.reduce((sum, line) => sum + line.qty, 0),
+      blockers: [{ code: "KITCHEN_UNAVAILABLE", message }],
+    };
+  }
   const { dishes, combos } = await menuMaps(cart.kitchen);
   const now = new Date();
   const lines = cart.items.map((line) => priceLine(line, dishes, combos, now));

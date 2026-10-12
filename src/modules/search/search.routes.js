@@ -91,10 +91,20 @@ function nearly(a, b) {
   return edits + (a.length - i) + (b.length - j) <= 1;
 }
 
+// Normalized text per dish, worked out once per loaded menu (not on every keystroke).
+const searchText = new WeakMap();
+function textOf(dish) {
+  let text = searchText.get(dish);
+  if (!text) {
+    const name = normalize(dish.name);
+    text = { name, words: name.split(" "), haystack: `${name} ${(dish.tags || []).join(" ")} ${normalize(dish.cuisine)} ${normalize(dish.description)}` };
+    searchText.set(dish, text);
+  }
+  return text;
+}
+
 function score(dish, terms) {
-  const name = normalize(dish.name);
-  const words = name.split(" ");
-  const haystack = `${name} ${(dish.tags || []).join(" ")} ${normalize(dish.cuisine)} ${normalize(dish.description)}`;
+  const { name, words, haystack } = textOf(dish);
   let total = 0;
   for (const variants of terms) {
     let best = 0;
@@ -123,7 +133,8 @@ async function runSearch({ q, kitchenId, filters = {}, sort = null, page = 1, li
   const matched = menu.rawDishes
     .map((dish) => ({ dish, score: score(dish, terms) }))
     .filter((row) => row.score > 0)
-    .sort((a, b) => Number(isOrderable(b.dish, now)) - Number(isOrderable(a.dish, now)) || b.score - a.score)
+    .map((row) => ({ ...row, orderable: isOrderable(row.dish, now) }))
+    .sort((a, b) => Number(b.orderable) - Number(a.orderable) || b.score - a.score)
     .map((row) => ({ ...toDish(row.dish, now), orderCount: row.dish.orderCount || 0 }));
   const filtered = filterDishes(matched, filters);
   const ordered = (sort && sort !== "relevance" ? sortDishes(filtered, sort) : filtered).map(({ orderCount, ...dish }) => dish);
@@ -185,9 +196,9 @@ customer.get(
   "/search",
   accountLimiter("search", { limit: 120, windowSec: 60 }),
   query("q").isString().withMessage("Type what to search for").bail().trim().isLength({ min: 1, max: 60 }).withMessage("Search 1 to 60 characters"),
-  query("kitchenId").optional({ values: "falsy" }).isMongoId().withMessage("kitchenId is not valid"),
-  query("latitude").optional().isFloat({ min: -90, max: 90 }).withMessage("latitude is not valid"),
-  query("longitude").optional().isFloat({ min: -180, max: 180 }).withMessage("longitude is not valid"),
+  query("kitchenId").optional({ values: "falsy" }).isString().isMongoId().withMessage("This kitchen could not be found"),
+  query("latitude").optional().isFloat({ min: -90, max: 90 }).withMessage("Your location could not be read. Please try again."),
+  query("longitude").optional().isFloat({ min: -180, max: 180 }).withMessage("Your location could not be read. Please try again."),
   // The Filters sheet (same values and rules as /dishes) and paging.
   dishFilterValidators,
   pageValidators,
@@ -228,7 +239,7 @@ customer.get(
     }, "Search results.");
   }),
 );
-customer.post("/search/:id/click", idParam(), body("dishId").isMongoId().withMessage("dishId is not valid"), validate, asyncHandler(async (req, res) => {
+customer.post("/search/:id/click", idParam(), body("dishId").isString().isMongoId().withMessage("This dish could not be found"), validate, asyncHandler(async (req, res) => {
   const updated = await SearchLog.updateOne({ _id: req.params.id, user: req.auth.userId }, { $set: { clickedDish: req.body.dishId } });
   if (!updated.matchedCount) throw new AppError(404, "Search not found");
   return ok(res, { tracked: true }, "Tracked.");
@@ -237,6 +248,8 @@ customer.get("/search/recent", asyncHandler(async (req, res) => {
   const rows = await SearchLog.aggregate([
     { $match: { user: new mongoose.Types.ObjectId(req.auth.userId), hiddenFromRecent: false } },
     { $sort: { createdAt: -1 } },
+    // Only the latest searches are grouped (not the whole history).
+    { $limit: 200 },
     { $group: { _id: "$normalized", query: { $first: "$query" }, at: { $first: "$createdAt" } } },
     { $sort: { at: -1 } },
     { $limit: 10 },
@@ -272,7 +285,7 @@ customer.get("/search/trending", asyncHandler(async (req, res) => {
     { $match: { people: { $gte: 2 } } },
     { $sort: { people: -1, searches: -1 } },
     { $limit: 10 },
-  ]));
+  ]).allowDiskUse(true));
   const data = rows.map((row) => ({ query: row.query, searches: row.searches }));
   // Too little search history (a new city or a quiet week): fill up with the
   // kitchen's best-selling dishes so the screen always has chips to tap.
@@ -287,6 +300,8 @@ customer.get("/search/trending", asyncHandler(async (req, res) => {
     } catch {
       // no serving kitchen: trending stays as it is
     }
+    // Cached too (5 min), so a quiet week does not recompute on every request.
+    await storeSet("search:trending", JSON.stringify(data), 300).catch(() => {});
     return ok(res, await withPriceChip(data), "Trending.");
   }
   await storeSet("search:trending", JSON.stringify(data), 600).catch(() => {});

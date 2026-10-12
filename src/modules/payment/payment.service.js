@@ -3,7 +3,8 @@ import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { logger } from "../../config/logger.js";
 import { publishEventSafe } from "../../events/eventBus.js";
-import { fetchPayment, gatewayName, refundPayment, verifyPaymentSignature, verifyWebhookSignature } from "../../infrastructure/payments/gateway.js";
+import { fetchPayment, gatewayName, findRefund, refundPayment, verifyPaymentSignature, verifyWebhookSignature } from "../../infrastructure/payments/gateway.js";
+import { acquireLock, releaseLock } from "../../infrastructure/redisStore.js";
 import { publish } from "../../realtime/hub.js";
 import { invoiceLinesFromBill, issueInvoice } from "../billing/billing.service.js";
 import { confirmRedemption } from "../coupon/coupon.service.js";
@@ -59,14 +60,12 @@ export async function onPaymentCaptured(payment, { gatewayPaymentId = null, meth
     const order = await Order.findById(claimed.refId);
     if (!order) return claimed;
     if (["payment_pending", "payment_failed"].includes(order.status)) {
-      if (order.status === "payment_failed") {
-        await transition(order._id, "payment_pending", { actor: "system", note: "Late payment received" });
+      const placed = await placePaidOrder(order, transition);
+      if (!placed) {
+        // Cancelled while paying, or the dishes sold out after a late payment: give the money back.
+        await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
+        await requestRefund({ orderId: order._id, paymentId: claimed._id, amountPaise: claimed.amountPaise, reason: "Payment received for an order that could not go ahead", actor: { role: "system" }, permissions: ["refunds.approve"] });
       }
-      await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
-      await transition(order._id, "placed", { actor: "system", note: "Payment received" });
-      await confirmRedemption(order._id);
-      const policy = (await resolveSetting("order_policy", { kitchenId: order.kitchen })).values;
-      if (policy.acceptMode === "auto") await transition(order._id, "accepted", { actor: "system", note: "Accepted automatically" }).catch(() => {});
     } else if (order.status === "cancelled") {
       // Paid after the order was closed: refund it straight away.
       await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
@@ -80,12 +79,56 @@ export async function onPaymentCaptured(payment, { gatewayPaymentId = null, meth
         logger.warn({ orderId: String(order._id), paymentId: String(claimed._id) }, "Duplicate payment refunded");
       }
     }
-    await invoiceOrder(await Order.findById(order._id).lean());
+    // No GST invoice for an order that was cancelled and refunded instead.
+    const final = await Order.findById(order._id).lean();
+    if (final && final.status !== "cancelled") await invoiceOrder(final);
   } else if (claimed.refType === "subscription") {
     const { onSubscriptionPaymentCaptured } = await import("../subscription/subscription.service.js");
     await onSubscriptionPaymentCaptured(claimed);
   }
   return claimed;
+}
+
+/**
+ * Moves a just-paid order to "placed". A late payment (after the order had
+ * failed) takes the stock again first. Returns false when the order cannot go
+ * ahead (cancelled meanwhile, or sold out), so the caller refunds the payment.
+ */
+async function placePaidOrder(order, transition) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await Order.findById(order._id);
+    if (!current || current.status === "cancelled") return false;
+    if (!["payment_pending", "payment_failed"].includes(current.status)) return true;
+    try {
+      if (current.status === "payment_failed") {
+        const { reserveStock } = await import("../catalog/catalog.service.js");
+        const now = new Date();
+        if (!(await reserveStock(current.items.flatMap((item) => item.dishIds), { at: now }))) {
+          await transition(current._id, "cancelled", { actor: "system", reason: "Dishes sold out before the late payment arrived", cancelledBy: "system" }).catch(() => {});
+          return false;
+        }
+        await Order.updateOne({ _id: current._id }, { $set: { stockReservedAt: now } });
+        try {
+          await transition(current._id, "payment_pending", { actor: "system", note: "Late payment received" });
+        } catch (err) {
+          const { releaseStock } = await import("../catalog/catalog.service.js");
+          await releaseStock(current.items.flatMap((item) => item.dishIds), { at: now }).catch(() => {});
+          throw err;
+        }
+      }
+      await Order.updateOne({ _id: current._id }, { $set: { paymentStatus: "paid" } });
+      await transition(current._id, "placed", { actor: "system", note: "Payment received" });
+      await confirmRedemption(current._id);
+      const policy = (await resolveSetting("order_policy", { kitchenId: current.kitchen })).values;
+      if (policy.acceptMode === "auto") await transition(current._id, "accepted", { actor: "system", note: "Accepted automatically" }).catch(() => {});
+      return true;
+    } catch (err) {
+      // The order changed under us (expired, cancelled): look again.
+      if (err?.statusCode !== 409 && err?.status !== 409) throw err;
+    }
+  }
+  const last = await Order.findById(order._id).lean();
+  return Boolean(last && !["cancelled", "payment_pending", "payment_failed"].includes(last.status));
 }
 
 export async function onPaymentFailed(payment, reason) {
@@ -148,53 +191,61 @@ export function toRefund(refund) {
   };
 }
 
+/**
+ * Sends a "processing" refund to the gateway. Before sending, it asks the
+ * gateway whether this refund was already made (a timed-out earlier attempt may
+ * have gone through), so a retry never refunds twice.
+ */
 async function processRefund(refundId) {
   const refund = await Refund.findById(refundId);
   if (!refund || refund.status !== "processing" || refund.gatewayRefundId) return refund;
   const payment = refund.payment ? await Payment.findById(refund.payment) : null;
   if (!payment || payment.gateway === "cod") {
     // Cash orders are refunded outside the gateway (bank transfer); mark processed.
-    refund.status = "processed";
-    refund.processedAt = new Date();
-    await refund.save();
-  } else {
-    try {
-      const result = await refundPayment({ gatewayPaymentId: payment.gatewayPaymentId, amountPaise: refund.amountPaise, notes: { refundId: String(refund._id) } });
-      refund.gatewayRefundId = result.gatewayRefundId;
-      if (result.status === "processed") {
-        refund.status = "processed";
-        refund.processedAt = new Date();
-      }
-      await refund.save();
-    } catch (err) {
-      refund.status = "failed";
-      refund.failureReason = err.message;
-      await refund.save();
-      await publishEventSafe("refund.failed", { refundId: String(refund._id), reason: err.message });
-      return refund;
-    }
+    await markRefundProcessed(refund._id, {});
+    return Refund.findById(refund._id);
   }
-  if (refund.status === "processed") await afterRefundProcessed(refund);
+  let result;
+  try {
+    result = (await findRefund(payment.gatewayPaymentId, refund._id))
+      || await refundPayment({ gatewayPaymentId: payment.gatewayPaymentId, amountPaise: refund.amountPaise, notes: { refundId: String(refund._id) } });
+  } catch (err) {
+    if (err?.uncertain) {
+      // No answer from the gateway: it may have refunded. Stay "processing"; the
+      // webhook (matched by our refund id) or a later retry settles it.
+      await Refund.updateOne({ _id: refund._id, status: "processing" }, { $set: { failureReason: "Waiting for the payment provider to confirm" } });
+      return Refund.findById(refund._id);
+    }
+    await Refund.updateOne({ _id: refund._id, status: "processing" }, { $set: { status: "failed", failureReason: err.detail || err.message } });
+    await publishEventSafe("refund.failed", { refundId: String(refund._id), reason: err.detail || err.message });
+    return Refund.findById(refund._id);
+  }
+  await Refund.updateOne({ _id: refund._id, gatewayRefundId: null }, { $set: { gatewayRefundId: result.gatewayRefundId, failureReason: null } });
+  if (result.status === "processed") await markRefundProcessed(refund._id, {});
+  return Refund.findById(refund._id);
+}
+
+/** Exactly one caller (our call or the gateway's webhook) wins "processing → processed". */
+async function markRefundProcessed(refundId, extra) {
+  const refund = await Refund.findOneAndUpdate({ _id: refundId, status: "processing" }, { $set: { status: "processed", processedAt: new Date(), failureReason: null, ...extra } }, { new: true });
+  if (refund) await afterRefundProcessed(refund);
   return refund;
 }
 
 async function afterRefundProcessed(refund) {
+  // Atomic add-and-recompute: two refunds settling at once both count, exactly once.
   if (refund.payment) {
-    const payment = await Payment.findById(refund.payment);
-    if (payment) {
-      payment.refundedPaise = (payment.refundedPaise || 0) + refund.amountPaise;
-      payment.status = payment.refundedPaise >= payment.amountPaise ? "refunded" : "partially_refunded";
-      await payment.save();
-    }
+    await Payment.updateOne({ _id: refund.payment }, [
+      { $set: { refundedPaise: { $add: [{ $ifNull: ["$refundedPaise", 0] }, refund.amountPaise] } } },
+      { $set: { status: { $cond: [{ $gte: ["$refundedPaise", "$amountPaise"] }, "refunded", "partially_refunded"] } } },
+    ]);
   }
   // Giving back a duplicate payment does not refund the order (it is still paid once).
   if (refund.order && !refund.duplicatePayment) {
-    const order = await Order.findById(refund.order);
-    if (order) {
-      order.refundedPaise = (order.refundedPaise || 0) + refund.amountPaise;
-      order.paymentStatus = order.refundedPaise >= order.bill.grandTotalPaise ? "refunded" : "partially_refunded";
-      await order.save();
-    }
+    await Order.updateOne({ _id: refund.order }, [
+      { $set: { refundedPaise: { $add: [{ $ifNull: ["$refundedPaise", 0] }, refund.amountPaise] } } },
+      { $set: { paymentStatus: { $cond: [{ $gte: ["$refundedPaise", "$bill.grandTotalPaise"] }, "refunded", "partially_refunded"] } } },
+    ]);
   }
   await publishEventSafe("refund.processed", { refundId: String(refund._id), orderId: refund.order ? String(refund.order) : null, subscriptionId: refund.subscription ? String(refund.subscription) : null, userId: String(refund.user), amountPaise: refund.amountPaise }, { aggregate: { type: "refund", id: refund._id } });
 }
@@ -203,15 +254,41 @@ async function afterRefundProcessed(refund) {
  * Starts a refund. Amounts above the support limit (order policy) wait for
  * someone with refunds.approve, unless the requester holds it.
  */
-export async function requestRefund({ orderId = null, subscriptionId = null, paymentId = null, amountPaise, reason, actor, permissions = [], duplicate = false }) {
-  if (!Number.isInteger(amountPaise) || amountPaise <= 0) throw new AppError(422, "Refund amount must be paise above 0");
+export async function requestRefund(input) {
+  if (!Number.isInteger(input.amountPaise) || input.amountPaise <= 0) throw new AppError(422, "Refund amount must be paise above 0");
+  // One refund decision at a time per order/subscription: two parallel requests
+  // could otherwise both pass the "not more than paid" check.
+  const lockKey = `refund:lock:${input.orderId || input.subscriptionId || input.paymentId}`;
+  let token = null;
+  for (let attempt = 0; attempt < 10 && !token; attempt += 1) {
+    token = await acquireLock(lockKey, 30);
+    if (!token) await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  if (!token) throw new AppError(409, "A refund for this order is already being processed. Try again in a moment.");
+  try {
+    return await requestRefundLocked(input);
+  } finally {
+    await releaseLock(lockKey, token);
+  }
+}
+
+/** What can still be refunded on an order: paid minus refunds already asked for (duplicate-payment refunds aside). */
+export async function refundableForOrder(order) {
+  const payment = await Payment.findOne({ refType: "order", refId: order._id, status: { $in: ["captured", "partially_refunded"] } }).sort({ createdAt: -1 }).lean();
+  const [row] = await Refund.aggregate([{ $match: { order: order._id, duplicatePayment: { $ne: true }, status: { $in: ["pending_approval", "processing", "processed"] } } }, { $group: { _id: null, total: { $sum: "$amountPaise" } } }]);
+  const paid = order.paymentMethod === "cod" ? (order.paymentStatus === "cod_collected" ? order.bill.grandTotalPaise : 0) : (payment?.amountPaise || 0);
+  return Math.max(0, paid - (row?.total || 0));
+}
+
+async function requestRefundLocked({ orderId = null, subscriptionId = null, paymentId = null, amountPaise, reason, actor, permissions = [], duplicate = false }) {
   let payment = paymentId ? await Payment.findById(paymentId) : null;
   let order = null;
   if (orderId) {
     order = await Order.findById(orderId);
     if (!order) throw new AppError(404, "Order not found");
     payment = payment || await Payment.findOne({ refType: "order", refId: order._id, status: { $in: ["captured", "partially_refunded"] } }).sort({ createdAt: -1 });
-    const pending = await Refund.aggregate([{ $match: { order: order._id, status: { $in: ["pending_approval", "processing", "processed"] } } }, { $group: { _id: null, total: { $sum: "$amountPaise" } } }]);
+    // Duplicate-payment refunds give back a second payment; they do not count against the order.
+    const pending = await Refund.aggregate([{ $match: { order: order._id, duplicatePayment: { $ne: true }, status: { $in: ["pending_approval", "processing", "processed"] } } }, { $group: { _id: null, total: { $sum: "$amountPaise" } } }]);
     const already = pending[0]?.total || 0;
     const paid = order.paymentMethod === "cod" ? (order.paymentStatus === "cod_collected" ? order.bill.grandTotalPaise : 0) : (payment?.amountPaise || 0);
     if (duplicate) {
@@ -310,13 +387,12 @@ async function applyWebhook(body) {
       return "processed";
     }
     case "refund.processed": {
-      const refund = await Refund.findOne({ gatewayRefundId: refundEntity?.id });
+      // Matched by the gateway id, or by our refund id in the notes (a timed-out call never stored the gateway id).
+      const refund = await Refund.findOne({ gatewayRefundId: refundEntity?.id })
+        || (refundEntity?.notes?.refundId && mongoose.isValidObjectId(refundEntity.notes.refundId) ? await Refund.findById(refundEntity.notes.refundId) : null);
       if (!refund || refund.status === "processed") return "ignored";
-      refund.status = "processed";
-      refund.processedAt = new Date();
-      await refund.save();
-      await afterRefundProcessed(refund);
-      return "processed";
+      const done = await markRefundProcessed(refund._id, { gatewayRefundId: refundEntity.id });
+      return done ? "processed" : "ignored";
     }
     case "refund.failed": {
       await Refund.updateOne({ gatewayRefundId: refundEntity?.id }, { $set: { status: "failed", failureReason: "Refund failed at the gateway" } });

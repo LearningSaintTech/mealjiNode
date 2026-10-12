@@ -142,6 +142,10 @@ const IMAGE_FILES = {
   diwaliDiya: "seed-assets:diwali-diya.png",
   diwaliGift: "seed-assets:diwali-gift.png",
   mealCombos: "assets/images/Meal combos.png",
+  // Home features row icons (the app draws these images, not icon names).
+  featureFastDelivery: "assets/icons/Icon copy 2.png",
+  featureFreshIngredients: "assets/icons/Icon (2).png",
+  featureHygienicKitchen: "assets/icons/Icon (1).png",
   howWeCook: "assets/images/Frame copy.png",
   onboardMenu: "assets/images/onboard2.png",
   onboardFresh: "assets/images/onboard3.png",
@@ -510,7 +514,7 @@ async function seedContent(kitchens, img) {
     { placement: "home_hero", eyebrow: "24-HOUR MAKHANI", title: "BUTTER CHICKEN, DONE RIGHT", highlight: "DONE RIGHT", subtitle: "Real butter. No cornstarch. No shortcuts.", ctaLabel: "Order Now", deepLink: "mealji://menu?category=signature-bowls", image: "heroButterChicken", sortOrder: 1 },
     { placement: "home_hero", eyebrow: "NEW HERE?", title: "₹100 OFF YOUR FIRST ORDER", highlight: "₹100 OFF", subtitle: "Use code WELCOME100 on orders above ₹299.", ctaLabel: "Order Now", couponCode: "WELCOME100", deepLink: "mealji://menu", image: "heroButterChickenRice", sortOrder: 2 },
     { placement: "home_hero", eyebrow: "MEAL JI PLUS", title: "MEALS SORTED FOR THE MONTH", highlight: "SORTED", subtitle: "Plans from ₹3,499 a month with free delivery.", ctaLabel: "See plans", deepLink: "mealji://plus", image: "heroKitchenChef", sortOrder: 3 },
-    { placement: "home_combos", title: "MEAL COMBOS", highlight: "COMBOS", subtitle: "Great food. Better together.", ctaLabel: "Explore Combos", deepLink: "mealji://menu?tab=combos", image: "mealCombos", sortOrder: 0 },
+    { placement: "home_combos", title: "MEAL COMBOS", highlight: "COMBOS", subtitle: "Great food. Better together.", ctaLabel: "Explore Combos", deepLink: "mealji://combos", image: "mealCombos", sortOrder: 0 },
     { placement: "home_how_we_cook", title: "How we cook", subtitle: "24-hour makhani, breads puffed to order, zero preservatives.", deepLink: "mealji://about-chef", image: "howWeCook", sortOrder: 0 },
     // Menu tab's card and the Combos screen header, as the app draws them.
     { placement: "menu_hero", title: "MEAL COMBOS", highlight: "COMBOS", subtitle: "Great food. Better together.", ctaLabel: "Explore Combos", deepLink: "mealji://combos", image: "mealCombos", sortOrder: 0 },
@@ -560,7 +564,7 @@ async function seedContent(kitchens, img) {
     { key: "hero", type: "banners", config: { placement: "home_hero" } },
     { key: "categories", type: "categories", title: "Today's Menu" },
     { key: "combos", type: "combos", title: "Meal Combos", config: { placement: "home_combos" } },
-    { key: "features", type: "features", config: { items: [{ icon: "fast_delivery", title: "Fast Delivery", subtitle: "25—35 mins" }, { icon: "fresh_ingredients", title: "Fresh Ingredients", subtitle: "Locally sourced" }, { icon: "hygienic_kitchen", title: "Hygienic Kitchen", subtitle: "100% safe" }] } },
+    { key: "features", type: "features", config: { items: [{ icon: "fast_delivery", imageUrl: img.featureFastDelivery, title: "Fast Delivery", subtitle: "25–35 min" }, { icon: "fresh_ingredients", imageUrl: img.featureFreshIngredients, title: "Fresh Ingredients", subtitle: "Locally sourced" }, { icon: "hygienic_kitchen", imageUrl: img.featureHygienicKitchen, title: "Hygienic Kitchen", subtitle: "100% safe" }] } },
     { key: "usual", type: "usual", title: "Your usual?", subtitle: "Order again in one tap", config: { limit: 6 } },
     { key: "plus", type: "subscription_promo", title: "Meal Ji Plus" },
     { key: "how_we_cook", type: "how_we_cook", title: "How we cook", config: { placement: "home_how_we_cook" } },
@@ -680,6 +684,11 @@ async function seedSupportAndRewards(kitchens, img) {
   ];
   // Retired names from earlier seeds.
   await Reward.deleteMany({ name: { $in: ["Free Garlic Naan", "Free Butter Chicken (Gold Kadai & above)"] } });
+  // Points history titles as the app writes them (older rows used other casing).
+  const { RewardTransaction } = await import("../src/modules/rewards/ledger.model.js");
+  for (const [old, now] of [["Referral bonus", "Referral Bonus"], ["Welcome bonus", "Welcome Bonus"], ["Review reward", "Review Reward"], ["Rated your order", "Review Reward"], ["Birthday treat", "Birthday Treat"], ["Happy birthday from MealJi", "Birthday Treat"]]) {
+    await RewardTransaction.updateMany({ title: old }, { $set: { title: now } });
+  }
   for (const { dishName, image, ...reward } of catalogRewards) {
     const data = { ...reward, imageUrl: img[image] || null, isActive: true };
     if (dishName) {

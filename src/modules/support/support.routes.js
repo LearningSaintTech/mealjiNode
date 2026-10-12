@@ -63,7 +63,7 @@ admin.get("/support/tickets", agent, pageQuery, query("status").optional().isStr
   return ok(res, await support.queue({ ...req.query, page, limit }, req.auth.userId), "Ticket queue.");
 }));
 admin.get("/support/tickets/:id", agent, idParam(), validate, asyncHandler(async (req, res) => ok(res, await support.ticketDetail(req.params.id, { agent: true }), "Ticket.")));
-admin.post("/support/tickets/:id/messages", agent, idParam(), body("body").isString().trim().isLength({ min: 1, max: 4000 }), body("internal").optional().isBoolean(), validate, asyncHandler(async (req, res) => (
+admin.post("/support/tickets/:id/messages", agent, idParam(), body("body").isString().trim().isLength({ min: 1, max: 4000 }), body("internal").optional().isBoolean().toBoolean(true), validate, asyncHandler(async (req, res) => (
   ok(res, await support.addMessage(req.params.id, req.body, { userId: req.auth.userId, name: req.auth.user?.name, role: "agent" }), "Reply sent.", 201)
 )));
 admin.patch(

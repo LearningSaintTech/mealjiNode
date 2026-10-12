@@ -30,7 +30,12 @@ async function rzp(method, url, data) {
   } catch (error) {
     const detail = error?.response?.data?.error?.description || error.message;
     logger.error({ url, status: error?.response?.status, detail }, "Razorpay request failed");
-    throw new AppError(502, `Payment provider error: ${detail}`);
+    // The provider's own text stays in the logs; customers get a plain message.
+    const failure = new AppError(502, "The payment service is not responding. Please try again.");
+    // No answer at all (timeout / network): the call may still have gone through.
+    failure.uncertain = !error?.response;
+    failure.detail = detail;
+    throw failure;
   }
 }
 
@@ -71,6 +76,14 @@ export async function refundPayment({ gatewayPaymentId, amountPaise, notes = {} 
     return { gatewayRefundId: refund.id, status: refund.status === "processed" ? "processed" : "processing" };
   }
   return { gatewayRefundId: testId("rfnd"), status: "processed" };
+}
+
+/** A refund already made for this payment with our refund id in its notes (or null). */
+export async function findRefund(gatewayPaymentId, refundId) {
+  if (gatewayName() !== "razorpay") return null;
+  const list = await rzp("get", `/payments/${gatewayPaymentId}/refunds?count=100`);
+  const hit = (list?.items || []).find((item) => item?.notes?.refundId === String(refundId));
+  return hit ? { gatewayRefundId: hit.id, status: hit.status === "processed" ? "processed" : "processing" } : null;
 }
 
 export async function fetchPayment(gatewayPaymentId) {

@@ -80,6 +80,25 @@ export async function markOutboxFailed(eventId, error) {
   );
 }
 
+/** Puts failed events back in the queue (one, or all failed ones). Returns how many. */
+export async function replayFailedEvents({ eventId = null } = {}) {
+  const filter = { status: "failed", ...(eventId ? { eventId } : {}) };
+  const events = await OutboxEvent.find(filter).select("eventId").limit(1000).lean();
+  // The queue keeps a failed job (same id) for 7 days and would ignore a new one: remove it first.
+  const queue = getQueue(QUEUES.domainEvents);
+  for (const { eventId: id } of events) {
+    const job = await queue.getJob(id).catch(() => null);
+    if (job) await job.remove().catch(() => {});
+  }
+  const result = await OutboxEvent.updateMany({ _id: { $exists: true }, status: "failed", eventId: { $in: events.map((event) => event.eventId) } }, { $set: { status: "pending", lastError: null, lockedUntil: null } });
+  return result.modifiedCount;
+}
+
+export async function listFailedEvents({ limit = 50 } = {}) {
+  return (await OutboxEvent.find({ status: "failed" }).sort({ occurredAt: -1 }).limit(limit).lean())
+    .map((event) => ({ eventId: event.eventId, name: event.name, occurredAt: event.occurredAt, lastError: event.lastError || null, aggregate: event.aggregate || null }));
+}
+
 export async function outboxBacklog() {
   const [pending, failed] = await Promise.all([
     OutboxEvent.countDocuments({ status: { $in: ["pending", "dispatching"] } }),

@@ -9,13 +9,13 @@ import { withTransaction } from "../../config/database.js";
 import { logger } from "../../config/logger.js";
 import { publishEvent, publishEventSafe } from "../../events/eventBus.js";
 import { createGatewayOrder } from "../../infrastructure/payments/gateway.js";
-import { storeDel, storeSetNx } from "../../infrastructure/redisStore.js";
+import { acquireLock, releaseLock } from "../../infrastructure/redisStore.js";
 import { publish } from "../../realtime/hub.js";
 import { Address, addressSnapshot } from "../address/address.model.js";
 import { buildCart } from "../cart/cart.service.js";
 import { Cart } from "../cart/cart.model.js";
 import { KitchenDish } from "../catalog/catalog.model.js";
-import { releaseStock, reserveStock, toDish } from "../catalog/catalog.service.js";
+import { kitchenMenu, releaseStock, reserveStock, toDish } from "../catalog/catalog.service.js";
 import { Coupon } from "../coupon/coupon.model.js";
 import { releaseRedemption, reserveRedemption } from "../coupon/coupon.service.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
@@ -288,12 +288,13 @@ export async function placeOrder(userId, input, options = {}) {
   // One placement at a time per customer: a double tap on Pay must never make
   // two orders (the cart is only emptied once the first order exists).
   const lockKey = `order:placing:${userId}`;
-  const locked = await storeSetNx(lockKey, "1", 60).catch(() => true);
-  if (!locked) throw new AppError(409, "Your order is already being placed", [{ field: "order", message: "ORDER_IN_PROGRESS" }]);
+  // Fails closed: with Redis down the order is refused (503) rather than placed without the lock.
+  const token = await acquireLock(lockKey, 60);
+  if (!token) throw new AppError(409, "Your order is already being placed", [{ field: "order", message: "ORDER_IN_PROGRESS" }]);
   try {
     return await placeOrderLocked(userId, input, options);
   } finally {
-    await storeDel(lockKey).catch(() => {});
+    await releaseLock(lockKey, token);
   }
 }
 
@@ -328,6 +329,7 @@ async function placeOrderLocked(userId, input, { platform = null, user: signedIn
     if (!reserved) throw new AppError(409, "Some dishes just sold out. Check your cart.", [{ field: "cart", message: "ITEMS_UNAVAILABLE" }]);
     const [created] = await Order.create([{
       orderNumber: await orderNumber(session),
+      stockReservedAt: now,
       user: userId,
       kitchen: kitchen._id,
       kitchenName: kitchen.name,
@@ -437,14 +439,25 @@ export async function retryPayment(userId, orderId) {
   if (!order) throw new AppError(404, "Order not found");
   if (!["payment_pending", "payment_failed"].includes(order.status)) throw new AppError(409, "This order does not need payment");
   const policy = (await resolveSetting("order_policy", { kitchenId: order.kitchen })).values;
+  const expiresAt = new Date(Date.now() + policy.unpaidOrderExpiryMinutes * 60_000);
   if (order.status === "payment_failed") {
-    // Stock and offers were released when payment failed; take them again.
-    const ok = await reserveStock(order.items.flatMap((item) => item.dishIds));
-    if (!ok) throw new AppError(409, "Some dishes sold out meanwhile. Please order again.");
-    order.status = "payment_pending";
-    order.statusHistory.push({ status: "payment_pending", at: new Date(), by: { userId: String(userId), role: "customer" }, note: "Payment retried" });
+    // Claim the order first (two taps on Retry must not take the stock twice),
+    // then take back the stock that was released when the payment failed.
+    const now = new Date();
+    const claimed = await Order.findOneAndUpdate(
+      { _id: order._id, status: "payment_failed" },
+      { $set: { status: "payment_pending", expiresAt, stockReservedAt: now }, $push: { statusHistory: { status: "payment_pending", at: now, by: { userId: String(userId), role: "customer" }, note: "Payment retried" } } },
+      { new: true },
+    );
+    if (!claimed) throw new AppError(409, "This payment is already being retried");
+    const ok = await reserveStock(order.items.flatMap((item) => item.dishIds), { at: now });
+    if (!ok) {
+      await Order.updateOne({ _id: order._id, status: "payment_pending" }, { $set: { status: "payment_failed", stockReservedAt: null }, $push: { statusHistory: { status: "payment_failed", at: new Date(), by: { role: "system" }, note: "Sold out on retry" } } });
+      throw new AppError(409, "Some dishes just sold out. Check your cart.", [{ field: "cart", message: "ITEMS_UNAVAILABLE" }]);
+    }
+    return { order: toOrder(claimed.toObject()), payment: await startPayment(claimed, await User.findById(userId).lean()) };
   }
-  order.expiresAt = new Date(Date.now() + policy.unpaidOrderExpiryMinutes * 60_000);
+  order.expiresAt = expiresAt;
   await order.save();
   return { order: toOrder(order.toObject()), payment: await startPayment(order, await User.findById(userId).lean()) };
 }
@@ -458,10 +471,23 @@ const TIMESTAMP = { placed: "placedAt", accepted: "acceptedAt", ready: "readyAt"
  * steps, stock/coupon/points release on cancellation, the domain event and the
  * realtime fan-out. Idempotent when the order is already in `to`.
  */
-export async function transition(orderId, to, { actor, by = null, note = null, reason = null, cancelledBy = null, session = null } = {}) {
+export async function transition(orderId, to, options = {}) {
+  const work = (session) => applyTransition(orderId, to, { ...options, session });
+  const result = options.session ? await work(options.session) : await withTransaction(work);
+  if (result.changed) await afterTransition(result.order, result.previous, to);
+  return result.order;
+}
+
+/**
+ * The status change itself. The save only matches while the order is still in
+ * the status that was read, so two parallel changes (kitchen accepts while the
+ * watchdog cancels, cancel vs deliver) can never both win. The order's events
+ * are written in the same transaction as the change.
+ */
+async function applyTransition(orderId, to, { actor, by = null, note = null, reason = null, cancelledBy = null, session = null }) {
   const order = await Order.findById(orderId).session(session || null);
   if (!order) throw new AppError(404, "Order not found");
-  if (order.status === to) return order;
+  if (order.status === to) return { order, changed: false };
   if (!allowedFor(order, to, actor)) throw new AppError(409, `Cannot move an order from "${STATUS_LABELS[order.status]}" to "${STATUS_LABELS[to]}"`);
   const previous = order.status;
   const now = new Date();
@@ -489,25 +515,40 @@ export async function transition(orderId, to, { actor, by = null, note = null, r
     order.placedAt = now;
     order.expiresAt = null;
   }
-  await order.save({ session: session || undefined });
+  order.$where = { status: previous };
+  try {
+    await order.save({ session: session || undefined });
+  } catch (err) {
+    if (err?.name !== "DocumentNotFoundError") throw err;
+    // Someone else changed the order between the read and this save.
+    const fresh = await Order.findById(orderId).session(session || null);
+    if (fresh?.status === to) return { order: fresh, changed: false };
+    throw new AppError(409, "This order was just updated. Refresh and try again.", [{ field: "status", message: "ORDER_CHANGED" }]);
+  }
 
-  // Releases for orders that will not be fulfilled.
+  const payload = { orderId: String(order._id), userId: String(order.user), kitchenId: String(order.kitchen), from: previous, to, actor, reason: reason || null, totalPaise: order.bill?.grandTotalPaise, paymentMethod: order.paymentMethod, isFirstOrder: order.isFirstOrder };
+  const options = { aggregate: { type: "order", id: order._id }, session };
+  // In a transaction the events commit (or roll back) with the status change.
+  const record = (name) => (session ? publishEvent(name, payload, options) : publishEventSafe(name, payload, options));
+  await record("order.status_changed");
+  if (to === "placed") await record("order.placed");
+  if (to === "delivered") await record("order.delivered");
+  if (to === "cancelled") await record("order.cancelled");
+  return { order, previous, changed: true };
+}
+
+/** Runs once the change is saved: give back stock, offer and points; tell the screens. */
+async function afterTransition(order, previous, to) {
   // A failed payment keeps the offer and points for a retry; cancelling gives them back.
-  if (to === "cancelled" || to === "payment_failed") {
-    if (previous !== "payment_failed") await releaseStock(order.items.flatMap((item) => item.dishIds)).catch(() => {});
+  if ((to === "cancelled" || to === "payment_failed") && previous !== "payment_failed") {
+    // Released for the day it was taken (a cancel after midnight must not free today's stock).
+    await releaseStock(order.items.flatMap((item) => item.dishIds), { at: order.stockReservedAt || order.placedAt || order.createdAt }).catch(() => {});
   }
   if (to === "cancelled") {
     await releaseRedemption(order._id).catch(() => {});
     if (order.pointsUsed > 0) await refundSpentPoints({ userId: order.user, referenceId: String(order._id), title: `Points back from order ${order.orderNumber}` }).catch(() => {});
   }
-
-  const payload = { orderId: String(order._id), userId: String(order.user), kitchenId: String(order.kitchen), from: previous, to, actor, reason: reason || null, totalPaise: order.bill?.grandTotalPaise, paymentMethod: order.paymentMethod, isFirstOrder: order.isFirstOrder };
-  await publishEventSafe("order.status_changed", payload, { aggregate: { type: "order", id: order._id } });
-  if (to === "placed") await publishEventSafe("order.placed", payload, { aggregate: { type: "order", id: order._id } });
-  if (to === "delivered") await publishEventSafe("order.delivered", payload, { aggregate: { type: "order", id: order._id } });
-  if (to === "cancelled") await publishEventSafe("order.cancelled", payload, { aggregate: { type: "order", id: order._id } });
   broadcast(order, previous === "payment_pending" && to === "placed" ? null : previous);
-  return order;
 }
 
 export async function setKitchenStep(kitchenId, orderId, { stepKey, state }) {
@@ -548,7 +589,7 @@ export async function listMyOrders(userId, { page = 1, limit = 20, status }) {
   if (status === "active") filter.status = { $in: [...ACTIVE_STATUSES, "payment_pending"] };
   if (status === "past") filter.status = { $in: ["delivered", "cancelled", "payment_failed"] };
   const [items, total, active, past] = await Promise.all([
-    Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate("invoice", "invoiceNumber").lean(),
     Order.countDocuments(filter),
     // Tab badges: Current (n) and Past (n).
     Order.countDocuments({ user: userId, status: { $in: [...ACTIVE_STATUSES, "payment_pending"] } }),
@@ -573,7 +614,8 @@ function itemsSignature(order) {
 }
 
 export async function getMyOrder(userId, orderId) {
-  const order = await Order.findOne({ _id: objectId(orderId, "order ID"), user: userId }).lean();
+  // With the invoice number, so Order details can show it to the customer.
+  const order = await Order.findOne({ _id: objectId(orderId, "order ID"), user: userId }).populate("invoice", "invoiceNumber").lean();
   if (!order) throw new AppError(404, "Order not found");
   return order;
 }
@@ -720,8 +762,8 @@ export async function usualDishes(userId, kitchenId, limit = 6) {
     { $sort: { count: -1, last: -1 } },
     { $limit: limit * 2 },
   ]);
-  const dishes = await KitchenDish.find({ _id: { $in: rows.map((row) => row._id) }, isActive: true, approvalStatus: "live" }).lean();
-  const byId = new Map(dishes.map((dish) => [String(dish._id), dish]));
+  // The live dishes are already in the cached menu (no extra database read).
+  const byId = new Map((await kitchenMenu(String(kitchenId))).rawDishes.map((dish) => [String(dish._id), dish]));
   return rows.map((row) => byId.get(String(row._id))).filter(Boolean).slice(0, limit).map((dish) => toDish(dish));
 }
 
@@ -730,8 +772,9 @@ export async function usualDishes(userId, kitchenId, limit = 6) {
 /** Starts a full refund for a paid online order (used on cancellations). */
 export async function refundIfPaid(order, { reason, actor, automatic = false }) {
   if (!["paid", "partially_refunded"].includes(order.paymentStatus)) return null;
-  const { requestRefund } = await import("../payment/payment.service.js");
-  const amountPaise = order.bill.grandTotalPaise - (order.refundedPaise || 0);
+  const { refundableForOrder, requestRefund } = await import("../payment/payment.service.js");
+  // Paid minus refunds already asked for (also the ones still in progress).
+  const amountPaise = await refundableForOrder(order);
   if (amountPaise <= 0) return null;
   return requestRefund({ orderId: order._id, amountPaise, reason, actor, permissions: automatic ? ["refunds.approve"] : actor?.permissions || [] });
 }
@@ -848,12 +891,17 @@ export async function adminSetStatus(orderId, { status, reason }, by) {
  * refunds `amountPaise`, "none" refunds nothing (e.g. COD not yet collected).
  */
 export async function adminCancel(orderId, { reason, refund = "full", amountPaise = null }, actor) {
-  const order = await transition(objectId(orderId, "order ID"), "cancelled", { actor: "admin", by: actor, reason, cancelledBy: "admin" });
+  const { refundableForOrder, requestRefund } = await import("../payment/payment.service.js");
+  // Work out (and check) the refund before cancelling, so a bad amount never leaves a cancelled, unrefunded order.
+  const before = await Order.findById(objectId(orderId, "order ID")).lean();
+  if (!before) throw new AppError(404, "Order not found");
+  const refundable = ["paid", "partially_refunded", "cod_collected"].includes(before.paymentStatus) && refund !== "none" ? await refundableForOrder(before) : 0;
+  if (refund === "partial" && (!Number.isInteger(amountPaise) || amountPaise <= 0 || amountPaise > refundable)) throw new AppError(422, `At most ₹${(refundable / 100).toFixed(2)} can be refunded`);
+  const order = await transition(before._id, "cancelled", { actor: "admin", by: actor, reason, cancelledBy: "admin" });
   let refundResult = null;
   // Online payments (also partly refunded ones) and cash already collected can be refunded.
-  if (["paid", "partially_refunded", "cod_collected"].includes(order.paymentStatus) && refund !== "none") {
-    const { requestRefund } = await import("../payment/payment.service.js");
-    const amount = refund === "partial" ? amountPaise : order.bill.grandTotalPaise - (order.refundedPaise || 0);
+  const amount = refund === "partial" ? amountPaise : refundable;
+  if (amount > 0) {
     refundResult = await requestRefund({ orderId: order._id, amountPaise: amount, reason: `Cancelled: ${reason}`, actor, permissions: actor.permissions });
   }
   return { order: toOrder((await Order.findById(order._id).lean()), { view: "admin" }), refund: refundResult };

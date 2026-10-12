@@ -97,6 +97,8 @@ export const env = {
 
   // Public origin of this API (links in emails, local upload URLs, webhooks).
   publicBaseUrl: String(process.env.PUBLIC_BASE_URL || `http://localhost:${int("PORT", 4000)}`).trim().replace(/\/$/, ""),
+  // Website for shared links (dish share, referral invite). Empty: links are not offered yet.
+  shareBaseUrl: String(process.env.SHARE_BASE_URL || "").trim().replace(/\/$/, ""),
 
   // File storage: "local" writes under ./uploads (development); "s3" uses pre-signed PUTs.
   storageDriver: String(process.env.STORAGE_DRIVER || "local").trim(),
@@ -178,6 +180,9 @@ export function assertRuntimeEnv() {
   }
   if (env.storageDriver === "s3" && (!env.s3Bucket || !env.awsAccessKeyId || !env.awsSecretAccessKey)) {
     problems.push("S3_BUCKET, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required when STORAGE_DRIVER=s3");
+  }
+  if (env.isProd && !String(process.env.CORS_ORIGIN || "").trim()) {
+    problems.push("CORS_ORIGIN is required in production (the admin and kitchen console addresses)");
   }
   if (env.isProd && env.storageDriver === "local") {
     problems.push("STORAGE_DRIVER=local is for development; use s3 in production");

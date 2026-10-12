@@ -23,10 +23,10 @@ customerOrderRouter.use(authMiddleware);
 customerOrderRouter.post(
   "/",
   body("paymentMethod").isIn(PAYMENT_METHODS).withMessage("Choose a payment method"),
-  body("addressId").optional({ values: "null" }).isMongoId(),
+  body("addressId").optional({ values: "null" }).isString().isMongoId(),
   body("deliveryMode").optional().isIn(["delivery", "pickup"]),
   body("tipPaise").optional().isInt({ min: 0, max: 100000 }).toInt(),
-  body("usePoints").optional().isBoolean(),
+  body("usePoints").optional().isBoolean().toBoolean(true),
   body("scheduledFor").optional({ values: "null" }).isISO8601(),
   body("platform").optional().isIn(["android", "ios", "web"]),
   validate,
@@ -55,10 +55,10 @@ customerOrderRouter.post(
   validate,
   asyncHandler(async (req, res) => ok(res, await orders.rateOrder(req.auth.userId, req.params.id, req.body), "Thanks for rating.")),
 );
-customerOrderRouter.post("/:id/reorder", idParam(), body("replaceCart").optional().isBoolean().withMessage("replaceCart is true or false"), validate, asyncHandler(async (req, res) => ok(res, await orders.reorder(req.auth.userId, req.params.id, { replaceCart: req.body?.replaceCart === true }), "Added to your cart.")));
+customerOrderRouter.post("/:id/reorder", idParam(), body("replaceCart").optional().isBoolean().withMessage("Choose yes or no").toBoolean(true), validate, asyncHandler(async (req, res) => ok(res, await orders.reorder(req.auth.userId, req.params.id, { replaceCart: req.body?.replaceCart === true }), "Added to your cart.")));
 customerOrderRouter.get("/:id/receipt", idParam(), query("format").optional().isIn(["json", "pdf"]), validate, asyncHandler(async (req, res) => {
   const order = await orders.getMyOrder(req.auth.userId, req.params.id);
-  const invoice = order.invoice ? await Invoice.findById(order.invoice).lean() : null;
+  const invoice = order.invoice ? await Invoice.findById(order.invoice._id || order.invoice).lean() : null;
   if (!invoice) throw new AppError(404, "The receipt is issued once the order is paid");
   if (req.query.format === "pdf") {
     res.setHeader("Content-Type", "application/pdf");
@@ -147,8 +147,8 @@ adminOrderRouter.get(
   authorize("orders.read"),
   pageQuery,
   query("status").optional().isIn(["active", "payment_pending", "payment_failed", "placed", "accepted", "preparing", "ready", "dispatched", "delivered", "cancelled"]),
-  query("kitchenId").optional({ values: "falsy" }).isMongoId(),
-  query("userId").optional({ values: "falsy" }).isMongoId(),
+  query("kitchenId").optional({ values: "falsy" }).isString().isMongoId(),
+  query("userId").optional({ values: "falsy" }).isString().isMongoId(),
   query("paymentStatus").optional({ values: "falsy" }).isIn(["pending", "paid", "failed", "cod_pending", "cod_collected", "refunded", "partially_refunded"]),
   query("paymentMethod").optional({ values: "falsy" }).isIn(["upi", "card", "netbanking", "wallet", "cod"]),
   query("from").optional().isISO8601(),
@@ -195,7 +195,7 @@ adminOrderRouter.get(
   authorize("delivery.manage"),
   pageQuery,
   query("status").optional().isIn(["pending", "booked", "assigned", "picked_up", "delivered", "cancelled", "failed"]),
-  query("kitchenId").optional({ values: "falsy" }).isMongoId(),
+  query("kitchenId").optional({ values: "falsy" }).isString().isMongoId(),
   validate,
   asyncHandler(async (req, res) => {
     const { page, limit } = paging(req.query);
@@ -211,7 +211,7 @@ const accountBody = (optional) => [
   body("cities.*").optional().isString().isLength({ max: 60 }),
   body("kitchenIds").optional().isArray({ max: 500 }),
   body("kitchenIds.*").optional().isMongoId(),
-  body("isActive").optional().isBoolean(),
+  body("isActive").optional().isBoolean().toBoolean(true),
 ];
 adminOrderRouter.post("/delivery-providers/accounts", authorize("settings.delivery"), accountBody(false), validate, asyncHandler(async (req, res) => {
   const data = await delivery.saveProviderAccount(null, req.body);

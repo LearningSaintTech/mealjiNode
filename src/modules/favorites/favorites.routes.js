@@ -42,7 +42,7 @@ async function servingKitchenId(req) {
 
 router.get(
   "/me/favorites",
-  query("kitchenId").optional({ values: "falsy" }).isMongoId(),
+  query("kitchenId").optional({ values: "falsy" }).isString().isMongoId(),
   query("latitude").optional().isFloat({ min: -90, max: 90 }),
   query("longitude").optional().isFloat({ min: -180, max: 180 }),
   validate,
@@ -65,7 +65,7 @@ router.get(
     return ok(res, items, "Favourites fetched.");
   }),
 );
-router.post("/me/favorites", body("dishId").isMongoId().withMessage("dishId is not valid"), validate, asyncHandler(async (req, res) => {
+router.post("/me/favorites", body("dishId").isString().isMongoId().withMessage("This dish could not be found"), validate, asyncHandler(async (req, res) => {
   const dish = await visibleDish(req.body.dishId);
   if (!dish) throw new AppError(404, "Dish not found");
   const result = await Favorite.updateOne({ user: req.auth.userId, dish: dish._id }, { $setOnInsert: { user: req.auth.userId, dish: dish._id } }, { upsert: true });
@@ -74,7 +74,7 @@ router.post("/me/favorites", body("dishId").isMongoId().withMessage("dishId is n
   // 201 the first time, 200 when it was already a favourite (safe to repeat).
   return ok(res, { dishId: String(dish._id), isFavorite: true }, created ? "Added to favourites." : "Already in favourites.", created ? 201 : 200);
 }));
-router.delete("/me/favorites/:dishId", param("dishId").isMongoId().withMessage("dishId is not valid"), validate, asyncHandler(async (req, res) => {
+router.delete("/me/favorites/:dishId", param("dishId").isMongoId().withMessage("This dish could not be found"), validate, asyncHandler(async (req, res) => {
   await Favorite.deleteOne({ user: req.auth.userId, dish: req.params.dishId });
   return ok(res, { dishId: req.params.dishId, isFavorite: false }, "Removed from favourites.");
 }));

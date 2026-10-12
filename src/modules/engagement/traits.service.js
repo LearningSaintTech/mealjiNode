@@ -82,8 +82,24 @@ export async function computeTraits(userId) {
     await UserStats.deleteOne({ user: id });
     return null;
   }
-  const [orders, address, devices, cart, coupons, opens, referrals] = await Promise.all([
-    Order.find({ user: id, status: { $nin: ["payment_pending", "payment_failed"] } }).select("status bill createdAt items kitchen rating city").lean(),
+  // Totals come from one aggregation (no matter how many orders); dish and veg
+  // preferences from the latest 200 delivered orders only.
+  const [summary, recent, address, devices, cart, coupons, opens, referrals] = await Promise.all([
+    Order.aggregate([
+      { $match: { user: id, status: { $nin: ["payment_pending", "payment_failed"] } } },
+      { $group: {
+        _id: null,
+        orders: { $sum: 1 },
+        delivered: { $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] } },
+        cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
+        ltv: { $sum: { $cond: [{ $eq: ["$status", "delivered"] }, { $ifNull: ["$bill.grandTotalPaise", 0] }, 0] } },
+        firstAt: { $min: { $cond: [{ $eq: ["$status", "delivered"] }, "$createdAt", null] } },
+        lastAt: { $max: { $cond: [{ $eq: ["$status", "delivered"] }, "$createdAt", null] } },
+        ratingSum: { $sum: { $ifNull: ["$rating.food", 0] } },
+        ratingCount: { $sum: { $cond: [{ $gt: ["$rating.food", 0] }, 1, 0] } },
+      } },
+    ]).then((rows) => rows[0] || {}),
+    Order.find({ user: id, status: "delivered" }).sort({ createdAt: -1 }).limit(200).select("createdAt items.dish items.qty items.isVeg kitchen city").lean(),
     Address.findOne({ user: id, deletedAt: null }).sort({ isDefault: -1 }).lean(),
     DeviceToken.countDocuments({ user: id, isValid: true, fcmToken: { $ne: null } }),
     Cart.findOne({ user: id }).lean(),
@@ -91,8 +107,8 @@ export async function computeTraits(userId) {
     AnalyticsEvent.aggregate([{ $match: { userId: id, "meta.name": "app_opened", occurredAt: { $gte: new Date(Date.now() - 60 * 86_400_000) } } }, { $project: { hour: { $hour: { date: "$occurredAt", timezone: "Asia/Kolkata" } } } }, { $group: { _id: "$hour", n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 1 }]).catch(() => []),
     rewards.Referral.countDocuments({ referrer: id, status: "converted" }),
   ]);
-  const delivered = orders.filter((order) => order.status === "delivered");
-  const ltv = delivered.reduce((sum, order) => sum + (order.bill?.grandTotalPaise || 0), 0);
+  const delivered = recent;
+  const ltv = summary.ltv || 0;
   const dishCounts = new Map();
   const categoryCounts = new Map();
   let vegItems = 0;
@@ -110,19 +126,19 @@ export async function computeTraits(userId) {
     const dishes = await KitchenDish.find({ _id: { $in: top(dishCounts, 20) } }).select("category").lean();
     for (const dish of dishes) if (dish.category) categoryCounts.set(String(dish.category), (categoryCounts.get(String(dish.category)) || 0) + (dishCounts.get(String(dish._id)) || 0));
   }
-  const ratings = orders.filter((order) => order.rating?.food).map((order) => order.rating.food);
-  const last = delivered.length ? delivered.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)) : null;
-  const first = delivered.length ? delivered.reduce((a, b) => (a.createdAt < b.createdAt ? a : b)) : null;
+  const last = delivered[0] || null; // newest first
+  const lastAt = summary.lastAt || null;
+  const firstAt = summary.firstAt || null;
   const sub = user.subscription || {};
   const traits = {
-    ordersCount: orders.length,
-    deliveredOrdersCount: delivered.length,
-    cancelledOrdersCount: orders.filter((order) => order.status === "cancelled").length,
+    ordersCount: summary.orders || 0,
+    deliveredOrdersCount: summary.delivered || 0,
+    cancelledOrdersCount: summary.cancelled || 0,
     lifetimeValuePaise: ltv,
-    avgOrderValuePaise: delivered.length ? Math.round(ltv / delivered.length) : 0,
-    firstOrderAt: first?.createdAt || null,
-    lastOrderAt: last?.createdAt || null,
-    daysSinceLastOrder: last ? Math.floor((Date.now() - new Date(last.createdAt)) / 86_400_000) : null,
+    avgOrderValuePaise: summary.delivered ? Math.round(ltv / summary.delivered) : 0,
+    firstOrderAt: firstAt,
+    lastOrderAt: lastAt,
+    daysSinceLastOrder: lastAt ? Math.floor((Date.now() - new Date(lastAt)) / 86_400_000) : null,
     favCategoryIds: top(categoryCounts, 5),
     favDishIds: top(dishCounts, 10),
     vegShare: items ? Math.round((vegItems / items) * 100) / 100 : null,
@@ -133,7 +149,7 @@ export async function computeTraits(userId) {
     subscriptionStatus: sub.status || "none",
     planCode: sub.planCode || null,
     subscriptionEndsAt: sub.expiresAt || null,
-    ratingAvgGiven: ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null,
+    ratingAvgGiven: summary.ratingCount ? Math.round((summary.ratingSum / summary.ratingCount) * 10) / 10 : null,
     lastAppOpenAt: user.lastAppOpenAt || null,
     preferredHour: opens[0]?._id ?? null,
     platform: user.platform || null,
@@ -163,14 +179,26 @@ export async function recomputeAllTraits() {
   const role = await Role.findOne({ slug: "user" }).select("_id").lean();
   let count = 0;
   const cursor = User.find({ role: role?._id, deletedAt: null }).select("_id").lean().cursor();
+  // 8 customers at a time instead of one by one.
+  let batch = [];
+  const run = async (users) => {
+    await Promise.all(users.map(async (user) => {
+      try {
+        await computeTraits(user._id);
+        count += 1;
+      } catch (err) {
+        logger.warn({ err: err.message, userId: String(user._id) }, "Trait recompute failed");
+      }
+    }));
+  };
   for await (const user of cursor) {
-    try {
-      await computeTraits(user._id);
-      count += 1;
-    } catch (err) {
-      logger.warn({ err: err.message, userId: String(user._id) }, "Trait recompute failed");
+    batch.push(user);
+    if (batch.length === 8) {
+      await run(batch);
+      batch = [];
     }
   }
+  if (batch.length) await run(batch);
   // Win-back trigger: people who reached 21 days without an order today.
   const { publishEventSafe } = await import("../../events/eventBus.js");
   const lapsed = await UserStats.find({ lastOrderAt: { $gte: new Date(Date.now() - 22 * 86_400_000), $lt: new Date(Date.now() - 21 * 86_400_000) } }).select("user").lean();

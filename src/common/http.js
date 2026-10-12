@@ -16,21 +16,21 @@ export function paging(source = {}, { defaultLimit = 20, maxLimit = 100 } = {}) 
 }
 
 export function pageResult(items, total, { page, limit }) {
-  return { items, page, limit, total };
+  return { items, page, limit, total, hasMore: page * limit < total };
 }
 
 export const pageQuery = [
-  query("page").optional().isInt({ min: 1 }).withMessage("page must be a positive integer").toInt(),
-  query("limit").optional().isInt({ min: 1, max: 100 }).withMessage("limit must be between 1 and 100").toInt(),
+  query("page").optional().isInt({ min: 1, max: 1000 }).withMessage("Page must be a number from 1 to 1000").toInt(),
+  query("limit").optional().isInt({ min: 1, max: 100 }).withMessage("Show between 1 and 100 items").toInt(),
 ];
 
-export const idParam = (name = "id") => param(name).isMongoId().withMessage(`Invalid ${name}`);
+export const idParam = (name = "id") => param(name).isString().isMongoId().withMessage("This item could not be found");
 
 export const moneyBody = (name, { optional = false, max = 100_000_000 } = {}) => {
   const chain = body(name);
   return (optional ? chain.optional({ values: "null" }) : chain)
     .isInt({ min: 0, max })
-    .withMessage(`${name} must be a whole number of paise`)
+    .withMessage("Enter a valid amount")
     .toInt();
 };
 

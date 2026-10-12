@@ -27,7 +27,7 @@ const DEFAULT_SECTIONS = [
   { key: "combos", type: "combos", title: "Combos", sortOrder: 5, config: { placement: "home_combos" } },
   { key: "features", type: "features", title: null, sortOrder: 6, config: { items: [{ icon: "fast_delivery", title: "Fast Delivery", subtitle: "25—35 mins" }, { icon: "fresh_ingredients", title: "Fresh Ingredients", subtitle: "Locally sourced" }, { icon: "hygienic_kitchen", title: "Hygienic Kitchen", subtitle: "100% safe" }] } },
   { key: "recommended", type: "recommended", title: "Picked for you", sortOrder: 7, config: { limit: 8 } },
-  { key: "plus", type: "subscription_promo", title: "MealJi Plus", sortOrder: 6, config: {} },
+  { key: "plus", type: "subscription_promo", title: "Meal Ji Plus", sortOrder: 6, config: {} },
   { key: "how_we_cook", type: "how_we_cook", title: "How we cook", sortOrder: 7, config: { placement: "home_how_we_cook" } },
 ];
 
@@ -226,7 +226,7 @@ export async function saveSections(sections) {
     sortOrder: index,
     isActive: section.isActive !== false,
     config: section.type === "features"
-      ? { items: (section.config?.items || []).map((item) => ({ icon: item.icon || null, title: item.title.trim(), subtitle: item.subtitle?.trim() || null })) }
+      ? { items: (section.config?.items || []).map((item) => ({ icon: item.icon || null, imageUrl: item.imageUrl ? assertOwnFileUrl(item.imageUrl, "Feature image") : null, title: item.title.trim(), subtitle: item.subtitle?.trim() || null })) }
       : section.config || {},
   }));
   await withTransaction(async (session) => {
@@ -388,7 +388,11 @@ export async function homeFor(user, { latitude = null, longitude = null, veg = n
     if (section.type === "banners" || section.type === "how_we_cook") {
       return { ...base, items: banners(section.config.placement || (section.type === "how_we_cook" ? "home_how_we_cook" : "home_hero")) };
     }
-    if (section.type === "features") return { ...base, items: section.config.items || [] };
+    if (section.type === "features") {
+      // “Fast Delivery” shows the real delivery time for this customer (“23–33 min”).
+      const eta = serviceability?.serviceable ? serviceability.etaLabel : null;
+      return { ...base, items: (section.config.items || []).map((item) => (item.icon === "fast_delivery" && eta ? { ...item, subtitle: eta } : item)) };
+    }
     if (!kitchenId) return null;
     if (section.type === "categories") return { ...base, items: await safely("categories", () => catalog.customerCategories(kitchenId), []) };
     if (section.type === "popular") return { ...base, items: vegFilter(await safely("popular", () => catalog.popularDishes(kitchenId, section.config.limit || 8), [])) };

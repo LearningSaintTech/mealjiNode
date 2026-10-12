@@ -41,8 +41,8 @@ const addressBody = (optional) => {
     opt(body("city")).isString().trim().notEmpty().isLength({ max: 60 }).withMessage("City is required"),
     body("state").optional({ values: "null" }).isString().isLength({ max: 60 }),
     opt(body("pincode")).matches(/^\d{6}$/).withMessage("Pincode must be 6 digits"),
-    body("latitude").optional({ values: "null" }).isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude").toFloat(),
-    body("longitude").optional({ values: "null" }).isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude").toFloat(),
+    body("latitude").optional({ values: "null" }).isFloat({ min: -90, max: 90 }).withMessage("Your location could not be read. Please try again.").toFloat(),
+    body("longitude").optional({ values: "null" }).isFloat({ min: -180, max: 180 }).withMessage("Your location could not be read. Please try again.").toFloat(),
     body("isDefault").optional().isBoolean().toBoolean(),
   ];
 };

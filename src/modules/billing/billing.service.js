@@ -1,3 +1,4 @@
+import { acquireLock, releaseLock } from "../../infrastructure/redisStore.js";
 import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { PdfDocument, rupees } from "../../common/pdf.js";
@@ -94,7 +95,7 @@ export async function mapKitchen(kitchenId, entityId) {
 
 /** The entity that invoices for a kitchen: its mapping, else the default entity. */
 // The invoicing entity behind a kitchen (for GST on every bill): 30 s in memory.
-export const entityCache = memoCache(30_000);
+export const entityCache = memoCache(30_000, "billing-entity");
 
 export function entityForKitchen(kitchenId) {
   return entityCache.get(String(kitchenId || ""), () => loadEntityForKitchen(kitchenId));
@@ -116,9 +117,31 @@ async function loadEntityForKitchen(kitchenId) {
  * billing entity is configured yet (the order still completes; finance is
  * alerted by the report of uninvoiced orders).
  */
-export async function issueInvoice({ refType, refId, userId, kitchenId = null, customer, lines, totals, placeOfSupply = null, periodLabel = null, session = null }) {
+export async function issueInvoice(input) {
+  const { refType, refId, session = null } = input;
   const existing = await Invoice.findOne({ refType, refId }).session(session || null);
   if (existing) return existing;
+  // One issuer at a time per reference, so no invoice number is used up by a losing parallel run.
+  const lockKey = `invoice:lock:${refType}:${refId}`;
+  let token = null;
+  for (let attempt = 0; attempt < 10 && !token; attempt += 1) {
+    // Redis down: go on without the lock (the unique index still allows only one invoice).
+    token = await acquireLock(lockKey, 30).catch(() => "no-lock");
+    if (!token) await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  try {
+    const again = await Invoice.findOne({ refType, refId }).session(session || null);
+    if (again) return again;
+    return await issueInvoiceLocked(input);
+  } catch (err) {
+    if (err?.code === 11000) return Invoice.findOne({ refType, refId });
+    throw err;
+  } finally {
+    await releaseLock(lockKey, token);
+  }
+}
+
+async function issueInvoiceLocked({ refType, refId, userId, kitchenId = null, customer, lines, totals, placeOfSupply = null, periodLabel = null, session = null }) {
   const entity = await entityForKitchen(kitchenId);
   if (!entity) return null;
   const fy = financialYear();

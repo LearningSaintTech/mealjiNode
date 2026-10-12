@@ -1,3 +1,4 @@
+import { timingSafeEqualString } from "../../common/timingSafe.js";
 import crypto from "node:crypto";
 import express, { Router } from "express";
 import { body, param, query } from "express-validator";
@@ -18,7 +19,7 @@ import * as notifications from "./notification.service.js";
 // ------------------------------------------------------------------ app
 export const customerNotificationRouter = Router();
 customerNotificationRouter.use(authFor(["/notifications", "/devices"], authMiddleware));
-customerNotificationRouter.get("/notifications", pageQuery, query("category").optional().isIn(["all", ...INBOX_CATEGORIES]).withMessage("category: all, orders, offers, rewards or account"), query("unread").optional().isBoolean().toBoolean(), validate, asyncHandler(async (req, res) => {
+customerNotificationRouter.get("/notifications", pageQuery, query("category").optional().isIn(["all", ...INBOX_CATEGORIES]).withMessage("Choose All, Orders, Offers, Rewards or Account"), query("unread").optional().isBoolean().toBoolean(), validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
   return ok(res, await notifications.listInbox(req.auth.userId, { ...req.query, page, limit }), "Notifications fetched.");
 }));
@@ -102,7 +103,7 @@ async function unsubscribe(req, res) {
   await User.updateOne({ _id: data.u }, { $set: { [`preferences.channels.${data.c}`]: false } });
   await recordConsent({ userId: data.u, channel: data.c, purpose: "marketing", granted: false, source: "unsubscribe_link", ip: req.ip });
   if (req.method === "POST") return ok(res, { unsubscribed: true }, "Unsubscribed.");
-  return res.type("html").send("<!doctype html><meta name=viewport content='width=device-width'><title>Unsubscribed</title><p style='font-family:sans-serif;padding:24px'>You will no longer get MealJi offers by this channel. Order updates still reach you.</p>");
+  return res.type("html").send("<!doctype html><meta name=viewport content='width=device-width'><title>Unsubscribed</title><p style='font-family:sans-serif;padding:24px'>You will no longer get Meal Ji offers by this channel. Order updates still reach you.</p>");
 }
 publicNotificationRouter.get("/u/:token", asyncHandler(unsubscribe));
 publicNotificationRouter.post("/u/:token", asyncHandler(unsubscribe));
@@ -132,7 +133,7 @@ notificationWebhookRouter.get("/whatsapp", (req, res) => {
 notificationWebhookRouter.post("/whatsapp", express.raw({ type: "*/*", limit: "1mb" }), asyncHandler(async (req, res) => {
   if (env.whatsappAppSecret) {
     const expected = `sha256=${crypto.createHmac("sha256", env.whatsappAppSecret).update(req.body).digest("hex")}`;
-    if (expected !== req.headers["x-hub-signature-256"]) throw new AppError(401, "Invalid signature");
+    if (!timingSafeEqualString(expected, String(req.headers["x-hub-signature-256"] || ""))) throw new AppError(401, "Invalid signature");
   } else if (env.isProd) {
     throw new AppError(401, "Not configured");
   }
@@ -164,7 +165,12 @@ notificationWebhookRouter.post("/whatsapp", express.raw({ type: "*/*", limit: "1
 }));
 // Email bounces and complaints (SES via SNS or any relay posting {type, email}).
 notificationWebhookRouter.post("/email", express.json({ type: "*/*" }), asyncHandler(async (req, res) => {
-  if (env.emailWebhookToken && req.query.token !== env.emailWebhookToken) throw new AppError(401, "Invalid token");
+  // Without a token anyone could mark any address as bounced: required in production.
+  if (env.emailWebhookToken) {
+    if (!timingSafeEqualString(String(req.query.token || ""), env.emailWebhookToken)) throw new AppError(401, "Invalid token");
+  } else if (env.isProd) {
+    throw new AppError(401, "Not configured");
+  }
   const message = typeof req.body.Message === "string" ? JSON.parse(req.body.Message) : req.body;
   const type = message.notificationType || message.eventType || message.type;
   const recipients = message.bounce?.bouncedRecipients?.map((item) => item.emailAddress) || message.complaint?.complainedRecipients?.map((item) => item.emailAddress) || (message.email ? [message.email] : []);

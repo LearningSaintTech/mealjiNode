@@ -52,20 +52,41 @@ async function start() {
   const server = app.listen(env.port, () => {
     logger.info({ port: env.port, maps: Boolean(env.googleMapsApiKey) }, "mealJiNode listening");
   });
-  await attachRealtime(server).catch((err) => logger.error({ err: err.message }, "Realtime failed to start"));
+  const realtime = await attachRealtime(server).catch((err) => {
+    logger.error({ err: err.message }, "Realtime failed to start");
+    return null;
+  });
 
-  async function shutdown(signal) {
+  let stopping = false;
+  async function shutdown(signal, code = 0) {
+    if (stopping) return;
+    stopping = true;
     logger.info({ signal }, "Shutting down");
+    // Never hang on open keep-alive or WebSocket connections: force exit after 10 s.
+    setTimeout(() => process.exit(code), 10_000).unref();
+    try {
+      realtime?.clients?.forEach((client) => client.close(1001, "server shutting down"));
+      realtime?.close?.();
+    } catch {
+      // closing sockets is best effort
+    }
     server.close(async () => {
       await stopBackground().catch(() => {});
       await disconnectDatabase().catch(() => {});
       redis.disconnect();
-      process.exit(0);
+      process.exit(code);
     });
+    server.closeIdleConnections?.();
   }
 
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
+  // A stray promise rejection is logged (the process keeps serving); a crash is logged, then a clean exit.
+  process.on("unhandledRejection", (reason) => logger.error({ err: reason?.stack || String(reason) }, "Unhandled promise rejection"));
+  process.on("uncaughtException", (err) => {
+    logger.fatal({ err: err?.stack || String(err) }, "Uncaught exception");
+    shutdown("uncaughtException", 1);
+  });
 }
 
 start().catch((err) => {

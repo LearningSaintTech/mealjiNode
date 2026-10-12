@@ -3,11 +3,11 @@ import { countryOrDefault, normalizeMobile } from "../../common/phone.util.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { sendOtp, verifyOtp } from "../../infrastructure/otpSession.service.js";
 import { revokeAccessToken } from "../../infrastructure/refreshToken.service.js";
-import { storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
+import { storeGetOptional, storeIncr, storeSet } from "../../infrastructure/redisStore.js";
 import { env } from "../../config/env.js";
 import { Address, toAddress } from "../address/address.model.js";
 import { currentConsents, recordConsent } from "../consent/consent.model.js";
-import { assertOwnFileUrl } from "../upload/upload.service.js";
+import { assertOwnFileUrl, assertUploadedSize } from "../upload/upload.service.js";
 import { toProfile } from "../user/user.mapper.js";
 import { User } from "../user/user.model.js";
 import { userRepository } from "../user/user.repository.js";
@@ -51,9 +51,12 @@ export async function updateProfile(userId, input) {
     patch.email = email;
     if (email !== current?.email) patch.emailVerified = false;
   }
-  if (input.dob !== undefined) patch.dob = input.dob || null;
+  if (input.dob !== undefined) {
+    patch.dob = input.dob || null;
+    patch.dobMonthDay = input.dob ? String(input.dob).slice(5, 10) : null;
+  }
   if (input.gender !== undefined) patch.gender = input.gender || null;
-  if (input.avatarUrl !== undefined) patch.avatarUrl = assertOwnFileUrl(input.avatarUrl, "Avatar");
+  if (input.avatarUrl !== undefined) patch.avatarUrl = await assertUploadedSize(assertOwnFileUrl(input.avatarUrl, "Avatar"), "avatar");
   const before = await userRepository.findById(userId);
   const user = await userRepository.updateById(userId, patch);
   const wasComplete = before?.name && before.name !== "User";
@@ -107,13 +110,17 @@ export async function updatePreferences(userId, input, { ip = null, deviceId = n
 export async function requestPhoneChange(userId, { countryCode, phoneNumber }) {
   const phone = normalizeMobile(phoneNumber);
   const code = countryOrDefault(countryCode);
-  const taken = await userRepository.findByPhone(code, phone);
-  if (taken) throw new AppError(409, "This number is already used by another account");
+  // Limits come first and the answer is the same whether or not the number has an
+  // account, so this cannot be used to test which numbers are registered.
   const cooldown = `otp:cooldown:${PHONE_CHANGE}:${userId}`;
   const existing = await storeGetOptional(cooldown);
   if (existing.value) throw new AppError(429, "Please wait before requesting another OTP.");
-  await sendOtp({ subjectId: `${userId}:${phone}`, purpose: PHONE_CHANGE, phoneNumber: phone });
+  const today = await storeIncr(`otp:phone-change:${userId}:${new Date().toISOString().slice(0, 10)}`, 86_400);
+  if (today > 5) throw new AppError(429, "Too many number changes today. Try again tomorrow.");
   await storeSet(cooldown, "1", env.otpResendCooldownSec).catch(() => {});
+  const taken = await userRepository.findByPhone(code, phone);
+  // A taken number gets no SMS; the change is refused when the code is entered.
+  if (!taken) await sendOtp({ subjectId: `${userId}:${phone}`, purpose: PHONE_CHANGE, phoneNumber: phone });
   return { otpSent: true, phoneNumber: phone, resendAfterSec: env.otpResendCooldownSec };
 }
 

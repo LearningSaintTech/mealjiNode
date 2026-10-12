@@ -96,5 +96,13 @@ export default async function step04(ctx) {
     if (res.data?.addressId) await app.call("DELETE", `/users/me/addresses/${res.data.addressId}`);
     return { ok: res.status === 201 && res.data.phone === "9876543210" && !/Near Near/i.test(res.data.fullAddress) && res.data.fullAddress.includes("Near Sony Signal") && bad.status === 422, detail: `${res.data?.phone} · ${res.data?.fullAddress} · bad phone ${bad.status}` };
   });
+  await s.run("04-17", "Two “make default” taps at once leave exactly one default", "Addresses: Make default (double tap)", async () => {
+    const ids = [];
+    for (const name of ["Race A", "Race B"]) ids.push((await app.call("POST", "/users/me/addresses", { label: "Other", customLabel: name, houseFlat: "1st Floor", city: "Bengaluru", state: "Karnataka", pincode: "560034", latitude: 12.9346, longitude: 77.6311 })).data?.addressId);
+    await Promise.all(ids.map((id) => app.call("PATCH", `/users/me/addresses/${id}/default`)));
+    const defaults = ((await app.call("GET", "/users/me/addresses")).data || []).filter((a) => a.isDefault).length;
+    for (const id of ids) await app.call("DELETE", `/users/me/addresses/${id}`);
+    return { ok: defaults === 1, detail: `defaults after two parallel taps: ${defaults}` };
+  });
   return s;
 }

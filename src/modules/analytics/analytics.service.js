@@ -65,10 +65,11 @@ export async function ingest(events, { userId = null, deviceId = null, platform 
     });
   }
   if (accepted.length) await AnalyticsEvent.insertMany(accepted, { ordered: false });
-  // Opening the app from a notification counts as an open for the message.
-  for (const event of accepted.filter((item) => item.meta.name === "notification_opened" && item.messageId)) {
+  // Opening the app from a notification counts as an open for the message (signed-in
+  // senders only, and only for their own messages).
+  for (const event of accepted.filter((item) => userId && item.meta.name === "notification_opened" && item.messageId)) {
     const { trackMessage } = await import("../notification/notification.service.js");
-    await trackMessage(event.messageId, "opened").catch(() => {});
+    await trackMessage(event.messageId, "opened", { userId: new mongoose.Types.ObjectId(String(userId)) }).catch(() => {});
   }
   if (userId && accepted.some((item) => item.meta.name === "app_opened")) {
     await User.updateOne({ _id: userId }, { $set: { lastAppOpenAt: new Date() } }).catch(() => {});
@@ -380,7 +381,7 @@ export async function exportWarehouseDay(dateKey = addIstDays(istDateKey(), -1))
     if (env.storageDriver === "s3") {
       const { presignS3Put } = await import("../../infrastructure/awsSigV4.js");
       const axios = (await import("axios")).default;
-      await axios.put(presignS3Put({ key, contentType: "application/x-ndjson" }), body, { headers: { "Content-Type": "application/x-ndjson" } });
+      await axios.put(presignS3Put({ key, contentType: "application/x-ndjson" }), body, { headers: { "Content-Type": "application/x-ndjson" }, timeout: 60_000, maxBodyLength: Infinity });
     } else {
       const file = path.join(rootDir, ...key.split("/"));
       await fs.mkdir(path.dirname(file), { recursive: true });

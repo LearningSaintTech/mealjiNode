@@ -69,7 +69,7 @@ router.get("/payment-methods", asyncHandler(async (req, res) => {
 router.post(
   "/payment-methods",
   body("paymentId").isMongoId().withMessage("paymentId of a successful payment is required"),
-  body("makeDefault").optional().isBoolean(),
+  body("makeDefault").optional().isBoolean().toBoolean(true),
   validate,
   asyncHandler(async (req, res) => {
     const payment = await Payment.findOne({ _id: req.body.paymentId, user: req.auth.userId, status: { $in: ["captured", "refunded", "partially_refunded"] } }).lean();

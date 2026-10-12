@@ -1,4 +1,5 @@
 import { AppError } from "../../common/errors/AppError.js";
+import { withTransaction } from "../../config/database.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { resolveSetting } from "../settings/settings.service.js";
 import { User } from "../user/user.model.js";
@@ -33,11 +34,17 @@ export async function earnPoints({ userId, points, source, title, referenceType 
   if (!Number.isInteger(points) || points <= 0) return null;
   const loyalty = (await resolveSetting("loyalty")).values;
   const expiresAt = loyalty.expiryMonths > 0 ? new Date(Date.now() + loyalty.expiryMonths * 30 * 24 * 3600 * 1000) : null;
-  try {
-    const [row] = await RewardTransaction.create([{
+  // The ledger row and the balance are written together (one transaction), so a
+  // failure between them can never leave a row that is never credited.
+  const write = async (tx) => {
+    const [created] = await RewardTransaction.create([{
       user: userId, points, type: source === "admin" ? "adjusted" : "earned", source, title, referenceType, referenceId, remaining: points, expiresAt, dedupeKey, actor, reason,
-    }], session ? { session } : {});
-    await User.updateOne({ _id: userId }, { $inc: { pointsBalance: points, lifetimePoints: points } }, { session: session || undefined });
+    }], tx ? { session: tx } : {});
+    await User.updateOne({ _id: userId }, { $inc: { pointsBalance: points, lifetimePoints: points } }, { session: tx || undefined });
+    return created;
+  };
+  try {
+    const row = session ? await write(session) : await withTransaction(write);
     await refreshTier(userId);
     await publishEventSafe("reward.earned", { userId: String(userId), points, source, title, referenceId });
     return row;
@@ -50,16 +57,22 @@ export async function earnPoints({ userId, points, source, title, referenceType 
 /** Spends points (oldest earned first). Throws when the balance is too low. */
 export async function spendPoints({ userId, points, source, title, referenceType = null, referenceId = null, dedupeKey, type = "redeemed", actor = null, reason = null, session = null }) {
   if (!Number.isInteger(points) || points <= 0) return null;
+  // A replay of the same spend: nothing to do (and nothing to undo afterwards).
+  if (dedupeKey && (await RewardTransaction.exists({ dedupeKey }).session(session || null))) return null;
   const updated = await User.updateOne({ _id: userId, pointsBalance: { $gte: points } }, { $inc: { pointsBalance: -points } }, { session: session || undefined });
   if (!updated.modifiedCount) throw new AppError(409, "Not enough points");
+  // Oldest lots first. Each lot is taken atomically, so the expiry job (or another
+  // spend) working on the same lot can never write back a stale amount.
   let left = points;
-  const lots = await RewardTransaction.find({ user: userId, remaining: { $gt: 0 } }).sort({ expiresAt: 1, createdAt: 1 }).session(session || null);
-  for (const lot of lots) {
-    if (left <= 0) break;
-    const take = Math.min(lot.remaining, left);
-    lot.remaining -= take;
-    left -= take;
-    await lot.save({ session: session || undefined });
+  for (let round = 0; left > 0 && round < 5; round += 1) {
+    const lots = await RewardTransaction.find({ user: userId, remaining: { $gt: 0 } }).sort({ expiresAt: 1, createdAt: 1 }).select("remaining").session(session || null).lean();
+    if (!lots.length) break;
+    for (const lot of lots) {
+      if (left <= 0) break;
+      const take = Math.min(lot.remaining, left);
+      const taken = await RewardTransaction.updateOne({ _id: lot._id, remaining: { $gte: take } }, { $inc: { remaining: -take } }, { session: session || undefined });
+      if (taken.modifiedCount) left -= take;
+    }
   }
   try {
     const [row] = await RewardTransaction.create([{ user: userId, points: -points, type, source, title, referenceType, referenceId, dedupeKey, actor, reason }], session ? { session } : {});

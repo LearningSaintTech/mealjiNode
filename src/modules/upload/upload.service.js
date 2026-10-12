@@ -35,11 +35,62 @@ export function storageKey(relativeKey) {
   return env.storageDriver === "s3" && env.s3KeyPrefix ? `${env.s3KeyPrefix}/${relativeKey}` : relativeKey;
 }
 
+// Files anyone may open by link (menu and profile pictures). Support attachments and
+// staff imports are private: they are only handed out as short-lived signed links
+// to people allowed to see them.
+const PUBLIC_PURPOSES = new Set(["avatar", "dish", "banner", "kitchen", "content"]);
+const purposeOf = (key) => (env.s3KeyPrefix && key.startsWith(`${env.s3KeyPrefix}/`) ? key.slice(env.s3KeyPrefix.length + 1) : key).split("/")[0];
+
 /** A short-lived link that serves a stored file (the /files route on S3 without a CDN). */
-export function signedFileUrl(key, expiresSec = 3600) {
+export function signedFileUrl(key, expiresSec = 3600, { allowPrivate = false } = {}) {
   if (key.includes("..")) throw new AppError(400, "Invalid key");
   if (env.s3KeyPrefix && !key.startsWith(`${env.s3KeyPrefix}/`)) throw new AppError(404, "Not found");
+  if (!allowPrivate && !PUBLIC_PURPOSES.has(purposeOf(key))) throw new AppError(404, "Not found");
   return presignS3({ method: "GET", key, expiresSec });
+}
+
+/** The storage key behind one of our file URLs (or null). */
+export function keyFromUrl(url) {
+  const value = String(url || "");
+  for (const prefix of [publicUrl(""), env.cdnBaseUrl ? `${env.cdnBaseUrl}/` : null].filter(Boolean)) {
+    if (value.startsWith(prefix)) return decodeURIComponent(value.slice(prefix.length).split("?")[0]);
+  }
+  return null;
+}
+
+/** A private file (support attachment) as a 1-hour signed link; other storage keeps its URL. */
+export function privateFileLink(url) {
+  const key = keyFromUrl(url);
+  if (!key || env.storageDriver !== "s3") return url;
+  try {
+    return signedFileUrl(key, 3600, { allowPrivate: true });
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Checks a file the app uploaded straight to S3 before it is saved on a record:
+ * the presigned PUT cannot limit the size, so an oversized object is deleted and refused.
+ */
+export async function assertUploadedSize(url, purpose) {
+  if (!url || env.storageDriver !== "s3") return url;
+  const key = keyFromUrl(url);
+  const rule = UPLOAD_PURPOSES[purpose];
+  if (!key || !rule) return url;
+  let response;
+  try {
+    response = await fetch(presignS3({ method: "HEAD", key, expiresSec: 60 }), { method: "HEAD", signal: AbortSignal.timeout(5000) });
+  } catch {
+    return url; // storage not reachable: keep the upload (it was checked when the link was made)
+  }
+  if (response.status === 404) throw new AppError(422, "The upload did not finish. Please try again.");
+  const bytes = Number(response.headers.get("content-length") || 0);
+  if (bytes > rule.maxBytes) {
+    await fetch(presignS3({ method: "DELETE", key, expiresSec: 60 }), { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
+    throw new AppError(422, `File must be under ${Math.round(rule.maxBytes / 1024 / 1024)} MB`);
+  }
+  return url;
 }
 
 /**
@@ -49,10 +100,10 @@ export function signedFileUrl(key, expiresSec = 3600) {
 export async function putFile(key, body, contentType, { overwrite = false } = {}) {
   if (env.storageDriver === "s3") {
     if (!overwrite) {
-      const head = await fetch(presignS3({ method: "HEAD", key, expiresSec: 120 }), { method: "HEAD" });
+      const head = await fetch(presignS3({ method: "HEAD", key, expiresSec: 120 }), { method: "HEAD", signal: AbortSignal.timeout(10_000) });
       if (head.ok) return publicUrl(key);
     }
-    const res = await fetch(presignS3Put({ key, contentType, expiresSec: 600 }), { method: "PUT", headers: { "Content-Type": contentType }, body });
+    const res = await fetch(presignS3Put({ key, contentType, expiresSec: 600 }), { method: "PUT", headers: { "Content-Type": contentType }, body, signal: AbortSignal.timeout(60_000) });
     if (!res.ok) throw new AppError(502, `Storage upload failed (${res.status}) for ${key}`);
     return publicUrl(key);
   }

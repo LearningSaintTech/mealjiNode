@@ -10,7 +10,7 @@ const rolePopulate = {
 
 // Roles and their permissions change rarely and are read on every request:
 // cached 30 s per role (cleared on role writes in this process).
-export const roleCache = memoCache(30_000);
+export const roleCache = memoCache(30_000, "roles");
 const roleWithPermissions = (roleId) => roleCache.get(String(roleId), () => Role.findById(roleId).populate("permissions"));
 
 export const userRepository = {
