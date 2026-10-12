@@ -9,8 +9,10 @@ import { authorize } from "../../common/middleware/authorize.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
 import { memoCache } from "../../common/memoCache.js";
 import { accountLimiter } from "../../infrastructure/rateLimit.js";
+import { vegFilter, vegMode } from "../../common/vegMode.js";
 import { storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
-import { customerCombos, isOrderable, kitchenMenu, markFavorites, popularDishes, toDish } from "../catalog/catalog.service.js";
+import { activeFilters, customerCombos, filterDishes, isOrderable, kitchenMenu, markFavorites, popularDishes, sortDishes, toDish } from "../catalog/catalog.service.js";
+import { dishFilterValidators, pageValidators } from "../catalog/catalog.filters.js";
 import { registerReport } from "../report/report.registry.js";
 import { resolveCustomerKitchen } from "../serviceability/serviceability.service.js";
 
@@ -107,21 +109,50 @@ function score(dish, terms) {
   return total + (dish.isBestseller ? 1 : 0) + Math.min(2, (dish.orderCount || 0) / 100);
 }
 
-async function runSearch({ q, kitchenId, veg }) {
+/**
+ * Search text + the Filters sheet in one call. The words are matched first
+ * (typos and synonyms included); then the same filter rules as /dishes are
+ * applied; then the requested sort (default: best match, orderable first).
+ */
+async function runSearch({ q, kitchenId, filters = {}, sort = null, page = 1, limit = 40 }) {
   const synonyms = await synonymMap();
   const terms = normalize(q).split(" ").filter(Boolean).slice(0, 6).map((word) => synonyms[word] || [word]);
   const menu = await kitchenMenu(kitchenId);
-  let dishes = menu.rawDishes.map((dish) => ({ dish, score: score(dish, terms) })).filter((row) => row.score > 0);
-  if (veg === true || veg === "true") dishes = dishes.filter((row) => row.dish.isVeg !== false);
-  dishes.sort((a, b) => Number(isOrderable(b.dish)) - Number(isOrderable(a.dish)) || b.score - a.score);
-  const combos = (await customerCombos(kitchenId)).filter((combo) => terms.every((variants) => variants.some((term) => normalize(combo.title).includes(term) || combo.items.some((item) => normalize(item.name).includes(term)))));
-  const categories = menu.categories.filter((category) => terms.some((variants) => variants.some((term) => normalize(category.name).includes(term))));
-  return { dishes: dishes.slice(0, 40).map((row) => toDish(row.dish)), combos: combos.slice(0, 10), categories };
+  const now = new Date();
+  const matched = menu.rawDishes
+    .map((dish) => ({ dish, score: score(dish, terms) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => Number(isOrderable(b.dish, now)) - Number(isOrderable(a.dish, now)) || b.score - a.score)
+    .map((row) => ({ ...toDish(row.dish, now), orderCount: row.dish.orderCount || 0 }));
+  const filtered = filterDishes(matched, filters);
+  const ordered = (sort && sort !== "relevance" ? sortDishes(filtered, sort) : filtered).map(({ orderCount, ...dish }) => dish);
+  const items = ordered.slice((page - 1) * limit, page * limit);
+
+  // Combos only follow the filters that make sense for them (veg, price);
+  // dish-only filters (fast, top rated, cuisine, category…) leave combos out.
+  const on = activeFilters(filters);
+  const dishOnly = on.some((key) => !["veg", "quick:veg", "minPricePaise", "maxPricePaise"].includes(key));
+  let combos = dishOnly ? [] : (await customerCombos(kitchenId, { veg: filters.veg === true || filters.veg === "true" || on.includes("quick:veg") }))
+    .filter((combo) => terms.every((variants) => variants.some((term) => normalize(combo.title).includes(term) || combo.items.some((item) => normalize(item.name).includes(term)))));
+  if (filters.minPricePaise != null && filters.minPricePaise !== "") combos = combos.filter((combo) => combo.pricePaise >= Number(filters.minPricePaise));
+  if (filters.maxPricePaise != null && filters.maxPricePaise !== "") combos = combos.filter((combo) => combo.pricePaise <= Number(filters.maxPricePaise));
+  const categories = on.length ? [] : menu.categories.filter((category) => terms.some((variants) => variants.some((term) => normalize(category.name).includes(term))));
+  return {
+    dishes: items,
+    dishCount: ordered.length,
+    matchedBeforeFilters: matched.length,
+    combos: combos.slice(0, 10),
+    categories,
+    filtersApplied: on,
+    page,
+    limit,
+    hasMore: page * limit < ordered.length,
+  };
 }
 
 /** “Try these instead” and “Popular right now” for a search with no results. */
-async function zeroResultHelp(kitchenId, userId) {
-  const popular = await markFavorites(userId, await popularDishes(kitchenId, 6));
+async function zeroResultHelp(kitchenId, userId, vegOnly = false) {
+  const popular = await markFavorites(userId, vegFilter(vegOnly, await popularDishes(kitchenId, vegOnly ? 30 : 6)).slice(0, 6));
   const menu = await kitchenMenu(kitchenId);
   const suggestions = [...new Set([...popular.map((dish) => dish.name), ...menu.categories.map((category) => category.name)])].slice(0, 6);
   return { suggestions, popular };
@@ -148,6 +179,7 @@ async function logSearch({ userId, kitchenId, q, results }) {
 
 const customer = Router();
 customer.use(authFor(["/search"], authMiddleware));
+customer.use(vegMode);
 customer.get(
   "/search",
   accountLimiter("search", { limit: 120, windowSec: 60 }),
@@ -155,7 +187,9 @@ customer.get(
   query("kitchenId").optional({ values: "falsy" }).isMongoId().withMessage("kitchenId is not valid"),
   query("latitude").optional().isFloat({ min: -90, max: 90 }).withMessage("latitude is not valid"),
   query("longitude").optional().isFloat({ min: -180, max: 180 }).withMessage("longitude is not valid"),
-  query("veg").optional().isBoolean().withMessage("veg is true or false"),
+  // The Filters sheet (same values and rules as /dishes) and paging.
+  dishFilterValidators,
+  pageValidators,
   validate,
   asyncHandler(async (req, res) => {
     const { kitchen } = await resolveCustomerKitchen({
@@ -165,13 +199,32 @@ customer.get(
       userId: req.auth.userId, user: req.auth.user,
     });
     const kitchenId = String(kitchen._id);
-    const result = await runSearch({ q: req.query.q, kitchenId, veg: req.query.veg });
+    const { q, sort, page = 1, limit = 40, kitchenId: _k, latitude, longitude, ...filters } = req.query;
+    // Veg / All follows the saved preference unless veg is in the request.
+    const vegFromRequest = filters.veg !== undefined;
+    filters.veg = req.vegOnly;
+    const result = await runSearch({ q, kitchenId, filters, sort, page, limit });
+    // `filtersApplied` lists what the user chose on screen; the saved Veg preference is reported as `vegOnly`.
+    if (!vegFromRequest) result.filtersApplied = result.filtersApplied.filter((key) => key !== "veg");
     result.dishes = await markFavorites(req.auth.userId, result.dishes);
-    const total = result.dishes.length + result.combos.length;
-    const log = await logSearch({ userId: req.auth.userId, kitchenId: kitchen._id, q: req.query.q, results: total });
-    // Nothing found: suggestions to tap and popular dishes, so the screen is never empty.
-    const help = total ? { suggestions: [], popular: [] } : await zeroResultHelp(kitchenId, req.auth.userId);
-    return ok(res, { query: req.query.q, searchId: String(log._id), total, dishCount: result.dishes.length, ...result, ...help }, "Search results.");
+    const total = result.dishCount + result.combos.length;
+    const log = await logSearch({ userId: req.auth.userId, kitchenId: kitchen._id, q, results: total });
+    // Nothing found: say whether the filters removed everything (offer “Clear filters”),
+    // else suggestions to tap and popular dishes, so the screen is never empty.
+    const filteredOut = !total && result.filtersApplied.length > 0 && result.matchedBeforeFilters > 0;
+    const help = total ? { suggestions: [], popular: [] } : await zeroResultHelp(kitchenId, req.auth.userId, req.vegOnly);
+    const { matchedBeforeFilters, ...data } = result;
+    return ok(res, {
+      query: q,
+      vegOnly: req.vegOnly,
+      searchId: String(log._id),
+      total,
+      ...data,
+      ...help,
+      filteredOut,
+      matchesWithoutFilters: filteredOut ? matchedBeforeFilters : undefined,
+      emptyMessage: total ? null : filteredOut ? "No dishes match these filters" : "We couldn't find anything matching your search",
+    }, "Search results.");
   }),
 );
 customer.post("/search/:id/click", idParam(), body("dishId").isMongoId().withMessage("dishId is not valid"), validate, asyncHandler(async (req, res) => {

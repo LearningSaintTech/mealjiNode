@@ -4,6 +4,7 @@ import { asyncHandler } from "../../common/asyncHandler.js";
 import { AppError } from "../../common/errors/AppError.js";
 import { authFor, ok } from "../../common/http.js";
 import { authMiddleware } from "../../common/middleware/auth.middleware.js";
+import { vegOnlyFor } from "../../common/vegMode.js";
 import { validate } from "../../common/middleware/validate.js";
 import { accountLimiter } from "../../infrastructure/rateLimit.js";
 import { availableCoupons } from "../coupon/coupon.service.js";
@@ -72,7 +73,7 @@ router.post("/cart/promo", cartWriteLimiter, body("code").isString().trim().isLe
   ok(res, await carts.applyPromo(req.auth.userId, req.body.code), "Offer applied.")
 )));
 router.delete("/cart/promo", asyncHandler(async (req, res) => ok(res, await carts.removePromo(req.auth.userId), "Offer removed.")));
-router.get("/cart/recommendations", asyncHandler(async (req, res) => ok(res, await carts.cartRecommendations(req.auth.userId), "Recommendations fetched.")));
+router.get("/cart/recommendations", query("veg").optional().isBoolean().withMessage("veg is true or false"), validate, asyncHandler(async (req, res) => ok(res, await carts.cartRecommendations(req.auth.userId, { vegOnly: vegOnlyFor(req) }), "Recommendations fetched.")));
 
 router.get("/promos/available", asyncHandler(async (req, res) => {
   const cart = await Cart.findOne({ user: req.auth.userId }).lean();

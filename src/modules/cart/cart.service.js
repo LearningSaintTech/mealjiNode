@@ -519,11 +519,11 @@ export async function removePromo(userId) {
   return buildCart(userId);
 }
 
-export async function cartRecommendations(userId) {
+export async function cartRecommendations(userId, { vegOnly = false } = {}) {
   const cart = await Cart.findOne({ user: userId }).lean();
   if (!cart?.kitchen) return [];
   const inCart = new Set((cart.items || []).map((item) => String(item.dish)));
-  return markFavorites(userId, (await popularDishes(String(cart.kitchen), 12)).filter((dish) => !inCart.has(dish.dishId)).slice(0, 6));
+  return markFavorites(userId, (await popularDishes(String(cart.kitchen), vegOnly ? 30 : 12)).filter((dish) => !inCart.has(dish.dishId) && (!vegOnly || dish.isVeg)).slice(0, 6));
 }
 
 export { PAYMENT_METHODS };

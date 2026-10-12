@@ -678,7 +678,46 @@ const FAST_PREP_MINUTES = 15;
 const TOP_RATED = 4.5;
 const listParam = (value) => (Array.isArray(value) ? value : String(value || "").split(",")).map((item) => String(item).trim().toLowerCase()).filter(Boolean);
 
-function sortDishes(list, sort) {
+/** The filters a request asked for (for `filtersApplied` in responses). */
+export function activeFilters({ categoryId, veg, cuisine, tag, slot, availableOnly, quick, minPricePaise, maxPricePaise } = {}) {
+  const on = (value) => value != null && value !== "";
+  return [
+    ...listParam(quick).map((chip) => `quick:${chip}`),
+    (veg === true || veg === "true") && "veg",
+    on(categoryId) && "categoryId",
+    on(cuisine) && "cuisine",
+    on(tag) && "tag",
+    on(slot) && "slot",
+    (availableOnly === true || availableOnly === "true") && "availableOnly",
+    on(minPricePaise) && "minPricePaise",
+    on(maxPricePaise) && "maxPricePaise",
+  ].filter(Boolean);
+}
+
+/**
+ * The Filters sheet rules, on dish views (toDish): veg, quick chips (veg, fast =
+ * ready in 15 min or less, top_rated = 4.5★+), cuisines (any of), category, tag,
+ * meal slot, available now, price range. Shared by /menu, /dishes and /search.
+ */
+export function filterDishes(dishes, { categoryId, veg, cuisine, tag, slot, availableOnly, quick, minPricePaise, maxPricePaise } = {}) {
+  let out = dishes;
+  if (categoryId) out = out.filter((dish) => dish.categoryId === categoryId);
+  const chips = listParam(quick);
+  if (veg === true || veg === "true" || chips.includes("veg")) out = out.filter((dish) => dish.isVeg);
+  if (chips.includes("fast")) out = out.filter((dish) => dish.preparationMinutes != null && dish.preparationMinutes <= FAST_PREP_MINUTES);
+  if (chips.includes("top_rated")) out = out.filter((dish) => dish.rating >= TOP_RATED);
+  // One or more cuisines (comma-separated): a dish matches any of them.
+  const cuisines = listParam(cuisine);
+  if (cuisines.length) out = out.filter((dish) => cuisines.includes(String(dish.cuisine || "").toLowerCase()));
+  if (tag) out = out.filter((dish) => dish.tags.includes(String(tag).toLowerCase()));
+  if (slot) out = out.filter((dish) => !dish.availableSlots.length || dish.availableSlots.includes(slot));
+  if (availableOnly === true || availableOnly === "true") out = out.filter((dish) => dish.isAvailable);
+  if (minPricePaise != null && minPricePaise !== "") out = out.filter((dish) => dish.pricePaise >= Number(minPricePaise));
+  if (maxPricePaise != null && maxPricePaise !== "") out = out.filter((dish) => dish.pricePaise <= Number(maxPricePaise));
+  return out;
+}
+
+export function sortDishes(list, sort) {
   const copy = [...list];
   if (sort === "price_asc") copy.sort((a, b) => a.pricePaise - b.pricePaise);
   else if (sort === "price_desc") copy.sort((a, b) => b.pricePaise - a.pricePaise);
@@ -713,19 +752,7 @@ export async function customerMenu(kitchenId, { categoryId, veg, q, sort, cuisin
   const now = new Date();
   const text = String(q || "").trim().toLowerCase();
   let dishes = menu.rawDishes.map((dish) => ({ ...toDish(dish, now), orderCount: dish.orderCount || 0 }));
-  if (categoryId) dishes = dishes.filter((dish) => dish.categoryId === categoryId);
-  const chips = listParam(quick);
-  if (veg === true || veg === "true" || chips.includes("veg")) dishes = dishes.filter((dish) => dish.isVeg);
-  if (chips.includes("fast")) dishes = dishes.filter((dish) => dish.preparationMinutes != null && dish.preparationMinutes <= FAST_PREP_MINUTES);
-  if (chips.includes("top_rated")) dishes = dishes.filter((dish) => dish.rating >= TOP_RATED);
-  // One or more cuisines (comma-separated): a dish matches any of them.
-  const cuisines = listParam(cuisine);
-  if (cuisines.length) dishes = dishes.filter((dish) => cuisines.includes(String(dish.cuisine || "").toLowerCase()));
-  if (tag) dishes = dishes.filter((dish) => dish.tags.includes(String(tag).toLowerCase()));
-  if (slot) dishes = dishes.filter((dish) => !dish.availableSlots.length || dish.availableSlots.includes(slot));
-  if (availableOnly === true || availableOnly === "true") dishes = dishes.filter((dish) => dish.isAvailable);
-  if (minPricePaise != null && minPricePaise !== "") dishes = dishes.filter((dish) => dish.pricePaise >= Number(minPricePaise));
-  if (maxPricePaise != null && maxPricePaise !== "") dishes = dishes.filter((dish) => dish.pricePaise <= Number(maxPricePaise));
+  dishes = filterDishes(dishes, { categoryId, veg, cuisine, tag, slot, availableOnly, quick, minPricePaise, maxPricePaise });
   if (text) dishes = dishes.filter((dish) => dish.name.toLowerCase().includes(text) || dish.tags.some((t) => t.includes(text)) || (dish.cuisine || "").toLowerCase().includes(text));
   dishes = sortDishes(dishes, sort).map(({ orderCount, ...dish }) => dish);
   const byCategory = menu.categories.map((category) => ({ ...category, dishes: dishes.filter((dish) => dish.categoryId === category.categoryId) }))

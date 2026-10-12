@@ -121,5 +121,33 @@ export default async function step06() {
     const results = await Promise.all(urls.map(headOk));
     return { ok: results.every(Boolean), detail: `${results.filter(Boolean).length}/${urls.length} load` };
   });
+  await s.run("06-21", "Veg / All: the saved choice applies on every list; the toggle changes it; ?veg overrides one call", "Header Veg / All switch (remembered)", async () => {
+    const before = (await me.call("GET", "/users/me/preferences")).data?.vegOnly;
+    const nonVeg = (list) => (list || []).filter((d) => d.isVeg === false).length;
+    // Toggle ON (what the app does when the user flips the switch).
+    const flip = await me.call("PATCH", "/users/me/preferences", { vegOnly: true });
+    const home = (await me.call("GET", "/home")).data;
+    const homeDishes = (home.sections || []).filter((sec) => ["usual", "popular"].includes(sec.key)).flatMap((sec) => sec.items || []);
+    const menuV = (await me.call("GET", "/menu")).data;
+    const dishesV = (await me.call("GET", "/dishes?limit=100")).data;
+    const combosV = (await me.call("GET", "/combos")).data;
+    const searchV = (await me.call("GET", "/search?q=biryani")).data;
+    const popularV = (await me.call("GET", "/menu/popular")).data;
+    const recsV = (await me.call("GET", `/menu/items/${bowl.dishId}/recommendations`)).data;
+    // One call that overrides the saved choice without changing it.
+    const override = (await me.call("GET", "/dishes?veg=false&limit=100")).data;
+    const still = (await me.call("GET", "/users/me/preferences")).data?.vegOnly;
+    // Toggle OFF again.
+    await me.call("PATCH", "/users/me/preferences", { vegOnly: false });
+    const dishesAll = (await me.call("GET", "/dishes?limit=100")).data;
+    await me.call("PATCH", "/users/me/preferences", { vegOnly: Boolean(before) });
+    const vegLists = [homeDishes, menuV.categories.flatMap((c) => c.dishes), dishesV.items, combosV, searchV.dishes, popularV, recsV];
+    return {
+      ok: flip.status === 200 && home.vegOnly === true && menuV.vegOnly === true && dishesV.vegOnly === true && searchV.vegOnly === true && vegLists.every((list) => nonVeg(list) === 0)
+        && dishesV.items.length > 0 && override.vegOnly === false && nonVeg(override.items) > 0 && still === true
+        && dishesAll.vegOnly === false && nonVeg(dishesAll.items) > 0,
+      detail: `toggle on → non-veg on Home/Menu/Dishes/Combos/Search/Popular/Suggestions: ${vegLists.map(nonVeg).join("/")} · ?veg=false shows ${nonVeg(override.items)} non-veg, saved stays ${still} · toggle off → ${nonVeg(dishesAll.items)} non-veg`,
+    };
+  });
   return s;
 }

@@ -58,6 +58,62 @@ export default async function step07(ctx) {
     return { ok: statuses.every((status) => status === 422), detail: statuses.join(",") };
   });
 
+  // ---- search + filters in one call
+  await s.run("07-17", "Search and filters together: every result matches the word and the filters", "Search → filter button → Pure Veg / Top Rated / cuisine / price", async () => {
+    const veg = (await me.call("GET", "/search?q=biryani&veg=true")).data;
+    const top = (await me.call("GET", "/search?q=biryani&quick=top_rated")).data;
+    const cuisine = (await me.call("GET", "/search?q=briyani&cuisine=Hyderabadi,North Indian")).data;
+    const price = (await me.call("GET", "/search?q=biryani&minPricePaise=25000&maxPricePaise=33000")).data;
+    const fast = (await me.call("GET", "/search?q=paneer&quick=veg,fast")).data;
+    return {
+      ok: veg.dishes.length > 0 && veg.dishes.every((d) => d.isVeg && /biryani/i.test(`${d.name} ${d.tags.join(" ")}`))
+        && top.dishes.every((d) => d.ratingAvg >= 4.5)
+        && cuisine.dishes.length > 0 && cuisine.dishes.every((d) => ["hyderabadi", "north indian"].includes(String(d.cuisine).toLowerCase()))
+        && price.dishes.length > 0 && price.dishes.every((d) => d.pricePaise >= 25000 && d.pricePaise <= 33000)
+        && fast.dishes.every((d) => d.isVeg && d.preparationMinutes <= 15)
+        && veg.filtersApplied.includes("veg") && top.filtersApplied.includes("quick:top_rated"),
+      detail: `veg ${veg.dishCount} · top rated ${top.dishCount} · typo+cuisine ${cuisine.dishCount} · ₹250–330 ${price.dishCount} · veg+fast ${fast.dishCount}`,
+    };
+  });
+  await s.run("07-18", "Sort the search results; without sort the best match stays first", "Sort by: Relevance / Rating / Delivery Time / Cost ↑ / Cost ↓", async () => {
+    const asc = (await me.call("GET", "/search?q=biryani&sort=price_asc")).data.dishes.map((d) => d.pricePaise);
+    const desc = (await me.call("GET", "/search?q=biryani&sort=price_desc")).data.dishes.map((d) => d.pricePaise);
+    const rating = (await me.call("GET", "/search?q=biryani&sort=rating")).data.dishes.map((d) => d.ratingAvg);
+    const plain = (await me.call("GET", "/search?q=biryani")).data.dishes.map((d) => d.name);
+    const relevance = (await me.call("GET", "/search?q=biryani&sort=relevance")).data.dishes.map((d) => d.name);
+    const sorted = (list, dir) => list.every((v, i) => i === 0 || (dir > 0 ? list[i - 1] <= v : list[i - 1] >= v));
+    return { ok: asc.length > 1 && sorted(asc, 1) && sorted(desc, -1) && sorted(rating, -1) && plain.join() === relevance.join(), detail: `₹ ${asc.map((p) => p / 100).join(" < ")} · rating ${rating.join(" ≥ ")}` };
+  });
+  await s.run("07-19", "Search results page with “load more”", "Long result lists", async () => {
+    const all = (await me.call("GET", "/search?q=biryani&sort=price_asc")).data;
+    const p1 = (await me.call("GET", "/search?q=biryani&sort=price_asc&limit=2&page=1")).data;
+    const p2 = (await me.call("GET", "/search?q=biryani&sort=price_asc&limit=2&page=2")).data;
+    const bad = await me.call("GET", "/search?q=biryani&limit=500");
+    return { ok: p1.dishes.length === 2 && p1.hasMore === true && p1.dishCount === all.dishCount && p2.dishes[0]?.dishId === all.dishes[2]?.dishId && bad.status === 422, detail: `${all.dishCount} results · page 1 ${p1.dishes.length} (more ${p1.hasMore}) · page 2 starts with #3 · limit 500 ${bad.status}` };
+  });
+  await s.run("07-20", "Filters that remove everything say so (Clear filters)", "Empty result because of filters vs no match at all", async () => {
+    const none = (await me.call("GET", "/search?q=biryani&maxPricePaise=5000")).data;
+    const nothing = (await me.call("GET", "/search?q=sushi")).data;
+    return {
+      ok: none.total === 0 && none.filteredOut === true && none.matchesWithoutFilters > 0 && none.emptyMessage === "No dishes match these filters" && none.popular.length > 0
+        && nothing.filteredOut === false && /couldn't find/.test(nothing.emptyMessage) && nothing.suggestions.length > 0,
+      detail: `filters: “${none.emptyMessage}” (${none.matchesWithoutFilters} without filters) · no match: “${nothing.emptyMessage}”`,
+    };
+  });
+  await s.run("07-21", "Same filter values and errors as the dish list", "One Filters sheet for Home and Search", async () => {
+    const statuses = [];
+    for (const q of ["quick=cheap", "sort=cheapest", "cuisine=" + "x".repeat(130), "minPricePaise=-1", "categoryId=x", "slot=midnight"]) {
+      statuses.push(`${(await me.call("GET", `/search?q=biryani&${q}`)).status}/${(await me.call("GET", `/dishes?${q}`)).status}`);
+    }
+    return { ok: statuses.every((pair) => pair === "422/422"), detail: statuses.join(" ") };
+  });
+  await s.run("07-22", "Combos follow veg and price filters; dish-only filters leave them out", "Combos in search results", async () => {
+    const plain = (await me.call("GET", "/search?q=biryani")).data;
+    const cheap = (await me.call("GET", "/search?q=biryani&maxPricePaise=100000")).data;
+    const top = (await me.call("GET", "/search?q=biryani&quick=top_rated")).data;
+    return { ok: plain.combos.length > 0 && cheap.combos.every((c) => c.pricePaise <= 100000) && top.combos.length === 0, detail: `combos: plain ${plain.combos.length} · ≤₹1000 ${cheap.combos.length} · top rated ${top.combos.length}` };
+  });
+
   // ---- favourites
   const dishes = (await me.call("GET", "/dishes?limit=100")).data?.items || [];
   const target = dishes.find((x) => x.name === "Egg Biryani");
