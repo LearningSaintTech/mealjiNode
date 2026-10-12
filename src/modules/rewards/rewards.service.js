@@ -4,6 +4,8 @@ import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { addIstDays, istDateKey, istParts } from "../../common/time.js";
 import { env } from "../../config/env.js";
+import { storeDel, storeSetNx } from "../../infrastructure/redisStore.js";
+import { KitchenDish } from "../catalog/catalog.model.js";
 import { logger } from "../../config/logger.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { Coupon } from "../coupon/coupon.model.js";
@@ -30,7 +32,10 @@ export function toReward(reward) {
     value: reward.value,
     maxDiscountPaise: reward.maxDiscountPaise,
     minOrderPaise: reward.minOrderPaise,
-    dishId: reward.dish ? String(reward.dish) : null,
+    dishId: reward.dish ? String(reward.dish._id || reward.dish) : null,
+    dishName: reward.dish?.name || null,
+    dishQty: reward.dishQty || 1,
+    pointsLabel: `${reward.points} pts`,
     validDays: reward.validDays,
     stock: reward.stock || 0,
     stockLeft: reward.stock ? Math.max(0, reward.stock - (reward.redeemedCount || 0)) : null,
@@ -42,8 +47,8 @@ export function toReward(reward) {
 
 // ------------------------------------------------------------------ customer
 
-export async function summary(userId) {
-  const [user, settings] = await Promise.all([User.findById(userId).lean(), loyalty()]);
+export async function summary(userId, preloaded = null) {
+  const [user, settings] = await Promise.all([preloaded || User.findById(userId).select("pointsBalance lifetimePoints tier").lean(), loyalty()]);
   const lifetime = user?.lifetimePoints || 0;
   const tier = tierFor(lifetime, settings);
   const index = settings.tierNames.indexOf(tier);
@@ -66,41 +71,161 @@ export async function summary(userId) {
   };
 }
 
+// Rewards tab · "Earn More Points": the app's wording and icon names.
 export async function earnMethods() {
   const settings = await loyalty();
   return [
-    { key: "order", title: "Order a meal", points: settings.pointsPerOrder, description: "Every delivered order" },
-    { key: "review", title: "Rate your order", points: settings.pointsPerReview, description: "Once per delivered order" },
-    { key: "referral", title: "Refer a friend", points: settings.pointsReferral, description: settings.referralRequiresDelivery ? "When their first order is delivered" : "When they sign up" },
-    { key: "birthday", title: "Birthday treat", points: settings.pointsBirthday, description: "Add your birthday to your profile" },
-  ].filter((item) => item.points > 0);
+    { key: "order", title: "Place an order", subtitle: `Get ${settings.pointsPerOrder} points on every order`, points: settings.pointsPerOrder, icon: "cart", description: "Every delivered order", deepLink: "mealji://menu" },
+    { key: "referral", title: "Refer a friend", subtitle: `Both get ${settings.pointsReferral} points`, points: settings.pointsReferral, icon: "user", description: settings.referralRequiresDelivery ? "When their first order is delivered" : "When they sign up", deepLink: "mealji://referrals" },
+    { key: "review", title: "Write a review", subtitle: "Tell us what you love", points: settings.pointsPerReview, icon: "star", description: "Once per delivered order", deepLink: "mealji://orders?status=past" },
+    { key: "birthday", title: "Celebrate your birthday", subtitle: "A special treat from us", points: settings.pointsBirthday, icon: "gift", description: "Add your birthday to your profile", deepLink: "mealji://profile/edit" },
+  ].filter((item) => item.points > 0).map((item) => ({ ...item, pointsLabel: `+${item.points}` }));
 }
 
-export async function catalog(userId) {
-  const [rewards, user] = await Promise.all([Reward.find({ isActive: true }).sort({ sortOrder: 1, points: 1 }).lean(), User.findById(userId).select("pointsBalance tier").lean()]);
-  return rewards
-    .filter((reward) => !reward.tiers?.length || reward.tiers.includes(user?.tier))
-    .map((reward) => ({ ...toReward(reward), canRedeem: (user?.pointsBalance || 0) >= reward.points && (!reward.stock || reward.redeemedCount < reward.stock) }));
-}
-
-export async function history(userId, { page = 1, limit = 20 }) {
-  const filter = { user: userId };
-  const [items, total] = await Promise.all([
-    RewardTransaction.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-    RewardTransaction.countDocuments(filter),
+export async function catalog(userId, user = null) {
+  const [rewards, me] = await Promise.all([
+    Reward.find({ isActive: true }).sort({ sortOrder: 1, points: 1 }).populate("dish", "name").lean(),
+    user || User.findById(userId).select("pointsBalance tier").lean(),
   ]);
+  const balance = me?.pointsBalance || 0;
+  return rewards
+    .filter((reward) => !reward.tiers?.length || reward.tiers.includes(me?.tier))
+    .map((reward) => {
+      const inStock = !reward.stock || reward.redeemedCount < reward.stock;
+      return { ...toReward(reward), canRedeem: balance >= reward.points && inStock, pointsShort: Math.max(0, reward.points - balance), inStock };
+    });
+}
+
+/** “You have enough points for 3 free rewards!” / how far the cheapest one is. */
+function rewardsMessage(rewards) {
+  const affordable = rewards.filter((reward) => reward.canRedeem).length;
+  if (affordable) return { affordableCount: affordable, message: `You have enough points for ${affordable} free reward${affordable === 1 ? "" : "s"}!` };
+  const next = rewards.filter((reward) => reward.inStock).sort((a, b) => a.pointsShort - b.pointsShort)[0];
+  return { affordableCount: 0, message: next ? `Earn ${next.pointsShort} more points for a ${next.name.replace(/^Free /, "free ")}` : "Good food brings great rewards!" };
+}
+
+/** Rewards tab in one call: points card, Redeem Rewards and Earn More Points. */
+export async function overview(userId) {
+  const user = await User.findById(userId).select("pointsBalance lifetimePoints tier").lean();
+  const [card, rewards, earn] = await Promise.all([summary(userId, user), catalog(userId, user), earnMethods()]);
+  return { ...card, ...rewardsMessage(rewards), rewards, earn };
+}
+
+// Points history rows: the app's icon names and labels.
+const HISTORY_ICONS = { order: "cart", checkout: "wallet", review: "star", referral: "user", birthday: "gift", reward: "gift", expiry: "clock", reversal: "refresh", cancellation: "refresh", admin: "gift" };
+const TYPE_LABELS = { earned: "Earned", redeemed: "Redeemed", expired: "Expired", reversed: "Reversed", adjusted: "Adjusted" };
+export const HISTORY_PERIODS = [
+  { key: "this_month", label: "This Month" },
+  { key: "last_month", label: "Last Month" },
+  { key: "all", label: "All time" },
+];
+const IST_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", month: "short", day: "numeric", year: "numeric" });
+const IST_CLOCK = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", hour12: true });
+
+/** “Today, 10:45 AM”, “Yesterday, 8:20 PM”, else “Oct 24, 2023” (IST). */
+function historyDateLabel(date, now = new Date()) {
+  const day = (value) => istDateKey(new Date(value));
+  const today = day(now);
+  if (day(date) === today) return `Today, ${IST_CLOCK.format(new Date(date))}`;
+  if (day(date) === addIstDays(today, -1)) return `Yesterday, ${IST_CLOCK.format(new Date(date))}`;
+  return IST_DAY.format(new Date(date));
+}
+
+/** “Updated just now” / “Updated 2m ago” / “Updated 3h ago” / “Updated 4d ago”. */
+function updatedLabel(date, now = new Date()) {
+  if (!date) return "Updated just now";
+  const minutes = Math.floor((now - new Date(date)) / 60_000);
+  if (minutes < 1) return "Updated just now";
+  if (minutes < 60) return `Updated ${minutes}m ago`;
+  if (minutes < 1440) return `Updated ${Math.floor(minutes / 60)}h ago`;
+  return `Updated ${Math.floor(minutes / 1440)}d ago`;
+}
+
+function periodRange(period) {
+  if (period === "all") return null;
+  const [year, month] = istDateKey().split("-").map(Number);
+  const start = (y, m) => new Date(`${y}-${String(m).padStart(2, "0")}-01T00:00:00+05:30`);
+  const thisMonth = start(year, month);
+  if (period === "last_month") return { $gte: month === 1 ? start(year - 1, 12) : start(year, month - 1), $lt: thisMonth };
+  return { $gte: thisMonth };
+}
+
+export function toHistoryRow(row, now = new Date()) {
   return {
-    items: items.map((row) => ({ transactionId: String(row._id), points: row.points, type: row.points > 0 ? "earned" : "spent", kind: row.type, source: row.source, title: row.title, referenceId: row.referenceId, expiresAt: row.expiresAt, createdAt: row.createdAt })),
-    page,
-    limit,
-    total,
+    transactionId: String(row._id),
+    title: row.title,
+    points: row.points,
+    pointsLabel: `${row.points > 0 ? "+" : "-"}${Math.abs(row.points)}`,
+    isPositive: row.points > 0,
+    type: row.points > 0 ? "earned" : "spent",
+    kind: row.type,
+    typeLabel: TYPE_LABELS[row.type] || (row.points > 0 ? "Earned" : "Redeemed"),
+    icon: HISTORY_ICONS[row.source] || (row.points > 0 ? "gift" : "refresh"),
+    source: row.source,
+    referenceId: row.referenceId,
+    dateLabel: historyDateLabel(row.createdAt, now),
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
   };
 }
 
-/** Swaps points for a reward: spends the points and issues a personal coupon. */
+/** The points card used outside the Rewards tab (Payment methods · “Meal ji wallet”). */
+export async function pointsCard(userId) {
+  const user = await User.findById(userId).select("pointsBalance tier").lean();
+  const [latest, rewards] = await Promise.all([
+    RewardTransaction.findOne({ user: new mongoose.Types.ObjectId(String(userId)) }).sort({ createdAt: -1 }).select("createdAt").lean(),
+    catalog(userId, user),
+  ]);
+  return { points: user?.pointsBalance || 0, tier: user?.tier || null, updatedLabel: updatedLabel(latest?.createdAt), ...rewardsMessage(rewards) };
+}
+
+/** Meal Ji points screen: balance card + Recent Activity (This Month / Last Month / All time). */
+export async function history(userId, { page = 1, limit = 20, period = "all" }) {
+  const filter = { user: new mongoose.Types.ObjectId(String(userId)) };
+  const range = periodRange(period);
+  if (range) filter.createdAt = range;
+  const user = await User.findById(userId).select("pointsBalance tier").lean();
+  const [items, total, latest, rewards] = await Promise.all([
+    RewardTransaction.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    RewardTransaction.countDocuments(filter),
+    RewardTransaction.findOne({ user: filter.user }).sort({ createdAt: -1 }).select("createdAt").lean(),
+    catalog(userId, user),
+  ]);
+  const now = new Date();
+  return {
+    points: user?.pointsBalance || 0,
+    updatedLabel: updatedLabel(latest?.createdAt, now),
+    ...rewardsMessage(rewards),
+    period,
+    periods: HISTORY_PERIODS,
+    items: items.map((row) => toHistoryRow(row, now)),
+    page,
+    limit,
+    total,
+    hasMore: page * limit < total,
+  };
+}
+
+/**
+ * Swaps points for a reward: spends the points and issues a personal coupon.
+ * One redemption at a time per customer, so a double tap never charges twice.
+ */
 export async function redeem(userId, rewardId) {
   const reward = await Reward.findOne({ _id: objectId(rewardId, "reward ID"), isActive: true });
   if (!reward) throw new AppError(404, "Reward not found");
+  const lockKey = `reward:redeeming:${userId}`;
+  const locked = await storeSetNx(lockKey, "1", 30).catch(() => true);
+  if (!locked) throw new AppError(409, "Your reward is already being redeemed", [{ field: "reward", message: "REDEEM_IN_PROGRESS" }]);
+  try {
+    return await redeemLocked(userId, reward);
+  } finally {
+    await storeDel(lockKey).catch(() => {});
+  }
+}
+
+async function redeemLocked(userId, reward) {
+  const dish = reward.kind === "dish" && reward.dish ? await KitchenDish.findById(reward.dish._id || reward.dish).select("name pricePaise kitchen").lean() : null;
+  if (reward.kind === "dish" && !dish) throw new AppError(409, "This reward is not available right now");
   const user = await User.findById(userId).select("tier pointsBalance").lean();
   if (reward.tiers?.length && !reward.tiers.includes(user?.tier)) throw new AppError(403, "This reward is for another tier");
   if ((user?.pointsBalance || 0) < reward.points) throw new AppError(409, "Not enough points");
@@ -113,19 +238,20 @@ export async function redeem(userId, rewardId) {
   const code = `RW${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
   const expiresAt = new Date(Date.now() + reward.validDays * 86_400_000);
   try {
-    await spendPoints({ userId, points: reward.points, source: "reward", title: `Redeemed: ${reward.name}`, referenceType: "reward", referenceId: String(reward._id), dedupeKey: `reward:${userId}:${code}` });
+    await spendPoints({ userId, points: reward.points, source: "reward", title: reward.name, referenceType: "reward", referenceId: String(reward._id), dedupeKey: `reward:${userId}:${code}` });
   } catch (err) {
     await Reward.updateOne({ _id: reward._id }, { $inc: { redeemedCount: -1 } });
     throw err;
   }
-  const type = reward.kind === "dish" ? "flat" : reward.kind;
+  const dishQty = reward.dishQty || 1;
+  // A dish reward takes that dish's price off (up to dishQty pieces) at whichever kitchen serves the customer.
   await Coupon.create({
     code,
     title: reward.name,
     description: reward.description || `Reward for ${reward.points} points`,
-    type,
-    value: reward.kind === "percent" ? reward.value : reward.kind === "free_delivery" ? 0 : reward.value,
-    maxDiscountPaise: reward.maxDiscountPaise || 0,
+    type: reward.kind === "dish" ? "flat" : reward.kind,
+    value: reward.kind === "free_delivery" ? 0 : reward.kind === "dish" ? dish.pricePaise * dishQty : reward.value,
+    maxDiscountPaise: reward.kind === "dish" ? 0 : reward.maxDiscountPaise || 0,
     minOrderPaise: reward.minOrderPaise || 0,
     validTo: expiresAt,
     usageLimit: 1,
@@ -133,9 +259,21 @@ export async function redeem(userId, rewardId) {
     segment: null,
     isPublic: false,
     fundedBy: "platform",
+    owner: userId,
+    dish: dish?._id || null,
+    dishName: dish?.name || null,
+    dishQty,
   });
   const redemption = await RewardRedemption.create({ user: userId, reward: reward._id, rewardName: reward.name, points: reward.points, couponCode: code, expiresAt });
-  return { redemptionId: String(redemption._id), reward: toReward(reward), couponCode: code, expiresAt, pointsLeft: (user.pointsBalance || 0) - reward.points };
+  const left = (await User.findById(userId).select("pointsBalance").lean())?.pointsBalance || 0;
+  return {
+    redemptionId: String(redemption._id),
+    reward: toReward(reward),
+    couponCode: code,
+    expiresAt,
+    pointsLeft: left,
+    howToUse: dish ? `Apply ${code} at checkout — we add ${dish.name}${dishQty > 1 ? ` x ${dishQty}` : ""} to your cart for free.` : `Apply ${code} at checkout.`,
+  };
 }
 
 export async function myRedemptions(userId) {
@@ -187,7 +325,13 @@ export async function applyReferralCode(userId, code) {
   const delivered = await Order.countDocuments({ user: userId, status: "delivered" });
   if (delivered > 0) throw new AppError(409, "Referral codes are for new customers");
   if (await Referral.exists({ referee: userId })) throw new AppError(409, "You already used a referral code");
-  await Referral.create({ referrer: referrer._id, referee: userId, code: String(code).toUpperCase() });
+  try {
+    await Referral.create({ referrer: referrer._id, referee: userId, code: String(code).toUpperCase() });
+  } catch (err) {
+    // Two taps at once: the unique referee index lets only one through.
+    if (err?.code === 11000) throw new AppError(409, "You already used a referral code");
+    throw err;
+  }
   await User.updateOne({ _id: userId }, { $set: { referredBy: referrer._id } });
   const settings = await loyalty();
   if (!settings.referralRequiresDelivery) await convertReferral(userId, null);
@@ -217,8 +361,8 @@ export async function convertReferral(refereeId, orderId) {
   referral.convertedAt = new Date();
   await referral.save();
   if (settings.pointsReferral > 0) {
-    await earnPoints({ userId: referral.referrer, points: settings.pointsReferral, source: "referral", title: "Your friend's first order", referenceType: "referral", referenceId: String(referral._id), dedupeKey: `referral:${referral._id}:referrer` });
-    await earnPoints({ userId: refereeId, points: settings.pointsReferral, source: "referral", title: "Welcome bonus for joining with a code", referenceType: "referral", referenceId: String(referral._id), dedupeKey: `referral:${referral._id}:referee` });
+    await earnPoints({ userId: referral.referrer, points: settings.pointsReferral, source: "referral", title: "Referral bonus", referenceType: "referral", referenceId: String(referral._id), dedupeKey: `referral:${referral._id}:referrer` });
+    await earnPoints({ userId: refereeId, points: settings.pointsReferral, source: "referral", title: "Welcome bonus", referenceType: "referral", referenceId: String(referral._id), dedupeKey: `referral:${referral._id}:referee` });
   }
   await publishEventSafe("referral.converted", { referralId: String(referral._id), userId: String(referral.referrer), refereeId: String(refereeId) });
   return referral;
@@ -236,7 +380,7 @@ export async function dailyLoyaltyRun() {
   if (settings.pointsBirthday > 0) {
     const birthdays = await User.find({ dob: { $regex: `${mmdd}$` }, deletedAt: null, birthdayRewardYear: { $ne: year } }).select("_id").limit(5000).lean();
     for (const user of birthdays) {
-      await earnPoints({ userId: user._id, points: settings.pointsBirthday, source: "birthday", title: "Happy birthday from MealJi", dedupeKey: `birthday:${user._id}:${year}` });
+      await earnPoints({ userId: user._id, points: settings.pointsBirthday, source: "birthday", title: "Birthday treat", dedupeKey: `birthday:${user._id}:${year}` });
       await User.updateOne({ _id: user._id }, { $set: { birthdayRewardYear: year } });
       count += 1;
     }
@@ -259,7 +403,7 @@ export async function dailyLoyaltyRun() {
 
 // ------------------------------------------------------------------ admin
 
-const REWARD_FIELDS = ["name", "description", "imageUrl", "points", "kind", "value", "maxDiscountPaise", "minOrderPaise", "validDays", "stock", "tiers", "sortOrder", "isActive"];
+const REWARD_FIELDS = ["name", "description", "imageUrl", "points", "kind", "value", "dishQty", "maxDiscountPaise", "minOrderPaise", "validDays", "stock", "tiers", "sortOrder", "isActive"];
 
 export async function saveReward(rewardId, input) {
   const data = Object.fromEntries(REWARD_FIELDS.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
@@ -277,7 +421,7 @@ export async function saveReward(rewardId, input) {
 }
 
 export async function listRewardsAdmin() {
-  return (await Reward.find().sort({ sortOrder: 1, points: 1 }).lean()).map((reward) => ({ ...toReward(reward), redeemedCount: reward.redeemedCount || 0 }));
+  return (await Reward.find().sort({ sortOrder: 1, points: 1 }).populate("dish", "name").lean()).map((reward) => ({ ...toReward(reward), redeemedCount: reward.redeemedCount || 0 }));
 }
 
 export async function adjustPoints({ userId, points, reason, actor }) {

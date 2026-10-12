@@ -3,12 +3,15 @@ import { percentOf } from "../../common/money.js";
 /**
  * Whether a coupon applies to a cart and how much it takes off (pure).
  * context = { itemTotalPaise, deliveryFeePaise, kitchenId, city, paymentMethod,
- *             userDeliveredOrders, userRedemptions, segmentIds, now }
+ *             userDeliveredOrders, userRedemptions, segmentIds, now, userId,
+ *             lines (priced cart lines: kind, dishId, qty, unitPricePaise; for free-dish rewards) }
  */
 export function evaluateCoupon(coupon, context) {
   const now = context.now || new Date();
   const fail = (reason, message) => ({ valid: false, reason, message, discountPaise: 0, freeDelivery: false });
   if (!coupon || !coupon.isActive || coupon.approvalStatus !== "live") return fail("invalid", "This code is not valid");
+  // A reward coupon only works for the customer who redeemed it.
+  if (coupon.owner && String(coupon.owner) !== String(context.userId || "")) return fail("invalid", "This code is not valid");
   if (coupon.validFrom && new Date(coupon.validFrom) > now) return fail("not_started", "This offer has not started yet");
   if (coupon.validTo && new Date(coupon.validTo) < now) return fail("expired", "This offer has expired");
   if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) return fail("exhausted", "This offer has been fully used");
@@ -25,6 +28,19 @@ export function evaluateCoupon(coupon, context) {
     return { ...fail("min_order", "Add more to use this offer"), shortByPaise: coupon.minOrderPaise - context.itemTotalPaise };
   }
 
+  if (coupon.dish) {
+    // The same dish at any kitchen (kitchens share dish names); add-ons are not free.
+    const units = (context.lines || [])
+      .filter((line) => line.kind === "dish" && (String(line.dishId) === String(coupon.dish) || (coupon.dishName && line.name === coupon.dishName)))
+      .flatMap((line) => Array.from({ length: line.qty }, () => line.basePricePaise ?? line.unitPricePaise))
+      .sort((a, b) => a - b)
+      .slice(0, coupon.dishQty || 1);
+    if (!units.length) return { ...fail("dish_missing", `Add ${coupon.dishName || "the dish"} to your cart to use this reward`), dishId: String(coupon.dish) };
+    let free = units.reduce((sum, price) => sum + price, 0);
+    if (coupon.maxDiscountPaise > 0) free = Math.min(free, coupon.maxDiscountPaise);
+    free = Math.max(0, Math.min(free, context.itemTotalPaise));
+    return { valid: true, reason: null, message: `${coupon.title} applied`, discountPaise: free, freeDelivery: false };
+  }
   if (coupon.type === "free_delivery") {
     return { valid: true, reason: null, message: "Free delivery applied", discountPaise: 0, freeDelivery: true };
   }
@@ -35,6 +51,7 @@ export function evaluateCoupon(coupon, context) {
 }
 
 export function couponLabel(coupon) {
+  if (coupon.dish) return coupon.title;
   if (coupon.type === "free_delivery") return "Free delivery";
   if (coupon.type === "flat") return `₹${Math.round(coupon.value / 100)} off`;
   return `${coupon.value}% off${coupon.maxDiscountPaise ? ` up to ₹${Math.round(coupon.maxDiscountPaise / 100)}` : ""}`;

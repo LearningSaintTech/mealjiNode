@@ -163,6 +163,15 @@ const SCREENS = [
       if (Math.random() < 0.3) await call(vu, "GET /orders/:id/tracking", "read", "GET", `/orders/${pick1.orderId}/tracking`);
     }
   }],
+  [3, "12 Rewards", async (vu) => {
+    const tab = await call(vu, "GET /rewards/overview", "read", "GET", "/rewards/overview");
+    await call(vu, "GET /rewards/history", "read", "GET", `/rewards/history?period=${pick(["this_month", "last_month", "all"])}&limit=20`);
+    if (Math.random() < 0.3) await call(vu, "GET /referrals/me", "read", "GET", "/referrals/me");
+    if (Math.random() < 0.3) await call(vu, "GET /rewards/redemptions", "read", "GET", "/rewards/redemptions");
+    const reward = tab.data?.rewards?.find((r) => r.canRedeem);
+    // Some taps on Redeem; 409 = not enough points / already redeeming.
+    if (reward && Math.random() < 0.1) await call(vu, "POST /rewards/:id/redeem", "write", "POST", `/rewards/${reward.rewardId}/redeem`, undefined, { expect: [201, 409] });
+  }],
   [3, "11 Notifications", async (vu) => {
     await call(vu, "GET /notifications/unread-count", "read", "GET", "/notifications/unread-count");
     const inbox = await call(vu, "GET /notifications", "read", "GET", `/notifications?category=${pick(["all", "orders", "offers", "rewards", "account"])}&limit=20`);

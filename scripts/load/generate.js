@@ -6,7 +6,8 @@
 //   npm run load:generate -- --users=100000   (only this; sizes are per customer)
 //
 // Sizes: --users (50000) --dishes (200 per kitchen) --orders (4 per user)
-// --favorites (5) --searches (10) --notifications (10) --reset (remove old load data first)
+// --favorites (5) --searches (10) --notifications (10) --points (20 ledger rows; 1 in 100 users has 50x)
+// --reset (remove old load data first)
 import "./loadEnv.js";
 import mongoose from "mongoose";
 import { env } from "../../src/config/env.js";
@@ -22,6 +23,7 @@ const SIZE = {
   favoritesPerUser: arg("favorites", 5),
   searchesPerUser: arg("searches", 10),
   notificationsPerUser: arg("notifications", 10),
+  pointsPerUser: arg("points", 20),
 };
 const RESET = process.argv.includes("--reset");
 const BATCH = 5_000;
@@ -62,7 +64,7 @@ if (!kitchens.length || !role) {
 }
 
 if (RESET) {
-  for (const name of ["users", "addresses", "favorites", "searchlogs", "orders", "notifications", "kitchendishes", "couponredemptions", "carts"]) {
+  for (const name of ["users", "addresses", "favorites", "searchlogs", "orders", "notifications", "kitchendishes", "couponredemptions", "carts", "rewardtransactions", "rewardredemptions", "referrals", "coupons"]) {
     const { deletedCount } = await db.collection(name).deleteMany({ loadTest: true });
     console.log(`  removed ${deletedCount} old load rows from ${name}`);
   }
@@ -164,12 +166,50 @@ if (!(await db.collection("couponredemptions").countDocuments({ loadTest: true }
   }
 }
 
+// ---- loyalty: points ledgers (heavy users have 50x the rows), reward codes, referrals
+if (!(await db.collection("rewardtransactions").countDocuments({ loadTest: true }))) {
+  const SOURCES = [["order", "Order #MJ-LOAD", 50], ["review", "Review reward", 100], ["referral", "Referral bonus", 200], ["birthday", "Birthday treat", 250]];
+  const plan = users.map((user, index) => ({ user, rows: index % 100 === 0 ? SIZE.pointsPerUser * 50 : SIZE.pointsPerUser }));
+  const total = plan.reduce((sum, item) => sum + item.rows, 0);
+  let cursor = 0;
+  let left = plan[0]?.rows || 0;
+  const balances = new Map();
+  await insertAll(db.collection("rewardtransactions"), total, () => {
+    while (left === 0) {
+      cursor += 1;
+      left = plan[cursor].rows;
+    }
+    left -= 1;
+    const { user } = plan[cursor];
+    const createdAt = daysAgo(400);
+    if (random() < 0.2) {
+      balances.set(String(user._id), (balances.get(String(user._id)) || 0) - 300);
+      return { user: user._id, points: -300, type: "redeemed", source: "reward", title: "Free Gulab Jamun", remaining: 0, expiresAt: null, loadTest: true, createdAt };
+    }
+    const [source, title, points] = pick(SOURCES);
+    balances.set(String(user._id), (balances.get(String(user._id)) || 0) + points);
+    const expiresAt = new Date(createdAt.getTime() + 360 * 86_400_000);
+    return { user: user._id, points, type: "earned", source, title, remaining: random() < 0.5 ? points : 0, expiresAt, loadTest: true, createdAt };
+  });
+  const ops = [...balances.entries()].map(([id, points]) => ({ updateOne: { filter: { _id: new mongoose.Types.ObjectId(id) }, update: { $set: { pointsBalance: Math.max(0, points), lifetimePoints: Math.max(0, points) + 600 } } } }));
+  for (let i = 0; i < ops.length; i += BATCH) await db.collection("users").bulkWrite(ops.slice(i, i + BATCH), { ordered: false });
+  // Reward codes: one in three customers holds a personal code; one in five was referred by someone.
+  const reward = await db.collection("rewards").findOne({ isActive: true });
+  const holders = users.filter((_, index) => index % 3 === 0);
+  if (reward) {
+    await insertAll(db.collection("coupons"), holders.length, (i) => ({ code: `RWL${String(i).padStart(7, "0")}`, title: reward.name, type: "flat", value: 9900, maxDiscountPaise: 0, minOrderPaise: 0, validTo: new Date(Date.now() + 15 * 86_400_000), usageLimit: 1, perUserLimit: 1, usedCount: 0, isPublic: false, isActive: true, approvalStatus: "live", fundedBy: "platform", owner: holders[i]._id, dish: reward.dish || null, dishName: "Gulab Jamun (2 pcs)", dishQty: 1, kitchens: [], cities: [], paymentMethods: [], loadTest: true, createdAt: new Date() }));
+    await insertAll(db.collection("rewardredemptions"), holders.length, (i) => ({ user: holders[i]._id, reward: reward._id, rewardName: reward.name, points: reward.points, couponCode: `RWL${String(i).padStart(7, "0")}`, expiresAt: new Date(Date.now() + 15 * 86_400_000), status: "issued", loadTest: true, createdAt: daysAgo(10) }));
+  }
+  const referees = users.filter((_, index) => index % 5 === 1);
+  await insertAll(db.collection("referrals"), referees.length, (i) => ({ referrer: users[(i * 7) % 1000]._id, referee: referees[i]._id, code: "LOADREF", status: random() < 0.6 ? "converted" : "pending", rejectReason: null, order: null, convertedAt: null, loadTest: true, createdAt: daysAgo(120) }));
+}
+
 // Make sure every index the API declares exists on the big collections.
-const models = ["../../src/modules/coupon/coupon.model.js", "../../src/modules/cart/cart.model.js", "../../src/modules/user/user.model.js", "../../src/modules/address/address.model.js", "../../src/modules/favorites/favorites.model.js", "../../src/modules/order/order.model.js", "../../src/modules/notification/notification.model.js", "../../src/modules/catalog/catalog.model.js", "../../src/modules/search/search.routes.js"];
+const models = ["../../src/modules/coupon/coupon.model.js", "../../src/modules/cart/cart.model.js", "../../src/modules/user/user.model.js", "../../src/modules/address/address.model.js", "../../src/modules/favorites/favorites.model.js", "../../src/modules/order/order.model.js", "../../src/modules/notification/notification.model.js", "../../src/modules/catalog/catalog.model.js", "../../src/modules/search/search.routes.js", "../../src/modules/rewards/ledger.model.js", "../../src/modules/rewards/rewards.model.js"];
 for (const file of models) await import(file);
 await Promise.all(Object.values(mongoose.models).map((model) => model.syncIndexes().catch((err) => console.warn(`  index sync ${model.modelName}: ${err.message}`))));
 
 const counts = {};
-for (const name of ["users", "addresses", "favorites", "searchlogs", "orders", "notifications", "kitchendishes"]) counts[name] = await db.collection(name).estimatedDocumentCount();
+for (const name of ["users", "addresses", "favorites", "searchlogs", "orders", "notifications", "kitchendishes", "rewardtransactions", "coupons", "referrals"]) counts[name] = await db.collection(name).estimatedDocumentCount();
 console.log("Load database now holds:", counts);
 await mongoose.disconnect();

@@ -60,6 +60,16 @@ test("coupons: min order, first order, percent cap", () => {
   assert.equal(evaluateCoupon({ ...coupon, validTo: new Date(Date.now() - 1000) }, { itemTotalPaise: 50000 }).reason, "expired");
 });
 
+test("reward coupons: owner only; a free dish takes the dish price (not add-ons) off, up to dishQty", () => {
+  const reward = { isActive: true, approvalStatus: "live", type: "flat", value: 13800, owner: "u1", dish: "naanKoramangala", dishName: "Garlic Naan", dishQty: 2, perUserLimit: 1, usageLimit: 1, usedCount: 0, title: "Free Garlic Naan (2 pcs)" };
+  const naan = (dishId, qty, base, unit = base) => ({ kind: "dish", dishId, name: "Garlic Naan", qty, basePricePaise: base, unitPricePaise: unit });
+  assert.equal(evaluateCoupon(reward, { userId: "u2", itemTotalPaise: 50000, lines: [naan("naanKoramangala", 2, 6900)] }).reason, "invalid");
+  assert.equal(evaluateCoupon(reward, { userId: "u1", itemTotalPaise: 50000, lines: [] }).reason, "dish_missing");
+  // Same dish name at another kitchen; 3 in the cart, 2 free; the add-on (₹10) stays paid.
+  assert.equal(evaluateCoupon(reward, { userId: "u1", itemTotalPaise: 50000, lines: [naan("naanHsr", 3, 6900, 7900)] }).discountPaise, 13800);
+  assert.equal(evaluateCoupon(reward, { userId: "u1", itemTotalPaise: 50000, lines: [naan("naanHsr", 1, 6900)] }).discountPaise, 6900);
+});
+
 test("kitchen hours: closures, weekly overrides and hours past midnight", () => {
   const kitchen = { status: "active", acceptingOrders: true, opensAt: "18:00", closesAt: "02:00", weeklyHours: [], closures: [{ date: "2026-10-10", reason: "Diwali" }] };
   assert.equal(hoursOn(kitchen, "2026-10-10").closed, true);

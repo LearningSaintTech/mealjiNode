@@ -82,7 +82,15 @@ export async function registerEventHandlers() {
   subscribe("reward.earned", "notify.reward", async (event) => {
     if (["cancellation", "admin"].includes(event.payload.source)) return;
     const { notify } = await import("../modules/notification/notification.service.js");
-    await notify({ userId: event.payload.userId, templateKey: "reward.earned", data: { reward: { points: event.payload.points, title: event.payload.source === "order" ? "For your delivered order" : event.payload.source === "review" ? "For rating your order" : event.payload.source === "referral" ? "Referral reward" : event.payload.source === "birthday" ? "Happy birthday from MealJi" : "Points added" } }, dedupeKey: `reward:${event.eventId}` });
+    const { points, source, title } = event.payload;
+    // The app's inbox wording: “You Earned 50 Points!” · “Yay! You earned 50 points for your recent order. …”
+    const body = {
+      order: `Yay! You earned ${points} points for your recent order.\nKeep ordering, keep earning!`,
+      review: `Thanks for rating your order! ${points} points have been added.`,
+      referral: title === "Welcome bonus" ? `Welcome to Meal Ji! ${points} points for joining with a friend's code.` : `Your friend just got their first order. ${points} points for you!`,
+      birthday: `Happy birthday! Here are ${points} points from Meal Ji.`,
+    }[source] || `${points} points have been added to your account.`;
+    await notify({ userId: event.payload.userId, templateKey: "reward.earned", data: { reward: { points, title, body } }, dedupeKey: `reward:${event.eventId}` });
   });
   subscribe("user.first_login", "notify.welcome", async (event) => {
     if (event.payload.role !== "user") return;
@@ -111,10 +119,11 @@ export async function registerEventHandlers() {
     const loyalty = (await resolveSetting("loyalty")).values;
     if (!loyalty.enabled || !loyalty.pointsPerOrder) return;
     const { earnPoints } = await import("../modules/rewards/ledger.service.js");
-    await earnPoints({ userId: event.payload.userId, points: loyalty.pointsPerOrder, source: "order", title: "Order delivered", referenceType: "order", referenceId: event.payload.orderId, dedupeKey: `order:${event.payload.orderId}:earn` });
     const { Order } = await import("../modules/order/order.model.js");
     const { KitchenDish } = await import("../modules/catalog/catalog.model.js");
-    const order = await Order.findById(event.payload.orderId).select("items").lean();
+    const order = await Order.findById(event.payload.orderId).select("items orderNumber").lean();
+    // Points history row: “Order #MJ-8921 +50”.
+    await earnPoints({ userId: event.payload.userId, points: loyalty.pointsPerOrder, source: "order", title: order?.orderNumber ? `Order #${order.orderNumber}` : "Order delivered", referenceType: "order", referenceId: event.payload.orderId, dedupeKey: `order:${event.payload.orderId}:earn` });
     for (const item of order?.items || []) {
       for (const part of item.dishIds || []) await KitchenDish.updateOne({ _id: part.dishId }, { $inc: { orderCount: part.qty } });
     }
@@ -137,7 +146,7 @@ export async function registerEventHandlers() {
     const loyalty = (await resolveSetting("loyalty")).values;
     if (!loyalty.enabled || !loyalty.pointsPerReview) return;
     const { earnPoints } = await import("../modules/rewards/ledger.service.js");
-    await earnPoints({ userId: event.payload.userId, points: loyalty.pointsPerReview, source: "review", title: "Rated your order", referenceType: "order_rating", referenceId: event.payload.orderId, dedupeKey: `order:${event.payload.orderId}:review` });
+    await earnPoints({ userId: event.payload.userId, points: loyalty.pointsPerReview, source: "review", title: "Review reward", referenceType: "order_rating", referenceId: event.payload.orderId, dedupeKey: `order:${event.payload.orderId}:review` });
   });
 
   // ---- analytics (server events are the source of truth for money)

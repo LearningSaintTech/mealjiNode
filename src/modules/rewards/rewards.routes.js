@@ -12,12 +12,14 @@ import "./reports.loyalty.js";
 
 const customer = Router();
 customer.use(authFor(["/rewards", "/referrals"], authMiddleware));
+// Rewards tab in one call: points card, Redeem Rewards, Earn More Points.
+customer.get("/rewards/overview", asyncHandler(async (req, res) => ok(res, await rewards.overview(req.auth.userId), "Rewards.")));
 customer.get("/rewards/summary", asyncHandler(async (req, res) => ok(res, await rewards.summary(req.auth.userId), "Rewards summary.")));
 customer.get("/rewards/catalog", asyncHandler(async (req, res) => ok(res, await rewards.catalog(req.auth.userId), "Reward catalogue.")));
 customer.get("/rewards/earn-methods", asyncHandler(async (req, res) => ok(res, await rewards.earnMethods(), "Ways to earn.")));
-customer.get("/rewards/history", pageQuery, validate, asyncHandler(async (req, res) => {
+customer.get("/rewards/history", pageQuery, query("period").optional().isIn(rewards.HISTORY_PERIODS.map((p) => p.key)).withMessage("period is this_month, last_month or all"), validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
-  return ok(res, await rewards.history(req.auth.userId, { page, limit }), "Points history.");
+  return ok(res, await rewards.history(req.auth.userId, { page, limit, period: req.query.period || "all" }), "Points history.");
 }));
 customer.get("/rewards/redemptions", asyncHandler(async (req, res) => ok(res, await rewards.myRedemptions(req.auth.userId), "Your rewards.")));
 customer.post("/rewards/:id/redeem", idParam(), validate, asyncHandler(async (req, res) => ok(res, await rewards.redeem(req.auth.userId, req.params.id), "Reward redeemed. Use the code at checkout.", 201)));

@@ -26,5 +26,8 @@ const rewardTransactionSchema = new mongoose.Schema(
 rewardTransactionSchema.index({ user: 1, createdAt: -1 });
 rewardTransactionSchema.index({ dedupeKey: 1 }, { unique: true, sparse: true });
 rewardTransactionSchema.index({ type: 1, expiresAt: 1, remaining: 1 });
+// Lots with points left: spending (oldest first), "expiring soon" and the daily expiry job.
+rewardTransactionSchema.index({ user: 1, expiresAt: 1, createdAt: 1 }, { partialFilterExpression: { remaining: { $gt: 0 } } });
+rewardTransactionSchema.index({ expiresAt: 1 }, { partialFilterExpression: { remaining: { $gt: 0 } } });
 
 export const RewardTransaction = mongoose.model("RewardTransaction", rewardTransactionSchema);

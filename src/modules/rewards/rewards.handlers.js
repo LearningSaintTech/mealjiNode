@@ -16,4 +16,12 @@ export function registerHandlers(subscribe) {
     const { RewardRedemption } = await import("./rewards.model.js");
     await RewardRedemption.updateOne({ couponCode: order.couponCode, status: "issued" }, { $set: { status: "used" } });
   });
+  // The order was cancelled: its reward code can be used again (the coupon use is released too).
+  subscribe("order.cancelled", "loyalty.reward_coupon_back", async (event) => {
+    const { Order } = await import("../order/order.model.js");
+    const order = await Order.findById(event.payload.orderId).select("couponCode").lean();
+    if (!order?.couponCode?.startsWith("RW")) return;
+    const { RewardRedemption } = await import("./rewards.model.js");
+    await RewardRedemption.updateOne({ couponCode: order.couponCode, status: "used", expiresAt: { $gt: new Date() } }, { $set: { status: "issued" } });
+  });
 }

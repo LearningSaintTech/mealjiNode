@@ -21,6 +21,8 @@ export function toCoupon(coupon, { admin = false } = {}) {
     validTo: coupon.validTo ?? null,
     firstOrderOnly: Boolean(coupon.firstOrderOnly),
     paymentMethods: coupon.paymentMethods || [],
+    isReward: Boolean(coupon.owner),
+    dishId: coupon.dish ? String(coupon.dish) : null,
   };
   if (!admin) return view;
   return {
@@ -60,7 +62,7 @@ async function userContext(userId) {
 }
 
 /** Validates a code for a cart. Returns { coupon, result } (result.valid may be false). */
-export async function checkCode(code, { userId, kitchenId, city, itemTotalPaise, paymentMethod = null }) {
+export async function checkCode(code, { userId, kitchenId, city, itemTotalPaise, paymentMethod = null, lines = [] }) {
   const coupon = await Coupon.findOne({ code: String(code || "").trim().toUpperCase() }).lean();
   if (!coupon) return { coupon: null, result: { valid: false, reason: "invalid", message: "This code is not valid", discountPaise: 0 } };
   const ctx = await userContext(userId);
@@ -72,16 +74,19 @@ export async function checkCode(code, { userId, kitchenId, city, itemTotalPaise,
     userDeliveredOrders: ctx.delivered,
     userRedemptions: ctx.redemptions.get(String(coupon._id)) || 0,
     segmentIds: ctx.segmentIds,
+    userId,
+    lines,
   });
   return { coupon, result };
 }
 
-/** Offers the customer can see for this cart, applicable ones first. */
-export async function availableCoupons({ userId, kitchenId, city, itemTotalPaise }) {
+/** Offers the customer can see for this cart (public ones + their own rewards), applicable ones first. */
+export async function availableCoupons({ userId, kitchenId, city, itemTotalPaise, lines = [] }) {
   const now = new Date();
+  const owner = userId ? new mongoose.Types.ObjectId(String(userId)) : null;
   const coupons = await Coupon.find({
     isActive: true,
-    isPublic: true,
+    $or: [{ isPublic: true, owner: null }, ...(owner ? [{ owner }] : [])],
     approvalStatus: "live",
     $and: [
       { $or: [{ validFrom: null }, { validFrom: { $lte: now } }] },
@@ -98,11 +103,13 @@ export async function availableCoupons({ userId, kitchenId, city, itemTotalPaise
       userRedemptions: ctx.redemptions.get(String(coupon._id)) || 0,
       segmentIds: ctx.segmentIds,
       now,
+      userId,
+      lines,
     });
     // Hide offers that can never apply to this person here.
     if (["kitchen", "city", "segment", "used", "first_order", "exhausted"].includes(result.reason)) return null;
     return { ...toCoupon(coupon), applicable: result.valid, message: result.message, discountPaise: result.discountPaise, shortByPaise: result.shortByPaise || 0 };
-  }).filter(Boolean).sort((a, b) => Number(b.applicable) - Number(a.applicable) || b.discountPaise - a.discountPaise);
+  }).filter(Boolean).sort((a, b) => Number(b.isReward) - Number(a.isReward) || Number(b.applicable) - Number(a.applicable) || b.discountPaise - a.discountPaise);
 }
 
 /** Reserves a redemption for an order (inside the placement transaction). */

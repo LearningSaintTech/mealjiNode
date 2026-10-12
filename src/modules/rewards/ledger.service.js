@@ -39,7 +39,7 @@ export async function earnPoints({ userId, points, source, title, referenceType 
     }], session ? { session } : {});
     await User.updateOne({ _id: userId }, { $inc: { pointsBalance: points, lifetimePoints: points } }, { session: session || undefined });
     await refreshTier(userId);
-    await publishEventSafe("reward.earned", { userId: String(userId), points, source, referenceId });
+    await publishEventSafe("reward.earned", { userId: String(userId), points, source, title, referenceId });
     return row;
   } catch (err) {
     if (err?.code === 11000) return null;

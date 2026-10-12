@@ -15,6 +15,7 @@ const rewardSchema = new mongoose.Schema(
     maxDiscountPaise: { type: Number, default: 0 },
     minOrderPaise: { type: Number, default: 0 },
     dish: { type: ObjectId, ref: "KitchenDish", default: null },
+    dishQty: { type: Number, default: 1, min: 1, max: 10 }, // dish rewards: pieces given free
     validDays: { type: Number, default: 30 },
     stock: { type: Number, default: 0 }, // 0 = unlimited
     redeemedCount: { type: Number, default: 0 },

@@ -1,4 +1,4 @@
-// Runs the queries behind the Step 01–07 APIs on the LOAD database and reads
+// Runs the queries behind the Step 01–12 APIs on the LOAD database and reads
 // MongoDB's query plans: every query must use an index and read about as many
 // documents as it returns. A full collection scan (COLLSCAN) or a query that
 // reads far more than it returns fails the check.
@@ -18,6 +18,9 @@ if (!user || !kitchen) {
   process.exit(1);
 }
 const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+// Step 12 uses the customer with the biggest points ledger (1 in 100 has 50x the rows).
+const heavy = (await db.collection("rewardtransactions").aggregate([{ $match: { loadTest: true } }, { $sortByCount: "$user" }, { $limit: 1 }]).toArray())[0]?._id || user._id;
+const monthStart = new Date(Date.now() - 30 * 86_400_000);
 
 const CHECKS = [
   ["02 sign-in: user by phone", "users", { find: { countryCode: "+91", phoneNumber: user.phoneNumber } }],
@@ -36,6 +39,16 @@ const CHECKS = [
   ["08 offers: delivered orders (first-order offers)", "orders", { find: { user: user._id, status: "delivered" } }],
   ["11 inbox page (a tab)", "notifications", { find: { user: user._id, category: "orders" }, sort: { createdAt: -1 }, limit: 20 }],
   ["11 unread per tab", "notifications", { aggregate: [{ $match: { user: user._id, isRead: false } }, { $group: { _id: "$category", n: { $sum: 1 } } }] }],
+  ["12 points history page", "rewardtransactions", { find: { user: heavy }, sort: { createdAt: -1 }, limit: 20 }],
+  ["12 points history: This Month", "rewardtransactions", { find: { user: heavy, createdAt: { $gte: monthStart } }, sort: { createdAt: -1 }, limit: 20 }],
+  ["12 expiring soon (points card)", "rewardtransactions", { aggregate: [{ $match: { user: heavy, remaining: { $gt: 0 }, expiresAt: { $ne: null, $lte: new Date(Date.now() + 30 * 86_400_000) } } }, { $group: { _id: null, points: { $sum: "$remaining" } } }] }],
+  ["12 redeem: oldest lots first", "rewardtransactions", { find: { user: heavy, remaining: { $gt: 0 } }, sort: { expiresAt: 1, createdAt: 1 } }],
+  ["12 daily job: expired lots", "rewardtransactions", { find: { remaining: { $gt: 0 }, expiresAt: { $ne: null, $lte: new Date() } }, limit: 5000 }],
+  ["12 my reward codes", "rewardredemptions", { find: { user: user._id }, sort: { createdAt: -1 }, limit: 50 }],
+  ["12 offers: my reward codes", "coupons", { find: { owner: user._id, isActive: true }, limit: 50 }],
+  ["12 referral code lookup", "users", { find: { referralCode: "LOADREF0" } }],
+  ["12 my referrals", "referrals", { find: { referrer: user._id }, sort: { createdAt: -1 }, limit: 100 }],
+  ["12 referral payout check", "referrals", { find: { referee: user._id, status: "pending" } }],
   ["07 search: trending (7 days)", "searchlogs", { aggregate: [{ $match: { createdAt: { $gte: weekAgo }, results: { $gt: 0 } } }, { $group: { _id: "$normalized", n: { $sum: 1 } } }], allowScan: true }],
 ];
 

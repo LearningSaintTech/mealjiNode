@@ -172,7 +172,8 @@ const DEMO_KITCHENS = [
 async function activateAccount(userId) {
   const user = await userRepository.findById(userId);
   if (!user || user.isNumberVerified || user.suspendedAt) return;
-  await userRepository.updateById(userId, { isActive: true, isNumberVerified: true });
+  // Demo customers come with order history: they are returning users, not new ones.
+  await userRepository.updateById(userId, { isActive: true, isNumberVerified: true, lastLoginAt: user.lastLoginAt || user.createdAt || new Date() });
 }
 
 async function seedDemo() {

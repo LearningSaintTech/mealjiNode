@@ -26,6 +26,11 @@ const couponSchema = new mongoose.Schema(
     kitchen: { type: ObjectId, ref: "Kitchen", default: null },
     approvalStatus: { type: String, enum: ["live", "pending", "rejected"], default: "live" },
     isPublic: { type: Boolean, default: true }, // listed in "available offers"
+    // Reward coupons (bought with points) belong to one customer and may make one dish free.
+    owner: { type: ObjectId, ref: "User", default: null },
+    dish: { type: ObjectId, ref: "KitchenDish", default: null },
+    dishName: { type: String, default: null },
+    dishQty: { type: Number, default: 1 },
     isActive: { type: Boolean, default: true },
     usedCount: { type: Number, default: 0 },
     createdBy: { type: ObjectId, ref: "User", default: null },
@@ -34,6 +39,7 @@ const couponSchema = new mongoose.Schema(
 );
 couponSchema.index({ code: 1 }, { unique: true });
 couponSchema.index({ isActive: 1, validTo: 1 });
+couponSchema.index({ owner: 1, validTo: 1 }, { partialFilterExpression: { owner: { $type: "objectId" } } });
 export const Coupon = mongoose.model("Coupon", couponSchema);
 
 const redemptionSchema = new mongoose.Schema(
