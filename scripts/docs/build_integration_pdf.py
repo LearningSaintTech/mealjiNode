@@ -14,7 +14,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import CondPageBreak, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, XPreformatted
 
 ROOT = r"C:\officeProjects\mealJiBackend"
-OUT = ROOT + r"\MealJi_App_Integration_Guide.pdf"
+OUT = ROOT + r"\mealJiNode\docs\MealJi_App_Integration_Guide.pdf"
 collection = json.load(open(ROOT + r"\mealJiNode\postman\mealJiNode.postman_collection.json", encoding="utf-8"))
 # Newest result per step across all reports in test-reports/.
 _latest = {}
