@@ -438,7 +438,7 @@ for st in STEPS:
     s += [CondPageBreak(50 * mm), p(f"Backend tests · {r['passed']}/{r['total']} passed", H2), table(rows, [15 * mm, W - 33 * mm, 18 * mm])]
 
 # ------------------------------------------------------------ load and scale
-s += [PageBreak(), p("Load and scale testing (steps 01–07)", H1),
+s += [PageBreak(), p("Load and scale testing (steps 01–12)", H1),
       p("Two questions: do the APIs stay fast with a lot of data, and with many people using the app at once? Tests run on a separate database (<font face='Mono' size='8'>mealji_load</font>) so the demo data is never touched; SMS, Google Maps and S3 are switched off for these runs.", BODY)]
 s += [p("Large data", H2), table([
     ["Data", "Amount"],
@@ -447,6 +447,8 @@ s += [p("Large data", H2), table([
     ["Orders (history) / notifications", "200,000 / 500,000"],
     ["Search history", "500,000"],
     ["Dishes per kitchen menu", "200"],
+    ["Points history rows (1 customer in 100 has 1,000)", "1,490,000"],
+    ["Reward codes / referrals", "16,667 / 10,000"],
 ], [90 * mm, W - 90 * mm])]
 try:
     idx = json.load(open(ROOT + r"\mealJiNode\test-reports\load-indexes.json", encoding="utf-8"))
@@ -475,6 +477,13 @@ s += [p("Many users at once", H2),
       ], [90 * mm, 30 * mm, W - 120 * mm]),
       p("With step 9 (placing orders and paying) in the mix, 25 concurrent: 160 requests/s, p95 319 ms; placing an order p95 606 ms and pay + verify 650 ms (about 19 database calls each at the laptop's 2 ms per call) — just over the 500 ms write target here, expected to drop on production servers.", SMALL),
       p("Same laptop, same 10 concurrent users: 44 → 129 requests/s, p95 569 → 161 ms (about 3× more capacity per server process). With step 8 added: 143 requests/s, p95 138 ms, every endpoint within target. With 8 processes: 25 concurrent ≈ 960 active users at 192 requests/s, p95 236 ms (all pass); 50 concurrent at 297 requests/s, p95 402 ms (a few write calls just over target).", SMALL)]
+s += [p("Step 12 (rewards) under load — 12 Oct", H3)] + bullets([
+    "Every rewards query uses an index on 1.49 million points-history rows, also for the customer with the longest history (1,000 rows): history page 1–3 ms, “expiring soon” 19 ms, spending points (oldest first) 24 ms, the daily expiry job 79 ms per 5,000 lots.",
+    "Found and fixed: the checkout Offers list (public offers + the customer's reward codes) read 16,674 coupons per call (114 ms); with a plain owner index it reads 15 (6 ms).",
+    "One call at a time on the large data, the rewards screens cost the same as or less than Menu and Home: Rewards tab 25–120 ms, points history 25–89 ms, referrals 44–49 ms, wallet card 20–45 ms (Menu 64–92 ms, Home 141–156 ms) — the heaviest customer is no slower than a normal one.",
+    "Redeem burst: 200 customers double-tapped Redeem at the same moment (400 taps) → exactly 200 redeemed and 200 refused as a second tap; nobody was charged twice, no balance went below zero, and every charge has one reward code and one history row.",
+    "The many-users run on 12 Oct had no errors (0 server errors in 2,611 requests) but its speed is not usable: the laptop's CPU was at 100% from other work (28 requests/s against 192 on 9 Oct with the same test). It must be repeated on an idle machine or on staging.",
+])
 s += [p("What was changed for scale", H3)] + bullets([
     "The sign-in check ran once per router (up to 4 times per request); now once, with roles and permissions cached for 30 s.",
     "The serving kitchen, active kitchen list, app config, live Meal Ji Plus plans and resolved settings are kept in memory for a few seconds (cleared immediately on changes), instead of being read from MongoDB/Redis on every request.",
@@ -484,6 +493,7 @@ s += [p("What was changed for scale", H3)] + bullets([
     "Cart: dishes and combos are priced from the cached live menu (stock is still re-checked when the order is placed); the offers list no longer re-prices the whole bill; GST entity per kitchen cached 30 s.",
     "Two quick taps on + used to lose items (8 taps → 1 in the cart). The cart now detects a parallel save and retries on fresh data (optimistic concurrency).",
     "New index for a customer's coupon history (the cart reads it on every view): reads 1 record instead of scanning all redemptions.",
+    "Points ledger: indexes for the lots that still have points (spending, “expiring soon”, the daily expiry job); coupons: a plain owner index for the Offers list with reward codes.",
     "One API process uses one CPU core (about 140 requests/s on the test laptop). `npm run start:cluster` runs one process per core; background jobs run once in `npm run worker`. Live updates go through Redis, so this needs no sticky sessions.",
 ])
 s += [p("Limits of these numbers", H3)] + bullets([

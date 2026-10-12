@@ -39,7 +39,9 @@ const couponSchema = new mongoose.Schema(
 );
 couponSchema.index({ code: 1 }, { unique: true });
 couponSchema.index({ isActive: 1, validTo: 1 });
-couponSchema.index({ owner: 1, validTo: 1 }, { partialFilterExpression: { owner: { $type: "objectId" } } });
+// Offers list: public coupons (owner null) + this customer's reward codes. A plain index
+// (a partial one is not used for `owner: <id>` / `owner: null`).
+couponSchema.index({ owner: 1, isActive: 1, validTo: 1 });
 export const Coupon = mongoose.model("Coupon", couponSchema);
 
 const redemptionSchema = new mongoose.Schema(

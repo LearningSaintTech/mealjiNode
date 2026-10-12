@@ -26,6 +26,8 @@
     "load:api:profile": "node scripts/load/api.js --profile=45",
     "load:profile-top": "node scripts/load/profileTop.js",
     "load:api:opcount": "node scripts/load/api.js --opcount",
+    "load:relative": "node --import ./scripts/load/loadEnv.js scripts/load/relative.js",
+    "load:redeem-burst": "node --import ./scripts/load/loadEnv.js scripts/load/redeemBurst.js --users=200",
     "start:cluster": "node src/cluster.js",
     "load:api:cluster": "node --import ./scripts/load/loadEnv.js src/cluster.js"
   },
