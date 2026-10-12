@@ -149,5 +149,20 @@ export default async function step06() {
       detail: `toggle on → non-veg on Home/Menu/Dishes/Combos/Search/Popular/Suggestions: ${vegLists.map(nonVeg).join("/")} · ?veg=false shows ${nonVeg(override.items)} non-veg, saved stays ${still} · toggle off → ${nonVeg(dishesAll.items)} non-veg`,
     };
   });
+  await s.run("06-22", "Menu tabs, header cards and dish badges as the app draws them", "Menu tabs with icons · MEAL COMBOS card · Combos header · Dish badges, Share, Make it a meal", async () => {
+    const menu = (await me.call("GET", "/menu")).data;
+    const [menuHero, intro, hero] = await Promise.all(["menu_hero", "combos_intro", "combos_hero"].map(async (p) => (await me.call("GET", `/banners?placement=${p}`)).data || []));
+    const dish = menu.categories.flatMap((c) => c.dishes).find((d) => d.mealUpgrade && d.highlights.length);
+    const detail = (await me.call("GET", `/menu/items/${dish.dishId}`)).data;
+    const u = detail.mealUpgrade;
+    const combos = (await me.call("GET", "/combos")).data || [];
+    const tabsOk = menu.categories.every((c) => /^[a-z0-9-]+$/.test(c.slug) && c.icon);
+    return {
+      ok: tabsOk && menu.categories.some((c) => c.slug === "biryani") && menuHero[0]?.title === "MEAL COMBOS" && menuHero[0]?.ctaLabel === "Explore Combos" && intro[0]?.eyebrow === "Curated by the chef" && hero[0]?.ctaLabel === "Signature Meal"
+        && detail.highlightBadges.every((b) => b.label && b.icon) && detail.deepLink === `mealji://dish/${detail.dishId}` && detail.shareUrl
+        && u.totalPricePaise === detail.pricePaise + u.pricePaise && u.totalOriginalPricePaise - u.totalPricePaise === u.totalSavingsPaise && !combos.some((c) => /^save/i.test(c.badge || "")),
+      detail: `tabs ${menu.categories.map((c) => `${c.slug}:${c.icon}`).join(" ")} · ${menuHero[0]?.title} / ${hero[0]?.ctaLabel} · ${detail.highlightBadges.map((b) => `${b.label}:${b.icon}`).join(", ")} · meal ₹${u.totalOriginalPricePaise / 100}→₹${u.totalPricePaise / 100}`,
+    };
+  });
   return s;
 }

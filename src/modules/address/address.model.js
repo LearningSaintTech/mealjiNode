@@ -35,7 +35,9 @@ export function displayLabel(address) {
 }
 
 export function fullAddress(address) {
-  return [address.houseFlat, address.street, address.locality, address.landmark ? `Near ${address.landmark}` : null, address.city, address.state, address.pincode]
+  // “Near Sony Signal” stays as typed (no “Near Near …”).
+  const landmark = address.landmark ? (/^near\b/i.test(address.landmark.trim()) ? address.landmark.trim() : `Near ${address.landmark.trim()}`) : null;
+  return [address.houseFlat, address.street, address.locality, landmark, address.city, address.state, address.pincode]
     .filter(Boolean)
     .join(", ");
 }

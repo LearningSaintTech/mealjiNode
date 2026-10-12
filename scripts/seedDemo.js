@@ -179,17 +179,19 @@ async function seedImages() {
 
 // ------------------------------------------------------------------ menu (from the customer app)
 
-// Today's Menu on the app's home shows Paneer, Daal and Roti first.
+// Today's Menu on the app's home shows Paneer, Daal and Roti first. `icon` is the
+// app's icon name on the Menu tabs (Biryani utensils, Meals gift, Curries fire,
+// Snacks sparkles, Beverages clock, Desserts heart).
 const MASTER_CATEGORIES = [
-  { name: "Paneer", subtitle: "Paneer, every way you like it", image: "paneerBao", sortOrder: 0 },
-  { name: "Daal & Curries", subtitle: "Slow-simmered comfort", image: "dalRamen", sortOrder: 1 },
-  { name: "Roti & Rice", subtitle: "Fresh off the tawa", image: "butterNaan", sortOrder: 2 },
-  { name: "Meal Ji Meals", subtitle: "The complete feast", image: "mealJiMeal", sortOrder: 3 },
-  { name: "Signature Bowls", subtitle: "Our chef's signature bowls", image: "butterChickenBowl", sortOrder: 4 },
-  { name: "Biryani", subtitle: "Aromatic. Authentic. Always a good idea.", image: "chickenBiryani", sortOrder: 5 },
-  { name: "Small Bites", subtitle: "Bao, wraps and street snacks", image: "biryaniArancini", sortOrder: 6 },
-  { name: "Desserts & Shakes", subtitle: "Something sweet", image: "gulabCheesecake", sortOrder: 7 },
-  { name: "Drinks", subtitle: "Chilled and refreshing", image: "coldDrink", sortOrder: 8 },
+  { name: "Paneer", subtitle: "Paneer, every way you like it", image: "paneerBao", icon: "leaf", sortOrder: 0 },
+  { name: "Daal & Curries", subtitle: "Slow-simmered comfort", image: "dalRamen", icon: "fire", sortOrder: 1 },
+  { name: "Roti & Rice", subtitle: "Fresh off the tawa", image: "butterNaan", icon: "food", sortOrder: 2 },
+  { name: "Meal Ji Meals", subtitle: "The complete feast", image: "mealJiMeal", icon: "gift", sortOrder: 3 },
+  { name: "Signature Bowls", subtitle: "Our chef's signature bowls", image: "butterChickenBowl", icon: "star", sortOrder: 4 },
+  { name: "Biryani", subtitle: "Aromatic. Authentic. Always a good idea.", image: "chickenBiryani", icon: "utensils", sortOrder: 5 },
+  { name: "Small Bites", subtitle: "Bao, wraps and street snacks", image: "biryaniArancini", icon: "sparkles", sortOrder: 6 },
+  { name: "Desserts & Shakes", subtitle: "Something sweet", image: "gulabCheesecake", icon: "heart", sortOrder: 7 },
+  { name: "Drinks", subtitle: "Chilled and refreshing", image: "coldDrink", icon: "clock", sortOrder: 8 },
 ];
 
 const RICE_PORTION = { name: "Choose Rice Portion", minSelect: 1, maxSelect: 1, options: [{ name: "Regular Jeera Rice" }, { name: "Extra Butter Jeera Rice", pricePaise: 4000 }, { name: "Fragrant Biryani Rice", pricePaise: 6000 }] };
@@ -248,7 +250,7 @@ const KITCHEN_SETUP = {
     skip: [],
     combos: [
       { title: "Biryani Feast for 4", subtitle: "2 chicken, 1 mutton and 1 paneer biryani", image: "comboSpread", items: [["Chicken Biryani", 2], ["Mutton Biryani", 1], ["Paneer Biryani", 1]], pricePaise: 119900, originalPricePaise: 135600, isSignature: true, serves: 4, badge: "Party pack" },
-      { title: "Sharing Platter for 2", subtitle: "2 butter chicken bowls, arancini and cheesecake", image: "mealSharingPlate", items: [["Butter Chicken Bowl", 2], ["Biryani Arancini (4 pcs)", 1], ["Gulab Cheesecake", 1]], pricePaise: 99900, originalPricePaise: 116600, isSignature: true, serves: 2, badge: "Save ₹167" },
+      { title: "Sharing Platter for 2", subtitle: "2 butter chicken bowls, arancini and cheesecake", image: "mealSharingPlate", items: [["Butter Chicken Bowl", 2], ["Biryani Arancini (4 pcs)", 1], ["Gulab Cheesecake", 1]], pricePaise: 99900, originalPricePaise: 116600, isSignature: true, serves: 2, badge: "Chef's pick" },
       { title: "Complete Meal", subtitle: "Butter chicken, garlic naan, jeera rice and gulab jamun", image: "completeMeal", items: [["Butter Chicken", 1], ["Garlic Naan", 1], ["Jeera Rice", 1], ["Gulab Jamun (2 pcs)", 1]], pricePaise: 54900, originalPricePaise: 64600 },
       { title: "Bao & Bowl", subtitle: "Paneer bao with a dal ramen", image: "mealBaoBowl", items: [["Paneer Bao (3 pcs)", 1], ["Dal Ramen", 1]], pricePaise: 44900, originalPricePaise: 58800, badge: "BESTSELLER" },
       { title: "Solo Wrap Meal", subtitle: "Chicken tikka wrap, gunpowder fries and a drink", image: "mealWrapSolo", items: [["Chicken Tikka Wrap", 1], ["Masala Gunpowder Fries", 1], ["Chilled Soft Drink", 1]], pricePaise: 44900, originalPricePaise: 50700 },
@@ -392,7 +394,7 @@ async function seedCatalog(kitchens, img) {
     for (const { image, ...category } of MASTER_CATEGORIES) {
       let row = await KitchenCategory.findOne({ kitchen: kitchenId, name: category.name }).lean();
       if (!row) row = { _id: (await catalog.createCategory(kitchenId, { ...category, imageUrl: img[image] || null })).categoryId };
-      else await KitchenCategory.updateOne({ _id: row._id }, { $set: { imageUrl: img[image] || null, sortOrder: category.sortOrder, subtitle: category.subtitle } });
+      else await KitchenCategory.updateOne({ _id: row._id }, { $set: { imageUrl: img[image] || null, sortOrder: category.sortOrder, subtitle: category.subtitle, icon: category.icon } });
       const wanted = MASTER_DISHES.filter(([categoryName, name]) => categoryName === category.name && !setup.skip.includes(name)).map(([, name]) => masterIds[name]);
       if (wanted.length) {
         const missing = [];
@@ -510,11 +512,16 @@ async function seedContent(kitchens, img) {
     { placement: "home_hero", eyebrow: "MEAL JI PLUS", title: "MEALS SORTED FOR THE MONTH", highlight: "SORTED", subtitle: "Plans from ₹3,499 a month with free delivery.", ctaLabel: "See plans", deepLink: "mealji://plus", image: "heroKitchenChef", sortOrder: 3 },
     { placement: "home_combos", title: "MEAL COMBOS", highlight: "COMBOS", subtitle: "Great food. Better together.", ctaLabel: "Explore Combos", deepLink: "mealji://menu?tab=combos", image: "mealCombos", sortOrder: 0 },
     { placement: "home_how_we_cook", title: "How we cook", subtitle: "24-hour makhani, breads puffed to order, zero preservatives.", deepLink: "mealji://about-chef", image: "howWeCook", sortOrder: 0 },
-    { placement: "menu_hero", title: "Today's bestsellers", subtitle: "What Bengaluru is ordering right now", deepLink: "mealji://menu?sort=popular", image: "comboSpread", sortOrder: 0 },
+    // Menu tab's card and the Combos screen header, as the app draws them.
+    { placement: "menu_hero", title: "MEAL COMBOS", highlight: "COMBOS", subtitle: "Great food. Better together.", ctaLabel: "Explore Combos", deepLink: "mealji://combos", image: "mealCombos", sortOrder: 0 },
+    { placement: "combos_intro", eyebrow: "Curated by the chef", title: "Meal Ji Meals", highlight: "Meals", subtitle: "Complete combos, priced fairly.\nSkip the decisions, keep the eating.", image: "comboSpread", sortOrder: 0 },
+    { placement: "combos_hero", eyebrow: "MEAL JI MEALS", title: "Bigger Meals\nHappier Moments", highlight: "Happier Moments", subtitle: "Chef-curated combos for every mood.", ctaLabel: "Signature Meal", deepLink: "mealji://combos?signature=true", image: "mealJiMeal", sortOrder: 0 },
     { placement: "offers", title: "Flat ₹150 off this weekend", subtitle: "Code FOODIE150 on orders above ₹599", couponCode: "FOODIE150", image: "dealsGiftbox", sortOrder: 0 },
     { placement: "offers", title: "Free delivery above ₹249", subtitle: "Code FREEDEL", couponCode: "FREEDEL", image: "dealsScooter", sortOrder: 1 },
     { placement: "offers", title: "20% off up to ₹100", subtitle: "Code MEALJI20 on orders above ₹299", couponCode: "MEALJI20", image: "dealsChefKiss", sortOrder: 2 },
   ];
+  // The old Menu card (“Today's bestsellers”) was replaced by the app's combos card.
+  await Banner.deleteMany({ placement: "menu_hero", title: "Today's bestsellers" });
   // Earlier seeds had the header promo as a banner; the home theme carries it now.
   await Banner.deleteMany({ placement: "home_promo", title: "Foodie Weekend" });
   for (const { image, ...banner } of banners) {
@@ -660,16 +667,19 @@ async function seedSupportAndRewards(kitchens, img) {
   ];
   for (const [title, body, category] of canned) if (!(await CannedReply.exists({ title }))) await support.saveCanned(null, { title, body, category });
 
-  // The app's rewards screen shows dish rewards (garlic naan, gulab jamun, cold coffee, butter chicken).
+  // The app's Rewards screen: Free Butter Chicken Bowl 800, Free Cold Coffee 400,
+  // Free Gulab Jamun 300, Free Garlic Naan (2 pcs) 500, plus two non-dish rewards.
   const dish = async (name) => (await KitchenDish.findOne({ kitchen: kitchens.Koramangala?._id, name }).lean())?._id;
   const catalogRewards = [
-    { name: "Free Garlic Naan", description: "Added to your next order", points: 300, kind: "dish", value: 0, dishName: "Garlic Naan", image: "garlicNaan", validDays: 15, sortOrder: 0 },
-    { name: "Free Gulab Jamun", description: "Added to your next order", points: 400, kind: "dish", value: 0, dishName: "Gulab Jamun (2 pcs)", image: "gulabJamun", validDays: 15, sortOrder: 1 },
-    { name: "Free Cold Coffee", description: "Added to your next order", points: 600, kind: "dish", value: 0, dishName: "Cold Coffee", image: "coldCoffee", validDays: 15, sortOrder: 2 },
-    { name: "₹50 off your next order", description: "Minimum order ₹199", points: 500, kind: "flat", value: 5000, minOrderPaise: 19900, image: "rewardsChefGift", validDays: 30, sortOrder: 3 },
-    { name: "Free delivery", description: "On any one order", points: 300, kind: "free_delivery", value: 0, image: "dealsScooter", validDays: 30, sortOrder: 4 },
-    { name: "Free Butter Chicken (Gold Kadai & above)", description: "Our 24-hour makhani, on us", points: 1500, kind: "dish", value: 0, dishName: "Butter Chicken", image: "rewardsButterChicken", validDays: 30, tiers: ["Gold Kadai", "Black Makhani"], sortOrder: 5 },
+    { name: "Free Butter Chicken Bowl", description: "Our signature bowl, on us", points: 800, kind: "dish", value: 0, dishName: "Butter Chicken Bowl", image: "rewardsButterChicken", validDays: 30, sortOrder: 0 },
+    { name: "Free Cold Coffee", description: "Added to your next order", points: 400, kind: "dish", value: 0, dishName: "Cold Coffee", image: "coldCoffee", validDays: 15, sortOrder: 1 },
+    { name: "Free Gulab Jamun", description: "Added to your next order", points: 300, kind: "dish", value: 0, dishName: "Gulab Jamun (2 pcs)", image: "gulabJamun", validDays: 15, sortOrder: 2 },
+    { name: "Free Garlic Naan (2 pcs)", description: "Added to your next order", points: 500, kind: "dish", value: 0, dishQty: 2, dishName: "Garlic Naan", image: "garlicNaan", validDays: 15, sortOrder: 3 },
+    { name: "₹50 off your next order", description: "Minimum order ₹199", points: 500, kind: "flat", value: 5000, minOrderPaise: 19900, image: "rewardsChefGift", validDays: 30, sortOrder: 4 },
+    { name: "Free delivery", description: "On any one order", points: 300, kind: "free_delivery", value: 0, image: "dealsScooter", validDays: 30, sortOrder: 5 },
   ];
+  // Retired names from earlier seeds.
+  await Reward.deleteMany({ name: { $in: ["Free Garlic Naan", "Free Butter Chicken (Gold Kadai & above)"] } });
   for (const { dishName, image, ...reward } of catalogRewards) {
     const data = { ...reward, imageUrl: img[image] || null, isActive: true };
     if (dishName) {
@@ -818,6 +828,10 @@ async function advance(orderId, target, random) {
 
 async function seedOrders(customers) {
   const demoUsers = Object.values(customers).map((item) => item.user._id);
+  // Ratings from older seeds used tags the app does not offer: use the app's chips.
+  for (const [old, now] of [["Tasty", "Delicious"], ["Good portion", "On time"]]) {
+    await Order.updateMany({ user: { $in: demoUsers }, "rating.tags": old }, { $set: { "rating.tags.$[tag]": now } }, { arrayFilters: [{ tag: old }] });
+  }
   if (await Order.exists({ user: { $in: demoUsers } })) {
     logger.info("Demo orders already exist; skipping order history (use --fresh to rebuild)");
     return 0;
@@ -845,7 +859,7 @@ async function seedOrders(customers) {
       if (target === "delivered" && plan.payment === "cod") await invoiceOrder(await Order.findById(orderId).lean());
       if (target === "delivered" && random() < 0.65) {
         const food = random() < 0.75 ? 5 : random() < 0.6 ? 4 : 3;
-        await orders.rateOrder(entry.user._id, orderId, { foodRating: food, deliveryRating: food >= 4 ? 5 : 4, comment: RATING_COMMENTS[Math.floor(random() * RATING_COMMENTS.length)], tags: food === 5 ? ["Tasty", "Fresh"] : ["Good portion"] });
+        await orders.rateOrder(entry.user._id, orderId, { foodRating: food, deliveryRating: food >= 4 ? 5 : 4, comment: RATING_COMMENTS[Math.floor(random() * RATING_COMMENTS.length)], tags: food === 5 ? ["Delicious", "Fresh"] : ["On time"] });
       }
       const hour = dinner ? "19:" : "12:";
       const at = istDateTime(addIstDays(today, -daysAgo), `${hour}${String(10 + Math.floor(random() * 45)).padStart(2, "0")}`);
@@ -978,13 +992,17 @@ async function realignDemoPromises() {
 
 // ------------------------------------------------------------------ app settings
 
-// Switches the app's screens need on for the demo: Checkout's “Schedule for later”.
+// Switches the app's screens need on for the demo: Checkout's “Schedule for later”
+// and “Tip for your rider (₹20 / ₹30 / ₹50)”.
 async function seedAppSettings(actor) {
   const { resolveSetting, updateSetting } = await import("../src/modules/settings/settings.service.js");
-  const app = (await resolveSetting("app")).values;
-  if (app.featureScheduledDelivery) return;
   const req = { auth: { userId: actor.userId ? String(actor.userId) : null, role: actor.role, user: { name: actor.name } }, headers: {}, ip: "127.0.0.1" };
-  await updateSetting("app", { values: { featureScheduledDelivery: true }, reason: "Demo: Checkout shows Schedule for later" }, { req });
+  if (!(await resolveSetting("app")).values.featureScheduledDelivery) {
+    await updateSetting("app", { values: { featureScheduledDelivery: true }, reason: "Demo: Checkout shows Schedule for later" }, { req });
+  }
+  if (!(await resolveSetting("pricing")).values.tipEnabled) {
+    await updateSetting("pricing", { values: { tipEnabled: true }, reason: "Demo: Checkout shows Tip for your rider" }, { req });
+  }
 }
 
 // ------------------------------------------------------------------ favourites and search

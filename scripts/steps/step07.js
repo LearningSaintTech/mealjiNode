@@ -7,9 +7,16 @@ export default async function step07(ctx) {
   await me.signIn(DEMO.customer);
 
   // ---- search
-  await s.run("07-01", "Trending searches for the empty search screen", "“Trending searches” chips (Butter chicken, Bao, Ramen…)", async () => {
+  await s.run("07-01", "Trending searches for the empty search screen", "“Trending searches” chips (Butter chicken, Bao, Ramen… Under ₹200)", async () => {
     const res = await me.call("GET", "/search/trending");
-    return { ok: res.status === 200 && res.data.length >= 4 && res.data.every((t) => t.query), detail: res.data.map((t) => t.query).join(", ") };
+    const words = (res.data || []).filter((t) => t.type === "query");
+    const price = (res.data || []).find((t) => t.type === "filter");
+    // The price chip opens the dish list with its filters; check those filters work there.
+    const under = price ? await me.call("GET", `/dishes?maxPricePaise=${price.filters.maxPricePaise}&sort=${price.filters.sort}`) : null;
+    return {
+      ok: res.status === 200 && words.length >= 4 && words.every((t) => t.query && t.label === t.query) && price?.label === "Under ₹200" && under?.status === 200 && (under.data.items || []).every((d) => d.pricePaise <= price.filters.maxPricePaise),
+      detail: `${res.data.map((t) => t.label).join(", ")} · Under ₹200 → ${under?.data?.items?.length} dishes`,
+    };
   });
   await s.run("07-02", "Results: count, dishes with badge, veg mark, price, photo, heart", "“2 dishes match \"butter\"” + cards with Add +", async () => {
     const res = await me.call("GET", "/search?q=butter");

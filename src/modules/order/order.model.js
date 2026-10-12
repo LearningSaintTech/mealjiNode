@@ -98,6 +98,10 @@ const orderSchema = new mongoose.Schema(
       name: { type: String, default: null },
       phone: { type: String, default: null },
       vehicleNumber: { type: String, default: null },
+      // Tracking screen's rider card: photo and “4.9 (1,240 deliveries)”.
+      photoUrl: { type: String, default: null },
+      rating: { type: Number, default: null },
+      deliveriesCount: { type: Number, default: null },
     },
     deliveryJob: { type: ObjectId, ref: "DeliveryJob", default: null },
     invoice: { type: ObjectId, ref: "Invoice", default: null },

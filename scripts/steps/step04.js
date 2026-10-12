@@ -90,5 +90,11 @@ export default async function step04(ctx) {
     const again = await app.call("DELETE", `/users/me/addresses/${second?.addressId}`);
     return { ok: res.status === 200 && list.length === 1 && list[0].isDefault === true && again.status === 404, detail: `${res.status} remaining ${list.length} default ${list[0]?.isDefault} again ${again.status}` };
   });
+  await s.run("04-16", "Phone typed as “+91 98765 43210” is kept as 10 digits; a “Near …” landmark is not doubled", "Add address: phone (+91 shown) and landmark", async () => {
+    const res = await app.call("POST", "/users/me/addresses", { label: "Other", customLabel: "Gym", houseFlat: "2nd Floor", landmark: "Near Sony Signal", city: "Bengaluru", state: "Karnataka", pincode: "560034", latitude: 12.9346, longitude: 77.6311, phone: "+91 98765 43210" });
+    const bad = await app.call("POST", "/users/me/addresses", { houseFlat: "x", city: "Bengaluru", pincode: "560034", latitude: 12.9346, longitude: 77.6311, phone: "12345" });
+    if (res.data?.addressId) await app.call("DELETE", `/users/me/addresses/${res.data.addressId}`);
+    return { ok: res.status === 201 && res.data.phone === "9876543210" && !/Near Near/i.test(res.data.fullAddress) && res.data.fullAddress.includes("Near Sony Signal") && bad.status === 422, detail: `${res.data?.phone} · ${res.data?.fullAddress} · bad phone ${bad.status}` };
+  });
   return s;
 }

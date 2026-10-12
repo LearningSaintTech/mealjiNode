@@ -8,7 +8,6 @@ import { authMiddleware } from "../../common/middleware/auth.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
 import { fetchPayment, gatewayName } from "../../infrastructure/payments/gateway.js";
 import { resolveSetting } from "../settings/settings.service.js";
-import { User } from "../user/user.model.js";
 import { Payment } from "./payment.model.js";
 
 // Saved payment methods hold gateway token references only (RBI card-on-file
@@ -119,12 +118,17 @@ router.delete("/payment-methods/:id", idParam(), validate, asyncHandler(async (r
 }));
 
 // Points act as the wallet (no money wallet in v1, per the decisions log).
+// Payment methods · “Meal ji wallet” card: points, “Updated 2m ago”, “enough points for 3 free rewards!”.
 router.get("/wallet", asyncHandler(async (req, res) => {
-  const [user, loyalty, app] = await Promise.all([User.findById(req.auth.userId).select("pointsBalance tier").lean(), resolveSetting("loyalty"), resolveSetting("app")]);
+  const { pointsCard } = await import("../rewards/rewards.service.js");
+  const [card, loyalty, app] = await Promise.all([pointsCard(req.auth.userId), resolveSetting("loyalty"), resolveSetting("app")]);
   return ok(res, {
-    points: user?.pointsBalance || 0,
-    pointsValuePaise: (user?.pointsBalance || 0) * loyalty.values.pointValuePaise,
-    tier: user?.tier || null,
+    points: card.points,
+    pointsValuePaise: card.points * loyalty.values.pointValuePaise,
+    tier: card.tier,
+    updatedLabel: card.updatedLabel,
+    rewardsMessage: card.message,
+    affordableCount: card.affordableCount,
     moneyWallet: app.values.featureWallet ? { balancePaise: 0, enabled: true } : null,
   }, "Wallet.");
 }));

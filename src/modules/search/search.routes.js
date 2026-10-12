@@ -11,6 +11,7 @@ import { memoCache } from "../../common/memoCache.js";
 import { accountLimiter } from "../../infrastructure/rateLimit.js";
 import { vegFilter, vegMode } from "../../common/vegMode.js";
 import { storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
+import { resolveSetting } from "../settings/settings.service.js";
 import { activeFilters, customerCombos, filterDishes, isOrderable, kitchenMenu, markFavorites, popularDishes, sortDishes, toDish } from "../catalog/catalog.service.js";
 import { dishFilterValidators, pageValidators } from "../catalog/catalog.filters.js";
 import { registerReport } from "../report/report.registry.js";
@@ -253,9 +254,17 @@ customer.delete("/search/recent/:query", param("query").isString().isLength({ mi
 }));
 // One computation at a time per instance when the 10-minute cache runs out.
 const trendingOnce = memoCache(5_000);
+// Trending chips: searched words (type "query" → GET /search?q=) plus the app's
+// price chip “Under ₹200” (type "filter" → GET /dishes with its `filters`).
+async function withPriceChip(rows) {
+  const chipPaise = (await resolveSetting("app")).values.searchPriceChipPaise || 0;
+  const chips = rows.map((row) => ({ type: "query", query: row.query, label: row.query, filters: null, searches: row.searches }));
+  if (chipPaise > 0) chips.push({ type: "filter", query: null, label: `Under ₹${Math.round(chipPaise / 100)}`, filters: { maxPricePaise: chipPaise, sort: "price_asc" }, searches: 0 });
+  return chips;
+}
 customer.get("/search/trending", asyncHandler(async (req, res) => {
   const cached = await storeGetOptional("search:trending");
-  if (cached.ok && cached.value) return ok(res, JSON.parse(cached.value), "Trending.");
+  if (cached.ok && cached.value) return ok(res, await withPriceChip(JSON.parse(cached.value)), "Trending.");
   const rows = await trendingOnce.get("rows", () => SearchLog.aggregate([
     { $match: { createdAt: { $gte: new Date(Date.now() - 7 * 86_400_000) }, results: { $gt: 0 } } },
     { $group: { _id: "$normalized", query: { $first: "$query" }, searches: { $sum: 1 }, people: { $addToSet: "$user" } } },
@@ -278,10 +287,10 @@ customer.get("/search/trending", asyncHandler(async (req, res) => {
     } catch {
       // no serving kitchen: trending stays as it is
     }
-    return ok(res, data, "Trending.");
+    return ok(res, await withPriceChip(data), "Trending.");
   }
   await storeSet("search:trending", JSON.stringify(data), 600).catch(() => {});
-  return ok(res, data, "Trending.");
+  return ok(res, await withPriceChip(data), "Trending.");
 }));
 
 const admin = Router();

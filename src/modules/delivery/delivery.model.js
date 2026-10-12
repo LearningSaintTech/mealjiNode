@@ -32,6 +32,10 @@ const deliveryJobSchema = new mongoose.Schema(
       name: { type: String, default: null },
       phone: { type: String, default: null },
       vehicleNumber: { type: String, default: null },
+      // Tracking screen's rider card: photo and “4.9 (1,240 deliveries)”.
+      photoUrl: { type: String, default: null },
+      rating: { type: Number, default: null },
+      deliveriesCount: { type: Number, default: null },
     },
     trackingUrl: { type: String, default: null },
     pickup: { latitude: Number, longitude: Number, address: String },

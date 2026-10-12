@@ -67,7 +67,7 @@ export default async function step11(ctx) {
     }
     const onTheWay = mine.find((n) => n.icon === "moto");
     ctx.cleanups.push(() => database.collection("notifications").updateMany({ user: userId, "deepLink.url": `mealji://orders/${order.orderId}` }, { $set: { isRead: true } }));
-    return { ok: mine.length >= 2 && onTheWay && mine.every((n) => n.group === "Today"), detail: mine.map((n) => `${n.icon} ${n.title}`).join(" | ") || "none arrived" };
+    return { ok: mine.length >= 2 && onTheWay?.title === "Out for Delivery" && mine.some((n) => n.title === "Order Confirmed") && mine.every((n) => n.group === "Today"), detail: mine.map((n) => `${n.icon} ${n.title}`).join(" | ") || "none arrived" };
   });
   await s.run("11-07", "Demo numbers never get a real SMS", "Safety: demo accounts", async () => {
     const sms = await database.collection("messagelogs").countDocuments({ user: userId, channel: "sms", status: { $in: ["sent", "delivered"] } });

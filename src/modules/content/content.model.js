@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 
 const { ObjectId } = mongoose.Schema.Types;
 
-export const BANNER_PLACEMENTS = ["home_hero", "home_promo", "home_combos", "home_how_we_cook", "menu_hero", "offers"];
+// combos_intro / combos_hero: the Combos screen's “Curated by the chef · Meal Ji Meals” block and its hero card.
+export const BANNER_PLACEMENTS = ["home_hero", "home_promo", "home_combos", "home_how_we_cook", "menu_hero", "combos_intro", "combos_hero", "offers"];
 
 const bannerSchema = new mongoose.Schema(
   {

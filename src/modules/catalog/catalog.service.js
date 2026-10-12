@@ -3,6 +3,7 @@ import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { escapeRegex } from "../../common/text.util.js";
 import { istDateKey, istParts } from "../../common/time.js";
+import { env } from "../../config/env.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { storeDel, storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
 import { Kitchen } from "../kitchen/kitchen.model.js";
@@ -66,6 +67,33 @@ export function isOrderable(dish, at = new Date()) {
   return unavailableReason(dish, at) === null;
 }
 
+// Dish detail badges: the app's icon for each highlight (Fresh → leaf, Slow cooked → fire, Halal → check).
+const HIGHLIGHT_ICONS = [[/fresh|veg|organic|leaf/i, "leaf"], [/slow|cook|tandoor|spicy|smok|grill/i, "fire"], [/halal|certif|hygien|no preserv/i, "checkc"], [/hand ?made|chef/i, "utensils"], [/protein|health/i, "heart"]];
+const highlightIcon = (label) => HIGHLIGHT_ICONS.find(([pattern]) => pattern.test(label))?.[1] || "sparkles";
+
+/** “Make it a meal” as the app shows it: the whole meal (dish + upgrade), before and after the saving. */
+function mealUpgradeView(dish) {
+  const upgrade = dish.mealUpgrade;
+  if (!upgrade?.label) return null;
+  const pricePaise = upgrade.pricePaise || 0;
+  const originalPricePaise = upgrade.originalPricePaise ?? null;
+  const totalPricePaise = dish.pricePaise + pricePaise;
+  const totalOriginalPricePaise = (dish.originalPricePaise > dish.pricePaise ? dish.originalPricePaise : dish.pricePaise) + (originalPricePaise > pricePaise ? originalPricePaise : pricePaise);
+  return {
+    label: upgrade.label,
+    description: upgrade.description || null,
+    pricePaise,
+    originalPricePaise,
+    savingsPaise: originalPricePaise > pricePaise ? originalPricePaise - pricePaise : 0,
+    // The meal card: “~~₹417~~ ₹349 · Save ₹68”.
+    totalPricePaise,
+    totalOriginalPricePaise,
+    totalSavingsPaise: totalOriginalPricePaise - totalPricePaise,
+    isRecommended: true,
+    imageUrl: upgrade.imageUrl || null,
+  };
+}
+
 export function toDish(dish, at = new Date()) {
   const reason = unavailableReason(dish, at);
   return {
@@ -92,18 +120,15 @@ export function toDish(dish, at = new Date()) {
     preparationMinutes: dish.preparationMinutes ?? null,
     servesCount: dish.servesCount || 1,
     highlights: dish.highlights || [],
+    highlightBadges: (dish.highlights || []).map((label) => ({ label, icon: highlightIcon(label) })),
     tags: dish.tags || [],
     cuisine: dish.cuisine ?? null,
     portions: (dish.portions || []).map((portion) => ({ portionId: portion.portionId, label: portion.label, pricePaise: portion.pricePaise, serves: portion.serves || null, isDefault: Boolean(portion.isDefault) })),
     // “Make it a meal”: pricePaise is added to the dish price when chosen.
-    mealUpgrade: dish.mealUpgrade?.label ? {
-      label: dish.mealUpgrade.label,
-      description: dish.mealUpgrade.description || null,
-      pricePaise: dish.mealUpgrade.pricePaise || 0,
-      originalPricePaise: dish.mealUpgrade.originalPricePaise ?? null,
-      savingsPaise: dish.mealUpgrade.originalPricePaise > dish.mealUpgrade.pricePaise ? dish.mealUpgrade.originalPricePaise - dish.mealUpgrade.pricePaise : 0,
-      imageUrl: dish.mealUpgrade.imageUrl || null,
-    } : null,
+    mealUpgrade: mealUpgradeView(dish),
+    // Share button on Dish detail.
+    deepLink: `mealji://dish/${dish._id}`,
+    shareUrl: `${env.publicBaseUrl}/dish/${dish._id}`,
     customizationGroups: (dish.customizationGroups || []).map(toGroup),
     availableSlots: dish.availableSlots || [],
     availableDays: dish.availableDays || [],
@@ -146,10 +171,16 @@ export function toDishAdmin(dish) {
   };
 }
 
+/** “Daal & Curries” → “daal-curries”: what deep links use (mealji://menu?category=biryani). */
+export function categorySlug(name) {
+  return String(name || "").toLowerCase().replace(/&/g, " ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 export function toCategory(category, counts = null) {
   return {
     categoryId: String(category._id),
     name: category.name,
+    slug: categorySlug(category.name),
     icon: category.icon ?? null,
     subtitle: category.subtitle ?? null,
     imageUrl: category.imageUrl ?? null,
@@ -758,7 +789,7 @@ export async function customerMenu(kitchenId, { categoryId, veg, q, sort, cuisin
   const byCategory = menu.categories.map((category) => ({ ...category, dishes: dishes.filter((dish) => dish.categoryId === category.categoryId) }))
     .filter((category) => category.dishes.length);
   const uncategorised = dishes.filter((dish) => !dish.categoryId);
-  if (uncategorised.length) byCategory.push({ categoryId: null, name: "More", icon: null, subtitle: null, imageUrl: null, sortOrder: 999, isActive: true, dishes: uncategorised });
+  if (uncategorised.length) byCategory.push({ categoryId: null, name: "More", slug: "more", icon: null, subtitle: null, imageUrl: null, sortOrder: 999, isActive: true, dishes: uncategorised });
   // `dishes` = the same dishes as one list in the requested sort order (for /dishes).
   return { kitchen: (await kitchenState(kitchenId)) || menu.kitchen, categories: byCategory, dishes, total: dishes.length };
 }

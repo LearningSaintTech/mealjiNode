@@ -97,7 +97,16 @@ export async function updateJob(job, { status, rider = null, costPaise = null, l
   const { transition } = await import("../order/order.service.js");
   const order = job.order ? await Order.findById(job.order) : null;
   if (rider?.name) {
-    job.rider = { name: rider.name, phone: rider.phone || null, vehicleNumber: rider.vehicleNumber || null };
+    const rating = Number(rider.rating);
+    const deliveries = Number(rider.deliveriesCount);
+    job.rider = {
+      name: rider.name,
+      phone: rider.phone || null,
+      vehicleNumber: rider.vehicleNumber || null,
+      photoUrl: rider.photoUrl || null,
+      rating: Number.isFinite(rating) && rating > 0 ? Math.min(5, Math.round(rating * 10) / 10) : null,
+      deliveriesCount: Number.isInteger(deliveries) && deliveries >= 0 ? deliveries : null,
+    };
     if (order) {
       order.rider = job.rider;
       await order.save();

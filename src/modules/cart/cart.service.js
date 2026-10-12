@@ -58,9 +58,10 @@ function billLines(bill, coupon) {
 // ---- delivery time: as soon as possible, or a half-hour slot today/tomorrow
 
 /** Delivery options for a kitchen (shared by GET /delivery/slots and the cart). */
-export async function deliverySlots(kitchen, now = new Date()) {
+export async function deliverySlots(kitchen, now = new Date(), { etaMinutes = null } = {}) {
   const app = (await resolveSetting("app")).values;
-  const options = [{ type: "asap", label: "As soon as possible", available: Boolean(kitchen && isOpenAt(kitchen, now) && kitchen.acceptingOrders) }];
+  // Checkout's two rows: “Standard Delivery · 31 min (Today)” and “Schedule for later · Choose date & time”.
+  const options = [{ type: "asap", label: "Standard Delivery", sub: `${etaMinutes ? `${etaMinutes} min` : app.deliveryPromiseLabel} (Today)`, icon: "bike", available: Boolean(kitchen && isOpenAt(kitchen, now) && kitchen.acceptingOrders) }];
   const scheduled = [];
   if (kitchen && app.featureScheduledDelivery) {
     for (const offset of [0, 1]) {
@@ -78,6 +79,7 @@ export async function deliverySlots(kitchen, now = new Date()) {
       }
     }
   }
+  if (app.featureScheduledDelivery) options.push({ type: "scheduled", label: "Schedule for later", sub: "Choose date & time", icon: "clock", available: scheduled.length > 0 });
   return { options, scheduled, scheduledEnabled: Boolean(app.featureScheduledDelivery) };
 }
 
@@ -179,6 +181,7 @@ export function priceLine(line, dishes, combos, at = new Date()) {
     options: chosen,
     specialInstructions: line.specialInstructions || null,
     unitPricePaise: unit,
+    basePricePaise: base, // the dish (or portion) alone, without add-ons: what a free-dish reward covers
     originalUnitPricePaise: original,
     packagingPaise: dish.packagingPaise || 0,
     totalPaise: unit * line.qty,
@@ -256,7 +259,7 @@ export async function buildCart(userId, overrides = {}, { user: loaded = null, c
   let discountPaise = 0;
   let freeDelivery = false;
   if (cart.couponCode) {
-    const { coupon: found, result } = await checkCode(cart.couponCode, { userId, kitchenId: kitchen._id, city: kitchen.city, itemTotalPaise, paymentMethod });
+    const { coupon: found, result } = await checkCode(cart.couponCode, { userId, kitchenId: kitchen._id, city: kitchen.city, itemTotalPaise, paymentMethod, lines: orderable });
     coupon = { code: cart.couponCode, valid: result.valid, message: result.message, discountPaise: result.discountPaise, freeDelivery: Boolean(result.freeDelivery), title: found?.title || null, shortByPaise: result.shortByPaise || 0 };
     if (result.valid) {
       discountPaise = result.discountPaise;
@@ -278,7 +281,7 @@ export async function buildCart(userId, overrides = {}, { user: loaded = null, c
 
   const blockers = [];
   const state = orderingState(kitchen, now);
-  const slots = await deliverySlots(kitchen, now);
+  const slots = await deliverySlots(kitchen, now, { etaMinutes: priced.etaMinutes });
   const slot = scheduledFor ? slots.scheduled.find((item) => item.startsAt.getTime() === new Date(scheduledFor).getTime()) : null;
   if (scheduledFor && !slot) blockers.push({ code: "SLOT_UNAVAILABLE", message: "That delivery time is no longer available. Choose another time." });
   // A scheduled order can be placed while the kitchen is closed now.
@@ -495,10 +498,20 @@ export async function updateCart(userId, input, { user = null } = {}) {
 export async function applyPromo(userId, code) {
   const cart = await getCart(userId);
   if (!cart.items.length) throw new AppError(409, "Add items before applying an offer");
-  const view = await buildCart(userId);
   const kitchen = await Kitchen.findById(cart.kitchen).lean();
-  const itemTotalPaise = view.items.filter((line) => line.isAvailable).reduce((sum, line) => sum + line.totalPaise, 0);
-  const { result } = await checkCode(code, { userId, kitchenId: cart.kitchen, city: kitchen?.city, itemTotalPaise });
+  const check = async () => {
+    const lines = await cartPricedLines(await Cart.findOne({ user: userId }).lean());
+    const itemTotalPaise = lines.reduce((sum, line) => sum + line.totalPaise, 0);
+    return checkCode(code, { userId, kitchenId: cart.kitchen, city: kitchen?.city, itemTotalPaise, lines });
+  };
+  let { coupon, result } = await check();
+  // A free-dish reward puts its dish (this kitchen's one) in the cart ("added to your next order").
+  if (result.reason === "dish_missing" && coupon?.dish) {
+    const here = await KitchenDish.findOne({ kitchen: cart.kitchen, name: coupon.dishName, isActive: true, approvalStatus: "live" }).select("_id").lean();
+    if (!here) throw new AppError(422, `${coupon.dishName || "This dish"} is not on this kitchen's menu`, [{ field: "code", message: "dish_unavailable" }]);
+    await addItem(userId, { dishId: String(here._id), qty: coupon.dishQty || 1 });
+    ({ coupon, result } = await check());
+  }
   if (!result.valid) throw new AppError(422, result.message, [{ field: "code", message: result.reason }]);
   const couponCode = String(code).trim().toUpperCase();
   await publishEventSafe("coupon.applied", { userId: String(userId), code: couponCode });
@@ -507,11 +520,16 @@ export async function applyPromo(userId, code) {
   }, { event: false });
 }
 
-/** Item total of the orderable lines (what offers are checked against). */
-export async function cartItemTotal(cart) {
-  if (!cart?.items?.length || !cart.kitchen) return 0;
+/** The orderable cart lines, priced (what offers are checked against). */
+export async function cartPricedLines(cart) {
+  if (!cart?.items?.length || !cart.kitchen) return [];
   const { dishes, combos } = await menuMaps(cart.kitchen);
-  return cart.items.map((line) => priceLine(line, dishes, combos)).filter((line) => line.isAvailable).reduce((sum, line) => sum + line.totalPaise, 0);
+  return cart.items.map((line) => priceLine(line, dishes, combos)).filter((line) => line.isAvailable);
+}
+
+/** Item total of the orderable lines. */
+export async function cartItemTotal(cart) {
+  return (await cartPricedLines(cart)).reduce((sum, line) => sum + line.totalPaise, 0);
 }
 
 export async function removePromo(userId) {

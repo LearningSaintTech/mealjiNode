@@ -29,7 +29,38 @@ import { ACTIVE_STATUSES, STATUS_LABELS, allowedFor, customerCanCancel, kitchenA
 // ------------------------------------------------------------------ views
 
 function stepsView(order) {
-  return (order.kitchenSteps || []).map((step) => ({ key: step.key, label: step.label, state: step.state, at: step.at }));
+  return (order.kitchenSteps || []).map((step) => ({ key: step.key, label: step.label, state: step.state, at: step.at, time: step.at ? istTime(step.at) : null }));
+}
+
+// “Right now: …” on Order status before / after the kitchen's own steps.
+const ACTIVITY_TEXT = {
+  payment_pending: "Waiting for your payment.",
+  placed: "Waiting for the kitchen to accept your order.",
+  accepted: "The kitchen has your order and is getting started.",
+  ready: "Packed and waiting for the rider.",
+  dispatched: "Your rider is on the way.",
+  delivered: "Delivered. Enjoy your meal!",
+  cancelled: "This order was cancelled.",
+};
+
+/**
+ * The Live Kitchen list as the app draws it: “Order received” → the kitchen's
+ * own steps → “Rider heading out” (or “Ready for pickup”), each with “9:04 PM”,
+ * “Now” for the current one, and done / active / pending.
+ */
+function liveSteps(order) {
+  const at = (status) => (order.statusHistory || []).find((entry) => entry.status === status)?.at || null;
+  const received = at("placed") || order.placedAt || order.createdAt;
+  const steps = [{ key: "received", label: "Order received", state: "done", at: received }];
+  const kitchen = order.kitchenSteps || [];
+  const kitchenDone = ["ready", "dispatched", "delivered"].includes(order.status);
+  for (const step of kitchen) steps.push({ key: step.key, label: step.label, state: kitchenDone ? "done" : step.state, at: step.at });
+  const pickup = order.deliveryMode === "pickup";
+  const lastKey = pickup ? "ready" : "dispatched";
+  const last = at(lastKey);
+  steps.push({ key: lastKey, label: pickup ? "Ready for pickup" : "Rider heading out", state: last ? (order.status === lastKey ? "active" : "done") : "pending", at: last });
+  if (!kitchen.length && !["ready", "dispatched", "delivered"].includes(order.status)) steps[0].state = order.status === "placed" ? "active" : "done";
+  return steps.map((step) => ({ ...step, timeLabel: step.state === "active" ? "Now" : step.at ? istTime(step.at) : null }));
 }
 
 const PAYMENT_LABELS = { upi: "UPI", card: "Card", netbanking: "Net Banking", wallet: "Wallet", cod: "Cash on Delivery" };
@@ -53,6 +84,28 @@ function relativeDay(date, now = new Date()) {
   if (diff < 14) return "Last week";
   if (diff < 31) return `${Math.floor(diff / 7)} weeks ago`;
   return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" }).format(new Date(date));
+}
+
+/**
+ * Rider card on Tracking: name, photo, “4.9 (1,240 deliveries)”, vehicle and
+ * Call. The number is given only while the rider is on the way to the customer.
+ */
+function riderView(order) {
+  const rider = order.rider;
+  if (!rider?.name) return null;
+  const onTheWay = order.status === "dispatched";
+  const deliveries = rider.deliveriesCount != null ? `${rider.deliveriesCount.toLocaleString("en-IN")} deliveries` : null;
+  return {
+    name: rider.name,
+    photoUrl: rider.photoUrl || null,
+    rating: rider.rating ?? null,
+    deliveriesCount: rider.deliveriesCount ?? null,
+    ratingLabel: rider.rating != null ? `${rider.rating.toFixed(1)}${deliveries ? ` (${deliveries})` : ""}` : deliveries,
+    vehicleNumber: rider.vehicleNumber || null,
+    phoneMasked: rider.phone ? maskPhone(rider.phone) : null,
+    canCall: Boolean(onTheWay && rider.phone),
+    callNumber: onTheWay && rider.phone ? `+91${rider.phone}` : null,
+  };
 }
 
 /** “Butter chicken bowl + butter naan” (2 items), “Dal ramen, gulab cheesecake +2 more”. */
@@ -98,7 +151,7 @@ function progressOf(order) {
 }
 
 export function toOrder(order, { view = "customer" } = {}) {
-  const paid = ["paid", "partially_refunded", "refunded"].includes(order.paymentStatus);
+  const paid = ["paid", "partially_refunded", "refunded", "cod_collected"].includes(order.paymentStatus);
   const base = {
     orderId: String(order._id),
     orderNumber: order.orderNumber,
@@ -138,6 +191,9 @@ export function toOrder(order, { view = "customer" } = {}) {
     paymentMethodLabel: PAYMENT_LABELS[order.paymentMethod] || order.paymentMethod,
     amountPaidPaise: paid ? order.bill?.grandTotalPaise ?? 0 : 0,
     amountDueOnDeliveryPaise: order.paymentStatus === "cod_pending" ? order.bill?.grandTotalPaise ?? 0 : 0,
+    // Order summary's total row: “Total paid” / “To pay on delivery” / “Refunded” / “Total to pay”.
+    totalLabel: { paid: "Total paid", cod_collected: "Total paid", partially_refunded: "Total paid", refunded: "Refunded", cod_pending: "To pay on delivery" }[order.paymentStatus] || "Total to pay",
+    totalPaise: order.bill?.grandTotalPaise ?? 0,
     address: order.address || null,
     deliveryMode: order.deliveryMode,
     scheduledFor: order.scheduledFor || null,
@@ -160,7 +216,7 @@ export function toOrder(order, { view = "customer" } = {}) {
     cancellation: order.cancellation?.by ? order.cancellation : null,
     chefNote: order.chefNote || null,
     rating: order.rating?.at ? order.rating : null,
-    rider: order.rider?.name ? { name: order.rider.name, phoneMasked: order.rider.phone ? maskPhone(order.rider.phone) : null, vehicleNumber: order.rider.vehicleNumber || null } : null,
+    rider: riderView(order),
     refundedPaise: order.refundedPaise || 0,
     invoiceId: order.invoice ? String(order.invoice._id || order.invoice) : null,
     invoiceNumber: order.invoice?.invoiceNumber || null,
@@ -498,7 +554,22 @@ export async function listMyOrders(userId, { page = 1, limit = 20, status }) {
     Order.countDocuments({ user: userId, status: { $in: [...ACTIVE_STATUSES, "payment_pending"] } }),
     Order.countDocuments({ user: userId, status: { $in: ["delivered", "cancelled", "payment_failed"] } }),
   ]);
-  return { items: items.map((order) => toOrder(order)), page, limit, total, hasMore: page * limit < total, counts: { active, past } };
+  // “Ordered 3x”: how many delivered orders had exactly the same dishes/combos (last 300 orders).
+  const delivered = await Order.find({ user: userId, status: "delivered" }).sort({ createdAt: -1 }).limit(300).select("items.kind items.dish items.combo").lean();
+  const times = new Map();
+  for (const order of delivered) times.set(itemsSignature(order), (times.get(itemsSignature(order)) || 0) + 1);
+  return {
+    items: items.map((order) => {
+      const timesOrdered = times.get(itemsSignature(order)) || 0;
+      return { ...toOrder(order), timesOrdered, timesOrderedLabel: timesOrdered >= 2 ? `Ordered ${timesOrdered}x` : null };
+    }),
+    page, limit, total, hasMore: page * limit < total, counts: { active, past },
+  };
+}
+
+/** The same order again = the same dishes and combos (quantities and options aside). */
+function itemsSignature(order) {
+  return [...new Set((order.items || []).map((item) => `${item.kind || "dish"}:${String(item.dish || item.combo)}`))].sort().join("|");
 }
 
 export async function getMyOrder(userId, orderId) {
@@ -520,14 +591,23 @@ export async function liveView(userId, orderId) {
       label: STATUS_LABELS[status],
       done: (order.statusHistory || []).some((entry) => entry.status === status),
       at: (order.statusHistory || []).find((entry) => entry.status === status)?.at || null,
+      time: istTime((order.statusHistory || []).find((entry) => entry.status === status)?.at),
     })),
     kitchenSteps: stepsView(order),
+    liveSteps: liveSteps(order),
     currentActivity: (order.kitchenSteps || []).find((step) => step.state === "active")?.label || null,
+    // “Right now: Charring in the tandoor.” (or what is happening before/after the kitchen steps).
+    activityText: (() => {
+      const active = (order.kitchenSteps || []).find((step) => step.state === "active");
+      return active && order.status === "preparing" ? `${active.label}.` : ACTIVITY_TEXT[order.status] || (order.status === "preparing" ? "Your food is being prepared." : null);
+    })(),
     etaMinutes: minutesLeft,
     estimatedDeliveryAt: order.estimatedDeliveryAt,
+    // “Arriving by” · “9:25 PM” · “• 14 min” as separate pieces.
+    arrivingAtLabel: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? istTime(order.estimatedDeliveryAt) : null,
     // “Arriving by 9:25 PM • 14 min”
     arrivingByLabel: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? `Arriving by ${istTime(order.estimatedDeliveryAt)}${minutesLeft != null ? ` • ${minutesLeft} min` : ""}` : null,
-    rider: order.rider?.name ? { name: order.rider.name, phoneMasked: order.rider.phone ? maskPhone(order.rider.phone) : null, vehicleNumber: order.rider.vehicleNumber || null } : null,
+    rider: riderView(order),
     canCancel: customerCanCancel(order, (await resolveSetting("order_policy", { kitchenId: order.kitchen })).values),
     cancelReasons: CANCEL_REASONS,
   };
@@ -544,11 +624,14 @@ export async function trackingView(userId, orderId) {
     status: order.status,
     kitchen: kitchen ? { name: kitchen.name, latitude: kitchen.latitude, longitude: kitchen.longitude } : null,
     destination: order.address ? { latitude: order.address.latitude, longitude: order.address.longitude, fullAddress: order.address.fullAddress } : null,
-    rider: order.rider?.name ? { name: order.rider.name, phoneMasked: order.rider.phone ? maskPhone(order.rider.phone) : null, vehicleNumber: order.rider.vehicleNumber || null } : null,
+    rider: riderView(order),
     location: job?.lastLocation?.lat != null ? job.lastLocation : null,
     trackingUrl: job?.trackingUrl || null,
     deliveryStatus: job?.status || null,
     estimatedDeliveryAt: order.estimatedDeliveryAt,
+    // “Estimated by 8:38 PM” · “Arriving in 12 mins”.
+    arrivingAtLabel: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? istTime(order.estimatedDeliveryAt) : null,
+    etaMinutes: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? Math.max(0, Math.round((new Date(order.estimatedDeliveryAt) - Date.now()) / 60_000)) : null,
   };
 }
 

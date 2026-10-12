@@ -25,10 +25,11 @@ export const DEFAULT_TEMPLATES = {
     channelOrder: ["push", "inapp"],
   },
   "order.placed": order("Order placed", "We've received order {{order.orderNumber}}. The kitchen will confirm shortly."),
-  "order.accepted": order("Order confirmed", "{{order.kitchenName}} accepted order {{order.orderNumber}}."),
+  // Titles and lines as the app's inbox shows them (“Order Confirmed”, “Out for Delivery”).
+  "order.accepted": order("Order Confirmed", "Your order #{{order.orderNumber}} has been confirmed.\nWe're cooking it fresh for you!"),
   "order.preparing": order("Cooking now", "Your food is being prepared."),
   "order.ready": order("Ready", "Order {{order.orderNumber}} is ready{{order.pickupSuffix}}."),
-  "order.dispatched": order("On the way", "Order {{order.orderNumber}} is out for delivery.", {
+  "order.dispatched": order("Out for Delivery", "Your order #{{order.orderNumber}} is on the way!\nGet ready for a delicious meal.", {
     whatsapp: { providerTemplateName: "order_out_for_delivery", language: "en", waCategory: "utility", variables: ["order.orderNumber"], approvalStatus: "pending" },
   }, "moto"),
   "order.delivered": order("Delivered", "Enjoy your meal! Rate order {{order.orderNumber}} to earn points."),
@@ -54,8 +55,8 @@ export const DEFAULT_TEMPLATES = {
     category: "transactional",
     inboxCategory: "rewards",
     channels: {
-      push: { title: "+{{reward.points}} points", body: "{{reward.title}}", deepLink: "mealji://rewards/history" },
-      inapp: { title: "+{{reward.points}} points", body: "{{reward.title}}", icon: "star", iconColor: "#CA8A04", deepLink: "mealji://rewards/history" },
+      push: { title: "You Earned {{reward.points}} Points!", body: "{{reward.body}}", deepLink: "mealji://rewards/history" },
+      inapp: { title: "You Earned {{reward.points}} Points!", body: "{{reward.body}}", icon: "star", iconColor: "#FBC02D", deepLink: "mealji://rewards/history" },
     },
     channelOrder: ["inapp"],
   },
@@ -100,7 +101,7 @@ export const DEFAULT_TEMPLATES = {
   "journey.first_order_offer": mk("offers", "A treat for your first order", "Use code {{couponCode}} for a little off your first MealJi meal.", "mealji://menu"),
   "journey.cart_waiting": mk("offers", "Your cart is waiting", "The food you picked is still in your cart. Ready to order?", "mealji://cart"),
   "journey.cart_offer": mk("offers", "Still thinking about it?", "Finish your order today and enjoy a small treat on us.", "mealji://cart"),
-  "journey.rate_meal": mk("rewards", "How was your meal?", "Rate your order and earn points.", "mealji://orders/{{orderId}}/rate"),
+  "journey.rate_meal": mk("rewards", "We'd Love Your Feedback", "How was your last order? Tell us what you loved\nand help us serve you better.", "mealji://orders/{{orderId}}/rate", "heart"),
   "journey.plus_upsell": mk("offers", "Save with MealJi Plus", "You order often. A plan gets you daily meals for less.", "mealji://plus"),
   "journey.pause_instead": mk("account", "Need a break instead?", "You can pause MealJi Plus for up to 3 months instead of cancelling.", "mealji://plus/pause"),
   "journey.win_back": mk("offers", "We miss you!", "Your favourite dishes are waiting. Order again today.", "mealji://menu"),
@@ -138,13 +139,13 @@ function meal(title, body) {
   };
 }
 
-function mk(inboxCategory, title, body, deepLink) {
+function mk(inboxCategory, title, body, deepLink, icon = "sparkles") {
   return {
     category: "marketing",
     inboxCategory,
     channels: {
       push: { title, body, deepLink },
-      inapp: { title, body, icon: "sparkles", iconColor: "#EA580C", deepLink },
+      inapp: { title, body, icon, iconColor: "#EA580C", deepLink },
       email: { subject: title, html: `<p>${body}</p>`, text: body },
     },
     channelOrder: ["push", "inapp"],

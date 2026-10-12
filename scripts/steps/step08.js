@@ -227,5 +227,15 @@ export default async function step08(ctx) {
     const still = (await me.call("GET", "/cart")).data.items.find((line) => line.lineId === mine.lineId);
     return { ok: res.status === 404 && still?.qty === mine.qty, detail: `${res.status}, my qty still ${still?.qty}` };
   });
+  await s.run("08-26", "Delivery options read like the app", "Standard Delivery · 26 min (Today) / Schedule for later · Choose date & time", async () => {
+    await me.call("DELETE", "/cart");
+    const papad = ((await me.call("GET", "/dishes?limit=100")).data.items || []).find((d) => d.name === "Masala Papad");
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 3 });
+    const slots = (await me.call("GET", "/delivery/slots")).data;
+    const cart = (await me.call("GET", "/cart")).data;
+    await me.call("DELETE", "/cart");
+    const [asap, later] = slots.options;
+    return { ok: asap.label === "Standard Delivery" && asap.sub === `${cart.etaMinutes} min (Today)` && asap.icon === "bike" && (!slots.scheduledEnabled || (later?.label === "Schedule for later" && later.sub === "Choose date & time")), detail: slots.options.map((o) => `${o.label} · ${o.sub}`).join(" | ") };
+  });
   return s;
 }

@@ -78,8 +78,9 @@ router.get("/cart/recommendations", query("veg").optional().isBoolean().withMess
 router.get("/promos/available", asyncHandler(async (req, res) => {
   const cart = await Cart.findOne({ user: req.auth.userId }).lean();
   const kitchen = cart?.kitchen ? await kitchenRepository.findActiveById(cart.kitchen) : null;
-  const itemTotalPaise = await carts.cartItemTotal(cart);
-  return ok(res, await availableCoupons({ userId: req.auth.userId, kitchenId: kitchen?._id || null, city: kitchen?.city || null, itemTotalPaise }), "Offers fetched.");
+  const lines = await carts.cartPricedLines(cart);
+  const itemTotalPaise = lines.reduce((sum, line) => sum + line.totalPaise, 0);
+  return ok(res, await availableCoupons({ userId: req.auth.userId, kitchenId: kitchen?._id || null, city: kitchen?.city || null, itemTotalPaise, lines }), "Offers fetched.");
 }));
 
 // The full bill for the checkout screen, for the chosen address, mode and payment method.
@@ -100,7 +101,9 @@ router.get("/delivery/slots", query("kitchenId").optional().isMongoId().withMess
   const cart = await Cart.findOne({ user: req.auth.userId }).lean();
   const kitchenId = req.query.kitchenId || (cart?.kitchen ? String(cart.kitchen) : null);
   const kitchen = kitchenId ? await Kitchen.findById(kitchenId).lean() : null;
-  return ok(res, await carts.deliverySlots(kitchen), "Delivery slots fetched.");
+  // “Standard Delivery · 31 min (Today)”: the cart's own ETA when there is one.
+  const view = cart?.items?.length && String(cart.kitchen) === String(kitchenId) ? await carts.buildCart(req.auth.userId, {}, { user: req.auth.user, cart: await Cart.findOne({ user: req.auth.userId }) }) : null;
+  return ok(res, await carts.deliverySlots(kitchen, new Date(), { etaMinutes: view?.etaMinutes || null }), "Delivery slots fetched.");
 }));
 
 /** A scheduled time must be one of the slots offered for the cart's kitchen right now. */

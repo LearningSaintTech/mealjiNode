@@ -123,5 +123,33 @@ export default async function step10(ctx) {
     const other = await me.call("GET", `/invoices/${paid.invoiceId}`);
     return { ok: receipt.status === 200 && receipt.data.invoiceNumber && pdf.headers.get("content-type")?.includes("pdf") && list.items.length > 0 && other.status === 404, detail: `${receipt.data?.invoiceNumber} · pdf ${pdf.status} · ${list.items.length} invoices · other customer ${other.status}` };
   });
+  await s.run("10-12", "Live Kitchen list, “Right now”, arrival time and tracking ETA", "Order status: Order received → steps → Rider heading out, 9:04 PM / Now", async () => {
+    const live = await placeCod();
+    for (const status of ["accepted", "preparing"]) await admin.call("PATCH", `/admin/orders/${live.orderId}/status`, { status, reason: "step 10 test" });
+    const view = (await me.call("GET", `/orders/${live.orderId}/live`)).data;
+    const track = (await me.call("GET", `/orders/${live.orderId}/tracking`)).data;
+    const steps = view.liveSteps || [];
+    return {
+      ok: steps[0]?.label === "Order received" && /\d:\d\d (AM|PM)/.test(steps[0].timeLabel) && steps.at(-1).label === "Rider heading out" && steps.filter((x) => x.timeLabel === "Now").length === 1 && view.activityText && /^\d{1,2}:\d{2} (AM|PM)$/.test(view.arrivingAtLabel) && view.timeline[0].time && Number.isInteger(track.etaMinutes) && track.arrivingAtLabel,
+      detail: `${steps.map((x) => `${x.label}[${x.timeLabel || "-"}]`).join(" → ")} · “${view.activityText}” · arriving ${view.arrivingAtLabel} · tracking ${track.etaMinutes} min`,
+    };
+  });
+  await s.run("10-13", "Rider card: photo, “4.9 (1,240 deliveries)”, Call only while on the way", "Tracking: rider card with Call", async () => {
+    const trip = await placeCod();
+    const staff = new Client("step10-kitchen-001");
+    await staff.signIn(/Indiranagar/.test(trip.kitchen?.name) ? "9000000021" : "9000000011", { staff: true });
+    for (const status of ["accepted", "preparing", "ready"]) await admin.call("PATCH", `/admin/orders/${trip.orderId}/status`, { status, reason: "step 10 test" });
+    const assign = await staff.call("PATCH", `/kitchen/orders/${trip.orderId}/delivery`, { action: "assign_rider", rider: { name: "Ramesh", phone: "9876543210", vehicleNumber: "KA01AB1234", photoUrl: "https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chef.png", rating: 4.9, deliveriesCount: 1240 } });
+    const waiting = (await me.call("GET", `/orders/${trip.orderId}/tracking`)).data.rider;
+    await admin.call("PATCH", `/admin/orders/${trip.orderId}/status`, { status: "dispatched", reason: "step 10 test" });
+    const onWay = (await me.call("GET", `/orders/${trip.orderId}/tracking`)).data.rider;
+    return { ok: assign.status === 200 && onWay?.ratingLabel === "4.9 (1,240 deliveries)" && onWay.photoUrl && waiting?.canCall === false && onWay.canCall === true && onWay.callNumber === "+919876543210", detail: `${onWay?.name} · ${onWay?.ratingLabel} · call before ${waiting?.canCall} / on the way ${onWay?.canCall}` };
+  });
+  await s.run("10-14", "Past orders: “Ordered 3x” and the app's rating chips", "Orders list badge, rated tags", async () => {
+    const past = (await history.call("GET", "/orders?status=past&limit=20")).data.items;
+    const chips = ["Delicious", "Fresh", "Warm", "On time", "Would reorder"];
+    const badges = past.filter((o) => o.timesOrderedLabel);
+    return { ok: past.every((o) => Number.isInteger(o.timesOrdered)) && badges.length > 0 && badges.every((o) => o.timesOrderedLabel === `Ordered ${o.timesOrdered}x`) && past.every((o) => (o.rating?.tags || []).every((t) => chips.includes(t))), detail: `${badges.slice(0, 3).map((o) => `${o.title}: ${o.timesOrderedLabel}`).join(" | ")}` };
+  });
   return s;
 }

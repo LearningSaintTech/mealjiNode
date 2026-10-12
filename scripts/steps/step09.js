@@ -138,5 +138,17 @@ export default async function step09(ctx) {
     const none = await me.call("POST", "/payment-methods", { paymentId: "000000000000000000000000" });
     return { ok: saved.status === 201 && list.some((m) => m.isDefault) && stats.paymentMethods >= 1 && del.status === 200 && none.status === 404, detail: `saved ${saved.status} ${JSON.stringify(list[0] || {}).slice(0, 120)} · profile count ${stats.paymentMethods} · delete ${del.status}` };
   });
+  await s.run("09-13", "Order summary total says what was paid or is due", "“Total paid” / “To pay on delivery”", async () => {
+    await me.call("DELETE", "/cart");
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 3 });
+    const cod = (await me.call("POST", "/orders", { paymentMethod: "cod" })).data.order;
+    if (cod?.orderId) made.push(cod.orderId);
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 3 });
+    const upi = (await me.call("POST", "/orders", { paymentMethod: "upi" })).data;
+    if (upi?.order?.orderId) made.push(upi.order.orderId);
+    await me.call("POST", "/payments/test/complete", { gatewayOrderId: upi.payment.gatewayOrderId });
+    const paid = (await me.call("GET", `/orders/${upi.order.orderId}`)).data;
+    return { ok: cod.totalLabel === "To pay on delivery" && cod.totalPaise === cod.bill.grandTotalPaise && paid.totalLabel === "Total paid" && paid.amountPaidPaise === paid.totalPaise, detail: `COD “${cod.totalLabel}” ₹${cod.totalPaise / 100} · UPI “${paid.totalLabel}” ₹${paid.totalPaise / 100}` };
+  });
   return s;
 }

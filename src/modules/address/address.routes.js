@@ -2,6 +2,7 @@ import { Router } from "express";
 import { body, param, query } from "express-validator";
 import { asyncHandler } from "../../common/asyncHandler.js";
 import { authFor, idParam, ok } from "../../common/http.js";
+import { indianMobileDigits } from "../../common/phone.util.js";
 import { authMiddleware } from "../../common/middleware/auth.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
 import { autocompletePlaces, geocodeAddress, placeDetails } from "../../infrastructure/googleMaps.service.js";
@@ -31,7 +32,8 @@ const addressBody = (optional) => {
     }),
     body("customLabel").optional({ values: "null" }).isString().isLength({ max: 40 }),
     body("recipientName").optional({ values: "null" }).isString().isLength({ max: 80 }),
-    body("phone").optional({ values: "falsy" }).matches(/^[6-9]\d{9}$/).withMessage("Invalid phone number"),
+    // Same formats as sign-in: “98765 43210”, “+91 98765 43210”, “098765-43210”.
+    body("phone").optional({ values: "falsy" }).customSanitizer(indianMobileDigits).matches(/^[6-9]\d{9}$/).withMessage("Enter a valid 10-digit mobile number"),
     opt(body("houseFlat")).isString().trim().notEmpty().isLength({ max: 120 }).withMessage("House / flat is required"),
     body("street").optional({ values: "null" }).isString().isLength({ max: 160 }),
     body("locality").optional({ values: "null" }).isString().isLength({ max: 120 }),
