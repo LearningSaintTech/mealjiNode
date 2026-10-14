@@ -38,7 +38,7 @@ async function insertAll(collection, total, make) {
 await mongoose.connect(env.mongoUri);
 const db = mongoose.connection.db;
 if (db.databaseName !== "mealji_load") throw new Error(`Refusing to write load data to ${db.databaseName}`);
-for (const name of ["supporttickets", "ticketmessages", "subscriptions", "payments"]) await db.collection(name).deleteMany({ loadTest: true });
+for (const name of ["supporttickets", "ticketmessages", "subscriptions", "payments", "mealselections"]) await db.collection(name).deleteMany({ loadTest: true });
 
 const users = await db.collection("users").find({ loadTest: true }).project({ _id: 1, name: 1, phoneNumber: 1 }).toArray();
 const kitchen = await db.collection("kitchens").findOne({ status: "active", name: /koramangala/i });
@@ -134,10 +134,23 @@ const subs = members.map((user) => {
 });
 await insertAll(db.collection("subscriptions"), subs.length, (i) => subs[i]);
 await insertAll(db.collection("payments"), subs.length, (i) => ({ user: subs[i].user, refType: "subscription", refId: subs[i]._id, kitchen: kitchen._id, amountPaise: subs[i].renewalPricePaise, method: "link", gateway: "test", gatewayOrderId: `order_load_${i}`, gatewayPaymentId: `pay_load_${i}`, status: "captured", cycle: 1, refundedPaise: 0, loadTest: true, createdAt: subs[i].createdAt, updatedAt: subs[i].createdAt }));
+// Meal history: every past day of the plan, three meals, delivered.
+const dishes = await db.collection("kitchendishes").find({ kitchen: kitchen._id, isActive: true }).project({ _id: 1, name: 1, isVeg: 1 }).limit(30).toArray();
+const mealRows = [];
+for (const sub of subs) {
+  for (let day = sub.startDate; day < today; day = addDays(day, 1)) {
+    for (const slot of ["breakfast", "lunch", "dinner"]) {
+      const dish = pick(dishes);
+      mealRows.push({ subscription: sub._id, user: sub.user, kitchen: kitchen._id, date: day, slot, items: [{ dish: dish._id, name: dish.name, qty: 1, isVeg: dish.isVeg !== false }], status: "delivered", source: "customer", cutoffAt: new Date(`${day}T04:30:00Z`), address: sub.address, timeline: [], loadTest: true, createdAt: new Date(`${day}T03:00:00Z`), updatedAt: new Date(`${day}T08:00:00Z`) });
+    }
+  }
+}
+await insertAll(db.collection("mealselections"), mealRows.length, (i) => mealRows[i]);
+
 const ops = subs.map((sub) => ({ updateOne: { filter: { _id: sub.user }, update: { $set: { "subscription.planCode": sub.planSnapshot.planCode, "subscription.status": sub.status, "subscription.subscribedAt": sub.createdAt, "subscription.expiresAt": new Date(`${sub.validTill}T23:59:00+05:30`) } } } }));
 for (let i = 0; i < ops.length; i += BATCH) await db.collection("users").bulkWrite(ops.slice(i, i + BATCH), { ordered: false });
 
 for (const file of ["../../src/modules/support/support.model.js", "../../src/modules/subscription/subscription.model.js", "../../src/modules/payment/payment.model.js"]) await import(file);
 await Promise.all(Object.values(mongoose.models).map((model) => model.syncIndexes().catch((err) => console.warn(`  index sync ${model.modelName}: ${err.message}`))));
-console.log(`Load database now holds: ${tickets.length} tickets (${tickets.length * SIZE.messagesPerTicket} messages), ${subs.length} Plus members`);
+console.log(`Load database now holds: ${tickets.length} tickets (${tickets.length * SIZE.messagesPerTicket} messages), ${subs.length} Plus members, ${mealRows.length} past meals`);
 await mongoose.disconnect();

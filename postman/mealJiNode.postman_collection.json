@@ -8616,10 +8616,10 @@
 		},
 		{
 			"name": "Step 15 · MealJi Plus: meal plan",
-			"description": "Release step 15 for the app. Screens: Choose meal slot, Prepare meal, Meal summary, Meal confirmed, Shift meal confirm, Shift meal success. Integrate after step 14.",
+			"description": "Release step 15. Screens: Plan confirmed → Prepare Today's Meal → Choose Meal Slot, Prepare Today's Lunch (menu), Meal summary, Meal confirmed (“Your Lunch Meal is Confirmed!”, What's Next?), Shift today's meal (confirm + Meal shifted). Integrate after step 14.\n\nA member chooses each meal (breakfast / lunch / dinner) before its cutoff. Nothing chosen by the cutoff: the plan's rule applies (default: the meal is shifted to the end of the plan). Shifting moves a meal to an extra day after the plan's last paid day; lunch and dinner of the same day share one extra day. All times are the kitchen's (admin / kitchen console: Meal slots).",
 			"item": [
 				{
-					"name": "S15.1 · GET /subscriptions/me/week",
+					"name": "S15.1 · Week (my meals)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -8629,13 +8629,39 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/week",
-						"description": "GET /api/v1/subscriptions/me/week. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated member. Today + 6 days: `dateLabel` (“Thu, 15 Oct 2026”), `servesToday`, `meals` (same shape as S15.2). Days without a meal (e.g. Sunday) have none. Not a member → 404 “You don't have an active Meal Ji Plus subscription”."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Week",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/week"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Upcoming meals.\",\n  \"data\": [\n    {\n      \"date\": \"2026-10-14\",\n      \"dateLabel\": \"Wed, 14 Oct 2026\",\n      \"servesToday\": true,\n      \"meals\": [\n        {\n          \"mealId\": \"6acc8bfc189320566a1fc587\",\n          \"date\": \"2026-10-14\",\n          \"dateLabel\": \"Wed, 14 Oct 2026\",\n          \"slot\": \"breakfast\",\n          \"slotName\": \"Breakfast\",\n          \"window\": {\n            \"start\": \"07:30\",\n            \"end\": \"09:30\"\n          },\n          \"timeLabel\": \"7:30 AM – 9:30 AM\",\n          \"cutoffLabel\": \"Until 9:00 PM, the day before\",\n          \"prepareTitle\": \"Prepare Today's Breakfast\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fabf5\",\n              \"name\": \"Paneer Bao (3 pcs)\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\",\n              \"description\": \"Puffy steamed bao buns stuffed with smoky clay-oven paneer, pickled onions & fresh mint mayo.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-13T15:30:00.000Z\",\n          \"editable\": false,\n          \"confirmedTitle\": \"Your Breakfast Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 6:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"6:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:15 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:45 AM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfc189320566a1fc598\",\n          \"date\": \"2026-10-14\",\n          \"dateLabel\": \"Wed, 14 Oct 2026\",\n          \"slot\": \"lunch\",\n          \"slotName\": \"Lunch\",\n          \"window\": {\n            \"start\": \"12:30\",\n            \"end\": \"14:30\"\n          },\n          \"timeLabel\": \"12:30 PM – 2:30 PM\",\n          \"cutoffLabel\": \"Until 10:00 AM\",\n          \"prepareTitle\": \"Prepare Today's Lunch\",\n          \"status\": \"locked\",\n          \"statusLabel\": \"Being prepared\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bdf189320566a1fac4e\",\n              \"name\": \"The Meal Ji Meal (Signature)\",\n              \"qty\": 1,\n              \"isVeg\": false,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-ji-meal.jpg\",\n              \"description\": \"The complete feast: Choice of Butter Chicken/Paneer Bowl + Masala Fries + Kulfi Shake + Garlic Naan.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-14T04:30:00.000Z\",\n          \"editable\": false,\n          \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"10:30 AM\",\n              \"done\": true\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"12:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"12:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc5a9\",\n          \"date\": \"2026-10-14\",\n          \"dateLabel\": \"Wed, 14 Oct 2026\",\n          \"slot\": \"dinner\",\n          \"slotName\": \"Dinner\",\n          \"window\": {\n            \"start\": \"19:30\",\n            \"end\": \"21:30\"\n          },\n          \"timeLabel\": \"7:30 PM – 9:30 PM\",\n          \"cutoffLabel\": \"Until 5:00 PM\",\n          \"prepareTitle\": \"Prepare Today's Dinner\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fabfd\",\n              \"name\": \"Paneer Tikka Masala\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n              \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-14T11:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Dinner Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 5:30 PM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"5:30 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        }\n      ]\n    },\n    {\n      \"date\": \"2026-10-15\",\n      \"dateLabel\": \"Thu, 15 Oct 2026\",\n      \"servesToday\": true,\n      \"meals\": [\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc5ba\",\n          \"date\": \"2026-10-15\",\n          \"dateLabel\": \"Thu, 15 Oct 2026\",\n          \"slot\": \"breakfast\",\n          \"slotName\": \"Breakfast\",\n          \"window\": {\n            \"start\": \"07:30\",\n            \"end\": \"09:30\"\n          },\n          \"timeLabel\": \"7:30 AM – 9:30 AM\",\n          \"cutoffLabel\": \"Until 9:00 PM, the day before\",\n          \"prepareTitle\": \"Prepare Tomorrow's Breakfast\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bdf189320566a1faca1\",\n              \"name\": \"Biryani Arancini (4 pcs)\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\",\n              \"description\": \"Golden spiced biryani croquettes with melted aged mozzarella centers & fiery salan glaze.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-14T15:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Breakfast Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 6:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"6:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:15 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:45 AM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc5cb\",\n          \"date\": \"2026-10-15\",\n          \"dateLabel\": \"Thu, 15 Oct 2026\",\n          \"slot\": \"lunch\",\n          \"slotName\": \"Lunch\",\n          \"window\": {\n            \"start\": \"12:30\",\n            \"end\": \"14:30\"\n          },\n          \"timeLabel\": \"12:30 PM – 2:30 PM\",\n          \"cutoffLabel\": \"Until 10:00 AM\",\n          \"prepareTitle\": \"Prepare Tomorrow's Lunch\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fac34\",\n              \"name\": \"Garlic Naan\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-garlic-naan.jpg\",\n              \"description\": \"Naan topped with burnt garlic and coriander.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-15T04:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"10:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"12:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"12:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc5dc\",\n          \"date\": \"2026-10-15\",\n          \"dateLabel\": \"Thu, 15 Oct 2026\",\n          \"slot\": \"dinner\",\n          \"slotName\": \"Dinner\",\n          \"window\": {\n            \"start\": \"19:30\",\n            \"end\": \"21:30\"\n          },\n          \"timeLabel\": \"7:30 PM – 9:30 PM\",\n          \"cutoffLabel\": \"Until 5:00 PM\",\n          \"prepareTitle\": \"Prepare Tomorrow's Dinner\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bdf189320566a1fac61\",\n              \"name\": \"Butter Chicken Bowl\",\n              \"qty\": 1,\n              \"isVeg\": false,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n              \"description\": \"24-hr simmered makhani sauce, tender boneless chicken, fragrant cumin jeera rice.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-15T11:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Dinner Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 5:30 PM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"5:30 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        }\n      ]\n    },\n    {\n      \"date\": \"2026-10-16\",\n      \"dateLabel\": \"Fri, 16 Oct 2026\",\n      \"servesToday\": true,\n      \"meals\": [\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc5ed\",\n          \"date\": \"2026-10-16\",\n          \"dateLabel\": \"Fri, 16 Oct 2026\",\n          \"slot\": \"breakfast\",\n          \"slotName\": \"Breakfast\",\n          \"window\": {\n            \"start\": \"07:30\",\n            \"end\": \"09:30\"\n          },\n          \"timeLabel\": \"7:30 AM – 9:30 AM\",\n          \"cutoffLabel\": \"Until 9:00 PM, the day before\",\n          \"prepareTitle\": \"Prepare your Breakfast\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bdf189320566a1fac99\",\n              \"name\": \"Chicken Tikka Wrap\",\n              \"qty\": 1,\n              \"isVeg\": false,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/tikka-wrap.jpg\",\n              \"description\": \"Charcoal grilled chicken basted in mustard oil, wrapped in thin roomali with roasted peppers.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-15T15:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Breakfast Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 6:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"6:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:15 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:45 AM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc5fe\",\n          \"date\": \"2026-10-16\",\n          \"dateLabel\": \"Fri, 16 Oct 2026\",\n          \"slot\": \"lunch\",\n          \"slotName\": \"Lunch\",\n          \"window\": {\n            \"start\": \"12:30\",\n            \"end\": \"14:30\"\n          },\n          \"timeLabel\": \"12:30 PM – 2:30 PM\",\n          \"cutoffLabel\": \"Until 10:00 AM\",\n          \"prepareTitle\": \"Prepare your Lunch\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bdf189320566a1fac61\",\n              \"name\": \"Butter Chicken Bowl\",\n              \"qty\": 1,\n              \"isVeg\": false,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n              \"description\": \"24-hr simmered makhani sauce, tender boneless chicken, fragrant cumin jeera rice.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-16T04:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"10:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"12:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"12:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc60f\",\n          \"date\": \"2026-10-16\",\n          \"dateLabel\": \"Fri, 16 Oct 2026\",\n          \"slot\": \"dinner\",\n          \"slotName\": \"Dinner\",\n          \"window\": {\n            \"start\": \"19:30\",\n            \"end\": \"21:30\"\n          },\n          \"timeLabel\": \"7:30 PM – 9:30 PM\",\n          \"cutoffLabel\": \"Until 5:00 PM\",\n          \"prepareTitle\": \"Prepare your Dinner\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fabfd\",\n              \"name\": \"Paneer Tikka Masala\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n              \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-16T11:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Dinner Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 5:30 PM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"5:30 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        }\n      ]\n    },\n    {\n      \"date\": \"2026-10-17\",\n      \"dateLabel\": \"Sat, 17 Oct 2026\",\n      \"servesToday\": true,\n      \"meals\": [\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc620\",\n          \"date\": \"2026-10-17\",\n          \"dateLabel\": \"Sat, 17 Oct 2026\",\n          \"slot\": \"breakfast\",\n          \"slotName\": \"Breakfast\",\n          \"window\": {\n            \"start\": \"07:30\",\n            \"end\": \"09:30\"\n          },\n          \"timeLabel\": \"7:30 AM – 9:30 AM\",\n          \"cutoffLabel\": \"Until 9:00 PM, the day before\",\n          \"prepareTitle\": \"Prepare your Breakfast\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bdf189320566a1fac99\",\n              \"name\": \"Chicken Tikka Wrap\",\n              \"qty\": 1,\n              \"isVeg\": false,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/tikka-wrap.jpg\",\n              \"description\": \"Charcoal grilled chicken basted in mustard oil, wrapped in thin roomali with roasted peppers.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-16T15:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Breakfast Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 6:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"6:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:15 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:45 AM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc631\",\n          \"date\": \"2026-10-17\",\n          \"dateLabel\": \"Sat, 17 Oct 2026\",\n          \"slot\": \"lunch\",\n          \"slotName\": \"Lunch\",\n          \"window\": {\n            \"start\": \"12:30\",\n            \"end\": \"14:30\"\n          },\n          \"timeLabel\": \"12:30 PM – 2:30 PM\",\n          \"cutoffLabel\": \"Until 10:00 AM\",\n          \"prepareTitle\": \"Prepare your Lunch\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fac2c\",\n              \"name\": \"Butter Naan\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\",\n              \"description\": \"Soft tandoor naan brushed with butter.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-17T04:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"10:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"12:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"12:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acc8bfd189320566a1fc642\",\n          \"date\": \"2026-10-17\",\n          \"dateLabel\": \"Sat, 17 Oct 2026\",\n          \"slot\": \"dinner\",\n          \"slotName\": \"Dinner\",\n          \"window\": {\n            \"start\": \"19:30\",\n            \"end\": \"21:30\"\n          },\n          \"timeLabel\": \"7:30 PM – 9:30 PM\",\n          \"cutoffLabel\": \"Until 5:00 PM\",\n          \"prepareTitle\": \"Prepare your Dinner\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fac10\",\n              \"name\": \"Dal Ramen\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n              \"description\": \"Black dal simmered for 18 hours transformed into a rich velvety broth with handmade noodles & burnt garlic oil.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-17T11:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Dinner Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 5:30 PM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"5:30 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        }\n      ]\n    },\n    {\n      \"date\": \"2026-10-18\",\n      \"dateLabel\": \"Sun, 18 Oct 2026\",\n      \"servesToday\": false,\n      \"meals\": []\n    },\n    {\n      \"date\": \"2026-10-19\",\n      \"dateLabel\": \"Mon, 19 Oct 2026\",\n      \"servesToday\": true,\n      \"meals\": [\n        {\n          \"mealId\": \"6acf1d00b87c9d44d1bddf43\",\n          \"date\": \"2026-10-19\",\n          \"dateLabel\": \"Mon, 19 Oct 2026\",\n          \"slot\": \"breakfast\",\n          \"slotName\": \"Breakfast\",\n          \"window\": {\n            \"start\": \"07:30\",\n            \"end\": \"09:30\"\n          },\n          \"timeLabel\": \"7:30 AM – 9:30 AM\",\n          \"cutoffLabel\": \"Until 9:00 PM, the day before\",\n          \"prepareTitle\": \"Prepare your Breakfast\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bdf189320566a1fac99\",\n              \"name\": \"Chicken Tikka Wrap\",\n              \"qty\": 1,\n              \"isVeg\": false,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/tikka-wrap.jpg\",\n              \"description\": \"Charcoal grilled chicken basted in mustard oil, wrapped in thin roomali with roasted peppers.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-18T15:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Breakfast Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 6:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"6:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:15 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:45 AM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acf1d00b87c9d44d1bddf54\",\n          \"date\": \"2026-10-19\",\n          \"dateLabel\": \"Mon, 19 Oct 2026\",\n          \"slot\": \"lunch\",\n          \"slotName\": \"Lunch\",\n          \"window\": {\n            \"start\": \"12:30\",\n            \"end\": \"14:30\"\n          },\n          \"timeLabel\": \"12:30 PM – 2:30 PM\",\n          \"cutoffLabel\": \"Until 10:00 AM\",\n          \"prepareTitle\": \"Prepare your Lunch\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fabfd\",\n              \"name\": \"Paneer Tikka Masala\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n              \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-19T04:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"10:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"12:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"12:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acf1d00b87c9d44d1bddf65\",\n          \"date\": \"2026-10-19\",\n          \"dateLabel\": \"Mon, 19 Oct 2026\",\n          \"slot\": \"dinner\",\n          \"slotName\": \"Dinner\",\n          \"window\": {\n            \"start\": \"19:30\",\n            \"end\": \"21:30\"\n          },\n          \"timeLabel\": \"7:30 PM – 9:30 PM\",\n          \"cutoffLabel\": \"Until 5:00 PM\",\n          \"prepareTitle\": \"Prepare your Dinner\",\n          \"status\": \"selected\",\n          \"statusLabel\": \"Confirmed\",\n          \"source\": \"customer\",\n          \"items\": [\n            {\n              \"dishId\": \"6acc8bde189320566a1fabfd\",\n              \"name\": \"Paneer Tikka Masala\",\n              \"qty\": 1,\n              \"isVeg\": true,\n              \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n              \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\"\n            }\n          ],\n          \"itemsLabel\": \"1 item\",\n          \"cutoffAt\": \"2026-10-19T11:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Dinner Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 5:30 PM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"5:30 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        }\n      ]\n    },\n    {\n      \"date\": \"2026-10-20\",\n      \"dateLabel\": \"Tue, 20 Oct 2026\",\n      \"servesToday\": true,\n      \"meals\": [\n        {\n          \"mealId\": \"6acf3412454e40ee76c173db\",\n          \"date\": \"2026-10-20\",\n          \"dateLabel\": \"Tue, 20 Oct 2026\",\n          \"slot\": \"breakfast\",\n          \"slotName\": \"Breakfast\",\n          \"window\": {\n            \"start\": \"07:30\",\n            \"end\": \"09:30\"\n          },\n          \"timeLabel\": \"7:30 AM – 9:30 AM\",\n          \"cutoffLabel\": \"Until 9:00 PM, the day before\",\n          \"prepareTitle\": \"Prepare your Breakfast\",\n          \"status\": \"open\",\n          \"statusLabel\": \"Choose your meal\",\n          \"source\": null,\n          \"items\": [],\n          \"itemsLabel\": \"0 items\",\n          \"cutoffAt\": \"2026-10-19T15:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Breakfast Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 6:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"6:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:15 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:45 AM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acf3412454e40ee76c173de\",\n          \"date\": \"2026-10-20\",\n          \"dateLabel\": \"Tue, 20 Oct 2026\",\n          \"slot\": \"lunch\",\n          \"slotName\": \"Lunch\",\n          \"window\": {\n            \"start\": \"12:30\",\n            \"end\": \"14:30\"\n          },\n          \"timeLabel\": \"12:30 PM – 2:30 PM\",\n          \"cutoffLabel\": \"Until 10:00 AM\",\n          \"prepareTitle\": \"Prepare your Lunch\",\n          \"status\": \"open\",\n          \"statusLabel\": \"Choose your meal\",\n          \"source\": null,\n          \"items\": [],\n          \"itemsLabel\": \"0 items\",\n          \"cutoffAt\": \"2026-10-20T04:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"10:30 AM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"12:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"12:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        },\n        {\n          \"mealId\": \"6acf3412454e40ee76c173e1\",\n          \"date\": \"2026-10-20\",\n          \"dateLabel\": \"Tue, 20 Oct 2026\",\n          \"slot\": \"dinner\",\n          \"slotName\": \"Dinner\",\n          \"window\": {\n            \"start\": \"19:30\",\n            \"end\": \"21:30\"\n          },\n          \"timeLabel\": \"7:30 PM – 9:30 PM\",\n          \"cutoffLabel\": \"Until 5:00 PM\",\n          \"prepareTitle\": \"Prepare your Dinner\",\n          \"status\": \"open\",\n          \"statusLabel\": \"Choose your meal\",\n          \"source\": null,\n          \"items\": [],\n          \"itemsLabel\": \"0 items\",\n          \"cutoffAt\": \"2026-10-20T11:30:00.000Z\",\n          \"editable\": true,\n          \"confirmedTitle\": \"Your Dinner Meal is Confirmed!\",\n          \"prepStartsLabel\": \"Preparation starts at 5:30 PM\",\n          \"steps\": [\n            {\n              \"key\": \"preparing\",\n              \"label\": \"Meal is being prepared\",\n              \"timeLabel\": \"5:30 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"out_for_delivery\",\n              \"label\": \"Out for delivery\",\n              \"timeLabel\": \"7:00 PM\",\n              \"done\": false\n            },\n            {\n              \"key\": \"delivered\",\n              \"label\": \"Delivered\",\n              \"timeLabel\": \"7:30 PM\",\n              \"done\": false\n            }\n          ],\n          \"shiftedTo\": null,\n          \"shiftedToLabel\": null,\n          \"shiftedFrom\": null,\n          \"shiftedFromLabel\": null\n        }\n      ]\n    }\n  ]\n}"
+						}
+					],
 					"id": "621248e8-efd2-471d-a04e-50e04ea69728"
 				},
 				{
-					"name": "S15.2 · GET /subscriptions/me/days/:date",
+					"name": "S15.2 · Day (Choose Meal Slot)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -8645,13 +8671,64 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}",
-						"description": "GET /api/v1/subscriptions/me/days/:date. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated member. `{{date}}` is YYYY-MM-DD (IST). Choose Meal Slot: one row per meal of the day.\n- `slot` (breakfast / lunch / dinner; the app's icons), `slotName`, `timeLabel` (“12:30 PM – 2:30 PM”), `cutoffLabel` (“Until 10:00 AM”; breakfast “Until 9:00 PM, the day before”), `prepareTitle` (“Prepare Tomorrow's Lunch”), `status` + `statusLabel` (Choose your meal, Confirmed, Being prepared, Out for delivery, Delivered, Shifted, Skipped), `editable`, `items`, `itemsLabel`.\n- Meal confirmed fields are on every meal too: `confirmedTitle`, `prepStartsLabel`, `steps` (What's Next?: Meal is being prepared / Out for delivery / Delivered with `timeLabel` and `done`)."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Day",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Day fetched.\",\n  \"data\": {\n    \"date\": \"2026-10-15\",\n    \"dateLabel\": \"Thu, 15 Oct 2026\",\n    \"servesToday\": true,\n    \"meals\": [\n      {\n        \"mealId\": \"6acc8bfd189320566a1fc5ba\",\n        \"date\": \"2026-10-15\",\n        \"dateLabel\": \"Thu, 15 Oct 2026\",\n        \"slot\": \"breakfast\",\n        \"slotName\": \"Breakfast\",\n        \"window\": {\n          \"start\": \"07:30\",\n          \"end\": \"09:30\"\n        },\n        \"timeLabel\": \"7:30 AM – 9:30 AM\",\n        \"cutoffLabel\": \"Until 9:00 PM, the day before\",\n        \"prepareTitle\": \"Prepare Tomorrow's Breakfast\",\n        \"status\": \"selected\",\n        \"statusLabel\": \"Confirmed\",\n        \"source\": \"customer\",\n        \"items\": [\n          {\n            \"dishId\": \"6acc8bdf189320566a1faca1\",\n            \"name\": \"Biryani Arancini (4 pcs)\",\n            \"qty\": 1,\n            \"isVeg\": true,\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\",\n            \"description\": \"Golden spiced biryani croquettes with melted aged mozzarella centers & fiery salan glaze.\"\n          }\n        ],\n        \"itemsLabel\": \"1 item\",\n        \"cutoffAt\": \"2026-10-14T15:30:00.000Z\",\n        \"editable\": true,\n        \"confirmedTitle\": \"Your Breakfast Meal is Confirmed!\",\n        \"prepStartsLabel\": \"Preparation starts at 6:30 AM\",\n        \"steps\": [\n          {\n            \"key\": \"preparing\",\n            \"label\": \"Meal is being prepared\",\n            \"timeLabel\": \"6:30 AM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"out_for_delivery\",\n            \"label\": \"Out for delivery\",\n            \"timeLabel\": \"7:15 AM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"delivered\",\n            \"label\": \"Delivered\",\n            \"timeLabel\": \"7:45 AM\",\n            \"done\": false\n          }\n        ],\n        \"shiftedTo\": null,\n        \"shiftedToLabel\": null,\n        \"shiftedFrom\": null,\n        \"shiftedFromLabel\": null\n      },\n      {\n        \"mealId\": \"6acc8bfd189320566a1fc5cb\",\n        \"date\": \"2026-10-15\",\n        \"dateLabel\": \"Thu, 15 Oct 2026\",\n        \"slot\": \"lunch\",\n        \"slotName\": \"Lunch\",\n        \"window\": {\n          \"start\": \"12:30\",\n          \"end\": \"14:30\"\n        },\n        \"timeLabel\": \"12:30 PM – 2:30 PM\",\n        \"cutoffLabel\": \"Until 10:00 AM\",\n        \"prepareTitle\": \"Prepare Tomorrow's Lunch\",\n        \"status\": \"selected\",\n        \"statusLabel\": \"Confirmed\",\n        \"source\": \"customer\",\n        \"items\": [\n          {\n            \"dishId\": \"6acc8bde189320566a1fac34\",\n            \"name\": \"Garlic Naan\",\n            \"qty\": 1,\n            \"isVeg\": true,\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-garlic-naan.jpg\",\n            \"description\": \"Naan topped with burnt garlic and coriander.\"\n          }\n        ],\n        \"itemsLabel\": \"1 item\",\n        \"cutoffAt\": \"2026-10-15T04:30:00.000Z\",\n        \"editable\": true,\n        \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n        \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n        \"steps\": [\n          {\n            \"key\": \"preparing\",\n            \"label\": \"Meal is being prepared\",\n            \"timeLabel\": \"10:30 AM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"out_for_delivery\",\n            \"label\": \"Out for delivery\",\n            \"timeLabel\": \"12:00 PM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"delivered\",\n            \"label\": \"Delivered\",\n            \"timeLabel\": \"12:30 PM\",\n            \"done\": false\n          }\n        ],\n        \"shiftedTo\": null,\n        \"shiftedToLabel\": null,\n        \"shiftedFrom\": null,\n        \"shiftedFromLabel\": null\n      },\n      {\n        \"mealId\": \"6acc8bfd189320566a1fc5dc\",\n        \"date\": \"2026-10-15\",\n        \"dateLabel\": \"Thu, 15 Oct 2026\",\n        \"slot\": \"dinner\",\n        \"slotName\": \"Dinner\",\n        \"window\": {\n          \"start\": \"19:30\",\n          \"end\": \"21:30\"\n        },\n        \"timeLabel\": \"7:30 PM – 9:30 PM\",\n        \"cutoffLabel\": \"Until 5:00 PM\",\n        \"prepareTitle\": \"Prepare Tomorrow's Dinner\",\n        \"status\": \"selected\",\n        \"statusLabel\": \"Confirmed\",\n        \"source\": \"customer\",\n        \"items\": [\n          {\n            \"dishId\": \"6acc8bdf189320566a1fac61\",\n            \"name\": \"Butter Chicken Bowl\",\n            \"qty\": 1,\n            \"isVeg\": false,\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n            \"description\": \"24-hr simmered makhani sauce, tender boneless chicken, fragrant cumin jeera rice.\"\n          }\n        ],\n        \"itemsLabel\": \"1 item\",\n        \"cutoffAt\": \"2026-10-15T11:30:00.000Z\",\n        \"editable\": true,\n        \"confirmedTitle\": \"Your Dinner Meal is Confirmed!\",\n        \"prepStartsLabel\": \"Preparation starts at 5:30 PM\",\n        \"steps\": [\n          {\n            \"key\": \"preparing\",\n            \"label\": \"Meal is being prepared\",\n            \"timeLabel\": \"5:30 PM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"out_for_delivery\",\n            \"label\": \"Out for delivery\",\n            \"timeLabel\": \"7:00 PM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"delivered\",\n            \"label\": \"Delivered\",\n            \"timeLabel\": \"7:30 PM\",\n            \"done\": false\n          }\n        ],\n        \"shiftedTo\": null,\n        \"shiftedToLabel\": null,\n        \"shiftedFrom\": null,\n        \"shiftedFromLabel\": null\n      }\n    ],\n    \"subscription\": {\n      \"subscriptionId\": \"6acc8bf8189320566a1fc2d2\",\n      \"status\": \"active\",\n      \"plan\": {\n        \"planId\": \"6acc8be1189320566a1fad91\",\n        \"planCode\": \"PREMIUM_MONTHLY\",\n        \"name\": \"Premium Monthly\",\n        \"pricePaise\": 549900,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"mealsPerDay\": 3,\n        \"maxItemsPerMeal\": 3,\n        \"benefits\": [\n          \"7+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"3 vegetable dishes\",\n          \"Fresh salad\",\n          \"5 chapatis\",\n          \"2 sweets\"\n        ]\n      },\n      \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n      \"address\": {\n        \"addressId\": \"6acc8be2189320566a1fae6c\",\n        \"label\": \"home\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Home\",\n        \"recipientName\": \"Siddharth Rao\",\n        \"phone\": \"9000000037\",\n        \"houseFlat\": \"No. 7, Garden Villa\",\n        \"street\": \"12th Main, HAL 2nd Stage\",\n        \"locality\": \"Indiranagar\",\n        \"landmark\": null,\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560038\",\n        \"latitude\": 12.9759,\n        \"longitude\": 77.6362,\n        \"fullAddress\": \"No. 7, Garden Villa, 12th Main, HAL 2nd Stage, Indiranagar, Bengaluru, Karnataka, 560038\"\n      },\n      \"billingMethod\": \"link\",\n      \"startDate\": \"2026-10-13\",\n      \"cycle\": 1,\n      \"currentPeriodStart\": \"2026-10-13\",\n      \"currentPeriodEnd\": \"2026-11-11\",\n      \"validTill\": \"2026-11-11\",\n      \"nextBillingDate\": \"2026-11-12\",\n      \"renewalPricePaise\": 549900,\n      \"daysLeft\": 29,\n      \"autoRenew\": true,\n      \"pause\": null,\n      \"scheduledChange\": null,\n      \"cancellation\": null,\n      \"shiftsThisCycle\": 0,\n      \"shiftsLeft\": 4,\n      \"paymentLink\": null,\n      \"pastDueSince\": null,\n      \"createdAt\": \"2026-10-12T07:27:52.844Z\",\n      \"statusLabel\": \"Active\",\n      \"planLabel\": \"Premium Monthly (₹5,499)\",\n      \"priceLabel\": \"₹5,499 / month\",\n      \"startDateLabel\": \"Tue, Oct 13\",\n      \"nextBillingDateLabel\": \"Nov 12, 2026\",\n      \"validTillLabel\": \"11 Nov 2026\",\n      \"validTillText\": \"Valid till 11 Nov 2026\"\n    }\n  }\n}"
+						},
+						{
+							"name": "Extra day after a shift (only the shifted meal)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Day fetched.\",\n  \"data\": {\n    \"date\": \"2026-11-12\",\n    \"dateLabel\": \"Thu, 12 Nov 2026\",\n    \"servesToday\": true,\n    \"meals\": [\n      {\n        \"mealId\": \"6acf3412454e40ee76c17428\",\n        \"date\": \"2026-11-12\",\n        \"dateLabel\": \"Thu, 12 Nov 2026\",\n        \"slot\": \"lunch\",\n        \"slotName\": \"Lunch\",\n        \"window\": {\n          \"start\": \"12:30\",\n          \"end\": \"14:30\"\n        },\n        \"timeLabel\": \"12:30 PM – 2:30 PM\",\n        \"cutoffLabel\": \"Until 10:00 AM\",\n        \"prepareTitle\": \"Prepare your Lunch\",\n        \"status\": \"open\",\n        \"statusLabel\": \"Choose your meal\",\n        \"source\": null,\n        \"items\": [],\n        \"itemsLabel\": \"0 items\",\n        \"cutoffAt\": \"2026-11-12T04:30:00.000Z\",\n        \"editable\": true,\n        \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n        \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n        \"steps\": [\n          {\n            \"key\": \"preparing\",\n            \"label\": \"Meal is being prepared\",\n            \"timeLabel\": \"10:30 AM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"out_for_delivery\",\n            \"label\": \"Out for delivery\",\n            \"timeLabel\": \"12:00 PM\",\n            \"done\": false\n          },\n          {\n            \"key\": \"delivered\",\n            \"label\": \"Delivered\",\n            \"timeLabel\": \"12:30 PM\",\n            \"done\": false\n          }\n        ],\n        \"shiftedTo\": null,\n        \"shiftedToLabel\": null,\n        \"shiftedFrom\": \"2026-10-16\",\n        \"shiftedFromLabel\": \"Fri, 16 Oct 2026\"\n      }\n    ],\n    \"subscription\": {\n      \"subscriptionId\": \"6acc8bf8189320566a1fc2d2\",\n      \"status\": \"active\",\n      \"plan\": {\n        \"planId\": \"6acc8be1189320566a1fad91\",\n        \"planCode\": \"PREMIUM_MONTHLY\",\n        \"name\": \"Premium Monthly\",\n        \"pricePaise\": 549900,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"mealsPerDay\": 3,\n        \"maxItemsPerMeal\": 3,\n        \"benefits\": [\n          \"7+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"3 vegetable dishes\",\n          \"Fresh salad\",\n          \"5 chapatis\",\n          \"2 sweets\"\n        ]\n      },\n      \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n      \"address\": {\n        \"addressId\": \"6acc8be2189320566a1fae6c\",\n        \"label\": \"home\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Home\",\n        \"recipientName\": \"Siddharth Rao\",\n        \"phone\": \"9000000037\",\n        \"houseFlat\": \"No. 7, Garden Villa\",\n        \"street\": \"12th Main, HAL 2nd Stage\",\n        \"locality\": \"Indiranagar\",\n        \"landmark\": null,\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560038\",\n        \"latitude\": 12.9759,\n        \"longitude\": 77.6362,\n        \"fullAddress\": \"No. 7, Garden Villa, 12th Main, HAL 2nd Stage, Indiranagar, Bengaluru, Karnataka, 560038\"\n      },\n      \"billingMethod\": \"link\",\n      \"startDate\": \"2026-10-13\",\n      \"cycle\": 1,\n      \"currentPeriodStart\": \"2026-10-13\",\n      \"currentPeriodEnd\": \"2026-11-11\",\n      \"validTill\": \"2026-11-12\",\n      \"nextBillingDate\": \"2026-11-12\",\n      \"renewalPricePaise\": 549900,\n      \"daysLeft\": 30,\n      \"autoRenew\": true,\n      \"pause\": null,\n      \"scheduledChange\": null,\n      \"cancellation\": null,\n      \"shiftsThisCycle\": 1,\n      \"shiftsLeft\": 3,\n      \"paymentLink\": null,\n      \"pastDueSince\": null,\n      \"createdAt\": \"2026-10-12T07:27:52.844Z\",\n      \"statusLabel\": \"Active\",\n      \"planLabel\": \"Premium Monthly (₹5,499)\",\n      \"priceLabel\": \"₹5,499 / month\",\n      \"startDateLabel\": \"Tue, Oct 13\",\n      \"nextBillingDateLabel\": \"Nov 12, 2026\",\n      \"validTillLabel\": \"12 Nov 2026\",\n      \"validTillText\": \"Valid till 12 Nov 2026\"\n    }\n  }\n}"
+						}
+					],
 					"id": "57cbb9a9-4170-4058-997d-9310edb610ff"
 				},
 				{
-					"name": "S15.3 · GET /subscriptions/me/menu",
+					"name": "S15.3 · Menu (Prepare Today's Lunch)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -8660,46 +8737,90 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/subscriptions/me/menu",
-						"description": "GET /api/v1/subscriptions/me/menu. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/subscriptions/me/menu?date={{date}}&slot=lunch",
+						"description": "Authenticated member. `{{date}}` is YYYY-MM-DD (IST). The dishes that can be chosen for this meal.\n- `title` (header), `cutoffLabel`, `categories` [{ `categoryId`, `name`, `imageUrl`, `count` }] for the chips, `dishes` (name, description, imageUrl, isVeg, isBestseller…; no prices — the meal is part of the plan, hide ₹ on the cards), `maxItems` / `minItems`, `limitLabel` (“You can add up to 3 items”; show “Items added n/maxItems”), `defaultDishIds`.\n- Search box: `q` (up to 60 characters, name or description); a chip: `categoryId`. Unknown slot → 422; a slot not in the plan → 404."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Menu",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/menu?date={{date}}&slot=lunch"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Menu fetched.\",\n  \"data\": {\n    \"date\": \"2026-10-15\",\n    \"dateLabel\": \"Thu, 15 Oct 2026\",\n    \"slot\": {\n      \"slotId\": \"6acc8be194e2889d038e2d12\",\n      \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n      \"key\": \"lunch\",\n      \"name\": \"Lunch\",\n      \"windowStart\": \"12:30\",\n      \"windowEnd\": \"14:30\",\n      \"cutoffDay\": \"same_day\",\n      \"cutoffTime\": \"10:00\",\n      \"prepStart\": \"10:30\",\n      \"dispatchTime\": \"12:00\",\n      \"capacity\": 150,\n      \"activeDays\": [\n        0,\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"isActive\": true\n    },\n    \"title\": \"Prepare Tomorrow's Lunch\",\n    \"timeLabel\": \"12:30 PM – 2:30 PM\",\n    \"cutoffAt\": \"2026-10-15T04:30:00.000Z\",\n    \"cutoffLabel\": \"Until 10:00 AM\",\n    \"maxItems\": 3,\n    \"minItems\": 1,\n    \"limitLabel\": \"You can add up to 3 items\",\n    \"categories\": [\n      {\n        \"categoryId\": \"6acc8bde189320566a1fabe7\",\n        \"name\": \"Paneer\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bde189320566a1fac04\",\n        \"name\": \"Daal & Curries\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bde189320566a1fac1f\",\n        \"name\": \"Roti & Rice\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\",\n        \"count\": 2\n      },\n      {\n        \"categoryId\": \"6acc8bdf189320566a1fac55\",\n        \"name\": \"Signature Bowls\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bdf189320566a1fac70\",\n        \"name\": \"Biryani\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\",\n        \"count\": 2\n      }\n    ],\n    \"dishes\": [\n      {\n        \"dishId\": \"6acc8bde189320566a1fabfd\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bde189320566a1fabe7\",\n        \"name\": \"Paneer Tikka Masala\",\n        \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": null,\n        \"spicyLevel\": 2,\n        \"calories\": 520,\n        \"preparationMinutes\": 18,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"paneer\",\n          \"curry\"\n        ],\n        \"cuisine\": \"North Indian\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bde189320566a1fabfd\",\n        \"shareUrl\": null,\n        \"shareText\": \"Paneer Tikka Masala on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 0,\n        \"rating\": 0,\n        \"ratingCount\": 0\n      },\n      {\n        \"dishId\": \"6acc8bde189320566a1fac10\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bde189320566a1fac04\",\n        \"name\": \"Dal Ramen\",\n        \"description\": \"Black dal simmered for 18 hours transformed into a rich velvety broth with handmade noodles & burnt garlic oil.\",\n        \"story\": \"An Indian food-lover’s ultimate comfort bowl. Deep, aromatic, finished with cilantro & butter swirls.\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": \"Trending\",\n        \"spicyLevel\": 1,\n        \"calories\": 550,\n        \"preparationMinutes\": 18,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"dal\",\n          \"bowl\",\n          \"noodles\"\n        ],\n        \"cuisine\": \"Indo-Asian\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bde189320566a1fac10\",\n        \"shareUrl\": null,\n        \"shareText\": \"Dal Ramen on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 5,\n        \"rating\": 5,\n        \"ratingCount\": 2\n      },\n      {\n        \"dishId\": \"6acc8bde189320566a1fac2c\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bde189320566a1fac1f\",\n        \"name\": \"Butter Naan\",\n        \"description\": \"Soft tandoor naan brushed with butter.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": null,\n        \"spicyLevel\": 0,\n        \"calories\": 260,\n        \"preparationMinutes\": 6,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"naan\",\n          \"bread\"\n        ],\n        \"cuisine\": \"North Indian\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bde189320566a1fac2c\",\n        \"shareUrl\": null,\n        \"shareText\": \"Butter Naan on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 5,\n        \"rating\": 5,\n        \"ratingCount\": 3\n      },\n      {\n        \"dishId\": \"6acc8bde189320566a1fac34\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bde189320566a1fac1f\",\n        \"name\": \"Garlic Naan\",\n        \"description\": \"Naan topped with burnt garlic and coriander.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-garlic-naan.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/rewards-garlic-naan.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": null,\n        \"spicyLevel\": 0,\n        \"calories\": 280,\n        \"preparationMinutes\": 6,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"naan\",\n          \"bread\"\n        ],\n        \"cuisine\": \"North Indian\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bde189320566a1fac34\",\n        \"shareUrl\": null,\n        \"shareText\": \"Garlic Naan on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 5,\n        \"rating\": 5,\n        \"ratingCount\": 1\n      },\n      {\n        \"dishId\": \"6acc8bdf189320566a1fac61\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bdf189320566a1fac55\",\n        \"name\": \"Butter Chicken Bowl\",\n        \"description\": \"24-hr simmered makhani sauce, tender boneless chicken, fragrant cumin jeera rice.\",\n        \"story\": \"Chef Mujahid’s signature bowl, cooked over low flame with house-ground cardamom & churned cream.\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n        \"isVeg\": false,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": true,\n        \"badge\": \"Chef’s Kiss\",\n        \"spicyLevel\": 1,\n        \"calories\": 620,\n        \"preparationMinutes\": 20,\n        \"servesCount\": 1,\n        \"highlights\": [\n          \"Fresh Ingredients\",\n          \"Slow Cooked\",\n          \"Halal Certified\"\n        ],\n        \"highlightBadges\": [\n          {\n            \"label\": \"Fresh Ingredients\",\n            \"icon\": \"leaf\"\n          },\n          {\n            \"label\": \"Slow Cooked\",\n            \"icon\": \"fire\"\n          },\n          {\n            \"label\": \"Halal Certified\",\n            \"icon\": \"checkc\"\n          }\n        ],\n        \"tags\": [\n          \"bowl\",\n          \"chicken\",\n          \"bestseller\"\n        ],\n        \"cuisine\": \"North Indian\",\n        \"portions\": [\n          {\n            \"portionId\": \"regular\",\n            \"label\": \"Regular\",\n            \"pricePaise\": 34900,\n            \"serves\": \"Serves 1\",\n            \"isDefault\": true\n          },\n          {\n            \"portionId\": \"large\",\n            \"label\": \"Large\",\n            \"pricePaise\": 59900,\n            \"serves\": \"Serves 2\",\n            \"isDefault\": false\n          },\n          {\n            \"portionId\": \"family\",\n            \"label\": \"Family Pack\",\n            \"pricePaise\": 99900,\n            \"serves\": \"Serves 3-4\",\n            \"isDefault\": false\n          }\n        ],\n        \"mealUpgrade\": {\n          \"label\": \"Complete Meal\",\n          \"description\": \"Butter Naan + Chilled Soft Drink\",\n          \"pricePaise\": 9900,\n          \"originalPricePaise\": 11800,\n          \"savingsPaise\": 1900,\n          \"totalPricePaise\": 44800,\n          \"totalOriginalPricePaise\": 51700,\n          \"totalSavingsPaise\": 6900,\n          \"isRecommended\": true,\n          \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\"\n        },\n        \"deepLink\": \"mealji://dish/6acc8bdf189320566a1fac61\",\n        \"shareUrl\": null,\n        \"shareText\": \"Butter Chicken Bowl on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [\n          {\n            \"groupId\": \"503ebaeba9\",\n            \"name\": \"Choose Rice Portion\",\n            \"required\": true,\n            \"multiple\": false,\n            \"minSelect\": 1,\n            \"maxSelect\": 1,\n            \"options\": [\n              {\n                \"optionId\": \"69cee19bcb\",\n                \"name\": \"Regular Jeera Rice\",\n                \"pricePaise\": 0,\n                \"isVeg\": true,\n                \"isAvailable\": true\n              },\n              {\n                \"optionId\": \"869d54b75d\",\n                \"name\": \"Extra Butter Jeera Rice\",\n                \"pricePaise\": 4000,\n                \"isVeg\": true,\n                \"isAvailable\": true\n              },\n              {\n                \"optionId\": \"7a8d26694a\",\n                \"name\": \"Fragrant Biryani Rice\",\n                \"pricePaise\": 6000,\n                \"isVeg\": true,\n                \"isAvailable\": true\n              }\n            ]\n          },\n          {\n            \"groupId\": \"6eb8f50ace\",\n            \"name\": \"Add a Side\",\n            \"required\": false,\n            \"multiple\": true,\n            \"minSelect\": 0,\n            \"maxSelect\": 3,\n            \"options\": [\n              {\n                \"optionId\": \"979282c6c6\",\n                \"name\": \"Crispy Masala Papad\",\n                \"pricePaise\": 3900,\n                \"isVeg\": true,\n                \"isAvailable\": true\n              },\n              {\n                \"optionId\": \"02c28c1e2c\",\n                \"name\": \"Butter Garlic Naan (1 pc)\",\n                \"pricePaise\": 6500,\n                \"isVeg\": true,\n                \"isAvailable\": true\n              },\n              {\n                \"optionId\": \"50f7a25cc3\",\n                \"name\": \"Cold Badam Drink\",\n                \"pricePaise\": 7900,\n                \"isVeg\": true,\n                \"isAvailable\": true\n              }\n            ]\n          }\n        ],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 5,\n        \"rating\": 5,\n        \"ratingCount\": 2\n      },\n      {\n        \"dishId\": \"6acc8bdf189320566a1fac7c\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bdf189320566a1fac70\",\n        \"name\": \"Chicken Biryani\",\n        \"description\": \"Our signature dum biryani: aged basmati, bone-in chicken, saffron and fried onions. With salan and raita.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\",\n        \"isVeg\": false,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": true,\n        \"badge\": \"Signature\",\n        \"spicyLevel\": 2,\n        \"calories\": 780,\n        \"preparationMinutes\": 22,\n        \"servesCount\": 1,\n        \"highlights\": [\n          \"Fresh Ingredients\",\n          \"Slow Cooked\",\n          \"Halal Certified\"\n        ],\n        \"highlightBadges\": [\n          {\n            \"label\": \"Fresh Ingredients\",\n            \"icon\": \"leaf\"\n          },\n          {\n            \"label\": \"Slow Cooked\",\n            \"icon\": \"fire\"\n          },\n          {\n            \"label\": \"Halal Certified\",\n            \"icon\": \"checkc\"\n          }\n        ],\n        \"tags\": [\n          \"biryani\",\n          \"chicken\",\n          \"bestseller\"\n        ],\n        \"cuisine\": \"Hyderabadi\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bdf189320566a1fac7c\",\n        \"shareUrl\": null,\n        \"shareText\": \"Chicken Biryani on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 5,\n        \"rating\": 5,\n        \"ratingCount\": 2\n      },\n      {\n        \"dishId\": \"6acc8bdf189320566a1fac84\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bdf189320566a1fac70\",\n        \"name\": \"Paneer Biryani\",\n        \"description\": \"Paneer tikka layered with saffron basmati and mint.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-biryani.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-biryani.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": null,\n        \"spicyLevel\": 1,\n        \"calories\": 690,\n        \"preparationMinutes\": 20,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"biryani\",\n          \"paneer\"\n        ],\n        \"cuisine\": \"Hyderabadi\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bdf189320566a1fac84\",\n        \"shareUrl\": null,\n        \"shareText\": \"Paneer Biryani on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 0,\n        \"rating\": 0,\n        \"ratingCount\": 0\n      }\n    ],\n    \"defaultDishIds\": [\n      \"6acc8bdf189320566a1fac7c\"\n    ],\n    \"note\": null\n  }\n}"
+						},
+						{
+							"name": "Category chip",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/menu?date={{date}}&slot=lunch&categoryId=6acc8bde189320566a1fabe7"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Menu fetched.\",\n  \"data\": {\n    \"date\": \"2026-10-15\",\n    \"dateLabel\": \"Thu, 15 Oct 2026\",\n    \"slot\": {\n      \"slotId\": \"6acc8be194e2889d038e2d12\",\n      \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n      \"key\": \"lunch\",\n      \"name\": \"Lunch\",\n      \"windowStart\": \"12:30\",\n      \"windowEnd\": \"14:30\",\n      \"cutoffDay\": \"same_day\",\n      \"cutoffTime\": \"10:00\",\n      \"prepStart\": \"10:30\",\n      \"dispatchTime\": \"12:00\",\n      \"capacity\": 150,\n      \"activeDays\": [\n        0,\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"isActive\": true\n    },\n    \"title\": \"Prepare Tomorrow's Lunch\",\n    \"timeLabel\": \"12:30 PM – 2:30 PM\",\n    \"cutoffAt\": \"2026-10-15T04:30:00.000Z\",\n    \"cutoffLabel\": \"Until 10:00 AM\",\n    \"maxItems\": 3,\n    \"minItems\": 1,\n    \"limitLabel\": \"You can add up to 3 items\",\n    \"categories\": [\n      {\n        \"categoryId\": \"6acc8bde189320566a1fabe7\",\n        \"name\": \"Paneer\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bde189320566a1fac04\",\n        \"name\": \"Daal & Curries\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bde189320566a1fac1f\",\n        \"name\": \"Roti & Rice\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\",\n        \"count\": 2\n      },\n      {\n        \"categoryId\": \"6acc8bdf189320566a1fac55\",\n        \"name\": \"Signature Bowls\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bdf189320566a1fac70\",\n        \"name\": \"Biryani\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\",\n        \"count\": 2\n      }\n    ],\n    \"dishes\": [\n      {\n        \"dishId\": \"6acc8bde189320566a1fabfd\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bde189320566a1fabe7\",\n        \"name\": \"Paneer Tikka Masala\",\n        \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": null,\n        \"spicyLevel\": 2,\n        \"calories\": 520,\n        \"preparationMinutes\": 18,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"paneer\",\n          \"curry\"\n        ],\n        \"cuisine\": \"North Indian\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bde189320566a1fabfd\",\n        \"shareUrl\": null,\n        \"shareText\": \"Paneer Tikka Masala on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 0,\n        \"rating\": 0,\n        \"ratingCount\": 0\n      }\n    ],\n    \"defaultDishIds\": [\n      \"6acc8bdf189320566a1fac7c\"\n    ],\n    \"note\": null\n  }\n}"
+						},
+						{
+							"name": "Search “paneer”",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/menu?date={{date}}&slot=lunch&q=paneer"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Menu fetched.\",\n  \"data\": {\n    \"date\": \"2026-10-15\",\n    \"dateLabel\": \"Thu, 15 Oct 2026\",\n    \"slot\": {\n      \"slotId\": \"6acc8be194e2889d038e2d12\",\n      \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n      \"key\": \"lunch\",\n      \"name\": \"Lunch\",\n      \"windowStart\": \"12:30\",\n      \"windowEnd\": \"14:30\",\n      \"cutoffDay\": \"same_day\",\n      \"cutoffTime\": \"10:00\",\n      \"prepStart\": \"10:30\",\n      \"dispatchTime\": \"12:00\",\n      \"capacity\": 150,\n      \"activeDays\": [\n        0,\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"isActive\": true\n    },\n    \"title\": \"Prepare Tomorrow's Lunch\",\n    \"timeLabel\": \"12:30 PM – 2:30 PM\",\n    \"cutoffAt\": \"2026-10-15T04:30:00.000Z\",\n    \"cutoffLabel\": \"Until 10:00 AM\",\n    \"maxItems\": 3,\n    \"minItems\": 1,\n    \"limitLabel\": \"You can add up to 3 items\",\n    \"categories\": [\n      {\n        \"categoryId\": \"6acc8bde189320566a1fabe7\",\n        \"name\": \"Paneer\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bde189320566a1fac04\",\n        \"name\": \"Daal & Curries\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bde189320566a1fac1f\",\n        \"name\": \"Roti & Rice\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\",\n        \"count\": 2\n      },\n      {\n        \"categoryId\": \"6acc8bdf189320566a1fac55\",\n        \"name\": \"Signature Bowls\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\",\n        \"count\": 1\n      },\n      {\n        \"categoryId\": \"6acc8bdf189320566a1fac70\",\n        \"name\": \"Biryani\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\",\n        \"count\": 2\n      }\n    ],\n    \"dishes\": [\n      {\n        \"dishId\": \"6acc8bde189320566a1fabfd\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bde189320566a1fabe7\",\n        \"name\": \"Paneer Tikka Masala\",\n        \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": null,\n        \"spicyLevel\": 2,\n        \"calories\": 520,\n        \"preparationMinutes\": 18,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"paneer\",\n          \"curry\"\n        ],\n        \"cuisine\": \"North Indian\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bde189320566a1fabfd\",\n        \"shareUrl\": null,\n        \"shareText\": \"Paneer Tikka Masala on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 0,\n        \"rating\": 0,\n        \"ratingCount\": 0\n      },\n      {\n        \"dishId\": \"6acc8bdf189320566a1fac84\",\n        \"kitchenId\": \"6acc8bd3189320566a1fa999\",\n        \"categoryId\": \"6acc8bdf189320566a1fac70\",\n        \"name\": \"Paneer Biryani\",\n        \"description\": \"Paneer tikka layered with saffron basmati and mint.\",\n        \"story\": \"\",\n        \"images\": [\n          \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-biryani.jpg\"\n        ],\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-biryani.jpg\",\n        \"isVeg\": true,\n        \"isAvailable\": true,\n        \"unavailableReason\": null,\n        \"unavailableMessage\": null,\n        \"stockLeft\": null,\n        \"isBestseller\": false,\n        \"badge\": null,\n        \"spicyLevel\": 1,\n        \"calories\": 690,\n        \"preparationMinutes\": 20,\n        \"servesCount\": 1,\n        \"highlights\": [],\n        \"highlightBadges\": [],\n        \"tags\": [\n          \"biryani\",\n          \"paneer\"\n        ],\n        \"cuisine\": \"Hyderabadi\",\n        \"portions\": [],\n        \"mealUpgrade\": null,\n        \"deepLink\": \"mealji://dish/6acc8bdf189320566a1fac84\",\n        \"shareUrl\": null,\n        \"shareText\": \"Paneer Biryani on Meal Ji — order it in the Meal Ji app\",\n        \"customizationGroups\": [],\n        \"availableSlots\": [\n          \"lunch\",\n          \"dinner\",\n          \"snacks\"\n        ],\n        \"availableDays\": [],\n        \"ratingAvg\": 0,\n        \"rating\": 0,\n        \"ratingCount\": 0\n      }\n    ],\n    \"defaultDishIds\": [\n      \"6acc8bdf189320566a1fac7c\"\n    ],\n    \"note\": null\n  }\n}"
+						}
+					],
 					"id": "309bcc7a-3e8a-4b25-b985-4367a22d8add"
 				},
 				{
-					"name": "S15.4 · GET /subscriptions/me/days/:date/slots/:slot",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-device-id",
-								"value": "{{deviceId}}"
-							}
-						],
-						"url": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/{{slot}}",
-						"description": "GET /api/v1/subscriptions/me/days/:date/slots/:slot. See the API reference in the backend README for permissions and fields."
-					},
-					"response": [],
-					"id": "43038b3d-8e3e-42c9-b8df-50b959ce9254"
-				},
-				{
-					"name": "S15.5 · GET /subscriptions/me/days/:date/slots/:slot/selection",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-device-id",
-								"value": "{{deviceId}}"
-							}
-						],
-						"url": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/{{slot}}/selection",
-						"description": "GET /api/v1/subscriptions/me/days/:date/slots/:slot/selection. See the API reference in the backend README for permissions and fields."
-					},
-					"response": [],
-					"id": "62398320-4345-4939-80fb-508a56d41c8d"
-				},
-				{
-					"name": "S15.6 · PUT /subscriptions/me/days/:date/slots/:slot/selection",
+					"name": "S15.4 · Confirm / modify the meal",
 					"request": {
 						"method": "PUT",
 						"header": [
@@ -8713,7 +8834,7 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/{{slot}}/selection",
-						"description": "PUT /api/v1/subscriptions/me/days/:date/slots/:slot/selection. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated member. Confirm your lunch / Modify Meal / Update: `items` [{ `dishId`, `qty` }] (all of them each time; total quantity between `minItems` and `maxItems`). Any time before the cutoff; the last one wins.\nReturns the meal for Meal summary and Meal confirmed: `dateLabel`, `slotName`, `items` (with `imageUrl`), `itemsLabel` (“2 items”), `confirmedTitle` (“Your Lunch Meal is Confirmed!”), `prepStartsLabel` (“Preparation starts at 10:30 AM”), `cutoffLabel` for “Modify Meal (Until 10:00 AM)”, `steps` for What's Next?.\nErrors: 422 “You can choose up to 3 item(s)”, “Some dishes are not on today's menu”, “Choose at least one dish”; 409 “The cutoff for this meal has passed”, “No meal is due on this date”, “This meal is fully booked for the day”, “This meal can no longer be changed”.",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"items\": [\n    {\n      \"dishId\": \"{{dishId}}\",\n      \"qty\": 1\n    }\n  ]\n}",
@@ -8724,11 +8845,126 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Confirmed",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/lunch/selection"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"items\": [\n    {\n      \"dishId\": \"6acc8bde189320566a1fabfd\",\n      \"qty\": 1\n    },\n    {\n      \"dishId\": \"6acc8bde189320566a1fac10\",\n      \"qty\": 1\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Meal saved.\",\n  \"data\": {\n    \"mealId\": \"6acc8bfd189320566a1fc5cb\",\n    \"date\": \"2026-10-15\",\n    \"dateLabel\": \"Thu, 15 Oct 2026\",\n    \"slot\": \"lunch\",\n    \"slotName\": \"Lunch\",\n    \"window\": {\n      \"start\": \"12:30\",\n      \"end\": \"14:30\"\n    },\n    \"timeLabel\": \"12:30 PM – 2:30 PM\",\n    \"cutoffLabel\": \"Until 10:00 AM\",\n    \"prepareTitle\": \"Prepare Tomorrow's Lunch\",\n    \"status\": \"selected\",\n    \"statusLabel\": \"Confirmed\",\n    \"source\": \"customer\",\n    \"items\": [\n      {\n        \"dishId\": \"6acc8bde189320566a1fabfd\",\n        \"name\": \"Paneer Tikka Masala\",\n        \"qty\": 1,\n        \"isVeg\": true,\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n        \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\"\n      },\n      {\n        \"dishId\": \"6acc8bde189320566a1fac10\",\n        \"name\": \"Dal Ramen\",\n        \"qty\": 1,\n        \"isVeg\": true,\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n        \"description\": \"Black dal simmered for 18 hours transformed into a rich velvety broth with handmade noodles & burnt garlic oil.\"\n      }\n    ],\n    \"itemsLabel\": \"2 items\",\n    \"cutoffAt\": \"2026-10-15T04:30:00.000Z\",\n    \"editable\": true,\n    \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n    \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n    \"steps\": [\n      {\n        \"key\": \"preparing\",\n        \"label\": \"Meal is being prepared\",\n        \"timeLabel\": \"10:30 AM\",\n        \"done\": false\n      },\n      {\n        \"key\": \"out_for_delivery\",\n        \"label\": \"Out for delivery\",\n        \"timeLabel\": \"12:00 PM\",\n        \"done\": false\n      },\n      {\n        \"key\": \"delivered\",\n        \"label\": \"Delivered\",\n        \"timeLabel\": \"12:30 PM\",\n        \"done\": false\n      }\n    ],\n    \"shiftedTo\": null,\n    \"shiftedToLabel\": null,\n    \"shiftedFrom\": null,\n    \"shiftedFromLabel\": null\n  }\n}"
+						},
+						{
+							"name": "Too many items (422)",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/lunch/selection"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"items\": [\n    {\n      \"dishId\": \"6acc8bde189320566a1fabfd\",\n      \"qty\": 4\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Unprocessable Entity",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"You can choose up to 3 item(s)\",\n  \"errors\": null\n}"
+						},
+						{
+							"name": "After the cutoff (409)",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/lunch/selection"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"items\": [\n    {\n      \"dishId\": \"6acc8bde189320566a1fabfd\",\n      \"qty\": 1\n    },\n    {\n      \"dishId\": \"6acc8bde189320566a1fac10\",\n      \"qty\": 1\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"The cutoff for this meal has passed\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "6b0b47c0-8a31-4174-b03a-8a2c9b5c32f2"
 				},
 				{
-					"name": "S15.7 · GET /subscriptions/me/shift-preview",
+					"name": "S15.5 · One meal",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -8737,14 +8973,82 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/subscriptions/me/shift-preview",
-						"description": "GET /api/v1/subscriptions/me/shift-preview. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/{{slot}}/selection",
+						"description": "Authenticated member. One meal (same shape as in S15.2) — Meal summary, Meal confirmed, or reopening Modify Meal. The older path without `/selection` returns the same."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Lunch",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/lunch/selection"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Meal fetched.\",\n  \"data\": {\n    \"mealId\": \"6acc8bfd189320566a1fc5cb\",\n    \"date\": \"2026-10-15\",\n    \"dateLabel\": \"Thu, 15 Oct 2026\",\n    \"slot\": \"lunch\",\n    \"slotName\": \"Lunch\",\n    \"window\": {\n      \"start\": \"12:30\",\n      \"end\": \"14:30\"\n    },\n    \"timeLabel\": \"12:30 PM – 2:30 PM\",\n    \"cutoffLabel\": \"Until 10:00 AM\",\n    \"prepareTitle\": \"Prepare Tomorrow's Lunch\",\n    \"status\": \"selected\",\n    \"statusLabel\": \"Confirmed\",\n    \"source\": \"customer\",\n    \"items\": [\n      {\n        \"dishId\": \"6acc8bde189320566a1fabfd\",\n        \"name\": \"Paneer Tikka Masala\",\n        \"qty\": 1,\n        \"isVeg\": true,\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-tikka-masala.jpg\",\n        \"description\": \"Char-grilled paneer tikka in a smoky onion-tomato masala with kasuri methi.\"\n      },\n      {\n        \"dishId\": \"6acc8bde189320566a1fac10\",\n        \"name\": \"Dal Ramen\",\n        \"qty\": 1,\n        \"isVeg\": true,\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\",\n        \"description\": \"Black dal simmered for 18 hours transformed into a rich velvety broth with handmade noodles & burnt garlic oil.\"\n      }\n    ],\n    \"itemsLabel\": \"2 items\",\n    \"cutoffAt\": \"2026-10-15T04:30:00.000Z\",\n    \"editable\": true,\n    \"confirmedTitle\": \"Your Lunch Meal is Confirmed!\",\n    \"prepStartsLabel\": \"Preparation starts at 10:30 AM\",\n    \"steps\": [\n      {\n        \"key\": \"preparing\",\n        \"label\": \"Meal is being prepared\",\n        \"timeLabel\": \"10:30 AM\",\n        \"done\": false\n      },\n      {\n        \"key\": \"out_for_delivery\",\n        \"label\": \"Out for delivery\",\n        \"timeLabel\": \"12:00 PM\",\n        \"done\": false\n      },\n      {\n        \"key\": \"delivered\",\n        \"label\": \"Delivered\",\n        \"timeLabel\": \"12:30 PM\",\n        \"done\": false\n      }\n    ],\n    \"shiftedTo\": null,\n    \"shiftedToLabel\": null,\n    \"shiftedFrom\": null,\n    \"shiftedFromLabel\": null\n  }\n}"
+						}
+					],
+					"id": "62398320-4345-4939-80fb-508a56d41c8d"
+				},
+				{
+					"name": "S15.6 · Shift preview (confirm screen)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-device-id",
+								"value": "{{deviceId}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/v1/subscriptions/me/shift-preview?date={{date}}&slot=lunch",
+						"description": "Authenticated member. `{{date}}` is YYYY-MM-DD (IST). Shift today's meal → confirm screen. `slot` optional (none = every meal of the day).\n- `slotName`, `timeLabel`, `dateLabel` (Today's meal date), `currentValidTillLabel` (Current subscription end), `shiftedToLabel` (New meal delivery date), `newValidTillLabel` (Updated subscription end), `message` (“No Lunch will be delivered today. Your plan extends by 1 day to include this meal.”), `note`, `shiftsLeft`.\n- `allowed` false with a `reason` when the cutoff has passed, the meal can't move any more, or the plan's shifts for this cycle are used up — disable “Confirm meal shift”."
+					},
+					"response": [
+						{
+							"name": "Preview",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/shift-preview?date={{date}}&slot=lunch"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Shift preview.\",\n  \"data\": {\n    \"date\": \"2026-10-16\",\n    \"dateLabel\": \"Fri, 16 Oct 2026\",\n    \"slot\": \"lunch\",\n    \"slotName\": \"Lunch\",\n    \"timeLabel\": \"12:30 PM – 2:30 PM\",\n    \"shiftedTo\": \"2026-11-12\",\n    \"shiftedToLabel\": \"Thu, 12 Nov 2026\",\n    \"currentValidTill\": \"2026-11-11\",\n    \"currentValidTillLabel\": \"Wed, 11 Nov 2026\",\n    \"newValidTill\": \"2026-11-12\",\n    \"newValidTillLabel\": \"Thu, 12 Nov 2026\",\n    \"shiftsLeft\": 4,\n    \"allowed\": true,\n    \"reason\": null,\n    \"message\": \"No Lunch will be delivered on Fri, 16 Oct 2026. Your plan extends by 1 day to include this meal.\",\n    \"note\": \"One extra day. No meal lost.\"\n  }\n}"
+						}
+					],
 					"id": "94ce5c44-0a83-4644-8b8f-3d5ac2613527"
 				},
 				{
-					"name": "S15.8 · POST /subscriptions/me/shift",
+					"name": "S15.7 · Shift the meal",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -8758,10 +9062,10 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/shift",
-						"description": "POST /api/v1/subscriptions/me/shift. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated member. Confirm meal shift: `date`, optional `slot`. Returns the Meal shifted screen: `shiftedFromLabel` (“16 Oct 2026”), `shiftedToLabel` (Delivery date), `validTillLabel` (Updated subscription end), `previousValidTillLabel` (“Previously …”), `message`, `note`, `shiftsLeft`.\nThe meal goes to the first extra day after the plan without a meal of that slot; the plan only grows when that day is new. A second tap while it runs, or an already shifted meal → 409.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"date\": \"2026-10-10\",\n  \"slot\": \"lunch\"\n}",
+							"raw": "{\n  \"date\": \"{{date}}\",\n  \"slot\": \"lunch\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -8769,7 +9073,84 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Shifted",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/shift"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"date\": \"2026-10-16\",\n  \"slot\": \"lunch\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Meal shifted.\",\n  \"data\": {\n    \"date\": \"2026-10-16\",\n    \"shiftedFromLabel\": \"16 Oct 2026\",\n    \"shiftedTo\": \"2026-11-12\",\n    \"shiftedToLabel\": \"Thu, 12 Nov 2026\",\n    \"slots\": [\n      {\n        \"slot\": \"lunch\",\n        \"slotName\": \"Lunch\",\n        \"shiftedTo\": \"2026-11-12\",\n        \"shiftedToLabel\": \"Thu, 12 Nov 2026\"\n      }\n    ],\n    \"validTill\": \"2026-11-12\",\n    \"validTillLabel\": \"Thu, 12 Nov 2026\",\n    \"previousValidTill\": \"2026-11-11\",\n    \"previousValidTillLabel\": \"Wed, 11 Nov 2026\",\n    \"shiftsLeft\": 3,\n    \"message\": \"Your meal is saved for Thu, 12 Nov 2026. Your subscription now lasts one day longer.\",\n    \"note\": \"No meal lost. The rest of your plan stays the same.\"\n  }\n}"
+						},
+						{
+							"name": "Already shifted (409)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/shift"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"date\": \"2026-10-16\",\n  \"slot\": \"lunch\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"These meals can no longer be shifted\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "da2159b4-b127-4a0c-a161-1557f62dd9a9"
 				}
 			]
@@ -9284,7 +9665,24 @@
 		},
 		{
 			"name": "App · not in a release step",
-			"item": [],
+			"item": [
+				{
+					"name": "GET /subscriptions/me/days/:date/slots/:slot",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-device-id",
+								"value": "{{deviceId}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/v1/subscriptions/me/days/{{date}}/slots/{{slot}}",
+						"description": "GET /api/v1/subscriptions/me/days/:date/slots/:slot. See the API reference in the backend README for permissions and fields."
+					},
+					"response": [],
+					"id": "13beaa83-5b29-4d2e-97ac-3ef7d9f85afa"
+				}
+			],
 			"description": "Customer endpoints not in any release step (money wallet is switched off)."
 		},
 		{

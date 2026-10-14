@@ -136,7 +136,7 @@ async function policyFor(sub) {
  */
 /** Checks shared by the payment screen and Checkout: plan, address, kitchen, start day. */
 async function quote(userId, { planCode, billingMethod = null, addressId, startDate = null }) {
-  if (await currentSubscription(userId)) throw new AppError(409, "You already have a MealJi Plus subscription");
+  if (await currentSubscription(userId)) throw new AppError(409, "You already have a Meal Ji Plus subscription");
   const plan = await SubscriptionPlan.findOne({ code: String(planCode).toUpperCase(), status: "active" }).lean();
   if (!plan) throw new AppError(404, "Plan not found");
   if (billingMethod && !plan.billingMethods.includes(billingMethod)) throw new AppError(422, `This plan is billed by ${plan.billingMethods.join(" or ")}`);
@@ -433,7 +433,7 @@ export async function sendPaymentLink(sub, { reason = "cycle" } = {}) {
 
 async function requireOwn(userId) {
   const sub = await currentSubscription(userId);
-  if (!sub) throw new AppError(404, "You don't have an active MealJi Plus subscription");
+  if (!sub) throw new AppError(404, "You don't have an active Meal Ji Plus subscription");
   return sub;
 }
 

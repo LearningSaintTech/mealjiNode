@@ -25,14 +25,16 @@ const explain = async (name, collection, filter, sort) => {
 console.log("query plans");
 await explain("ticket list (heaviest)", "supporttickets", { user: heavy._id }, { createdAt: -1 });
 await explain("ticket messages", "ticketmessages", { ticket: ticket._id, internal: { $ne: true } }, { createdAt: 1 });
+await explain("member's meals in a week", "mealselections", { subscription: member._id, date: { $in: ["2026-10-14", "2026-10-15"] } }, { date: 1 });
 await explain("live plan (member)", "subscriptions", { user: member.user, status: { $in: ["active", "pause_scheduled", "paused", "cancel_scheduled", "past_due"] } }, { createdAt: -1 });
 await mongoose.disconnect();
 
+const tomorrow = new Date(Date.now() + 330 * 60_000 + 86_400_000).toISOString().slice(0, 10);
 const median = (list) => [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)];
 const runs = [
   [`normal customer`, normal._id, ["/app/config", "/users/me", "/subscription-plans", "/subscription-plans/STANDARD_MONTHLY", "/subscriptions/me", `/subscriptions/checkout/summary?planCode=STANDARD_MONTHLY&addressId=${address?._id}`, "/support/config", "/support/categories", "/support/faqs?limit=6", "/support/faqs?q=refund", "/support/tickets?page=1&limit=10"]],
   [`heaviest tickets (${heavy.count})`, heavy._id, ["/support/tickets?page=1&limit=10", "/support/tickets?page=3&limit=10", `/support/tickets/${ticket._id}`]],
-  ["Plus member", member.user, ["/subscriptions/me", "/home"]],
+  ["Plus member", member.user, ["/subscriptions/me", "/home", "/subscriptions/me/week", `/subscriptions/me/days/${tomorrow}`, `/subscriptions/me/menu?date=${tomorrow}&slot=lunch`, `/subscriptions/me/days/${tomorrow}/slots/lunch/selection`, `/subscriptions/me/shift-preview?date=${tomorrow}&slot=lunch`]],
 ];
 for (const [label, id, paths] of runs) {
   const headers = { Authorization: `Bearer ${signAccessToken({ userId: id, role: "user" }).token}`, "x-device-id": `relative-plus-${label.split(" ")[0]}` };

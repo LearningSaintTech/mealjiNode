@@ -3,7 +3,7 @@ import { logger } from "../../config/logger.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { storeSetNx } from "../../infrastructure/redisStore.js";
 import { resolveSetting } from "../settings/settings.service.js";
-import { ensureMeal, shiftMeals } from "./mealplan.service.js";
+import { ensureMeal, isExtensionDay, shiftMeals } from "./mealplan.service.js";
 import { MealSelection, MealSlot, Subscription } from "./subscription.model.js";
 import { cutoffAt, noSelectionOutcome, servesOn, weekdayOf } from "./subscription.rules.js";
 import { menuFor } from "./slot.service.js";
@@ -81,6 +81,8 @@ export async function mealCutoffRun() {
           if (!servesOn(sub, date)) continue;
           const meal = await MealSelection.findOne({ subscription: sub._id, date, slot: slot.key }).lean();
           if (meal && meal.status !== "open") continue;
+          // An extra day after the paid period only has the meals shifted there.
+          if (isExtensionDay(sub, date) && !meal?.shiftedFrom) continue;
           await publishEventSafe("meal.selection_due", { userId: String(sub.user), subscriptionId: String(sub._id), date, slot: slot.key, slotName: slot.name, cutoffAt: cutoff, minutesLeft: minutes });
         }
       }
@@ -93,6 +95,7 @@ export async function mealCutoffRun() {
       for (const sub of subs) {
         if (!servesOn(sub, date)) continue;
         try {
+          if (isExtensionDay(sub, date) && !(await MealSelection.exists({ subscription: sub._id, date, slot: slot.key, shiftedFrom: { $ne: null } }))) continue;
           const meal = await ensureMeal(sub, slot, date);
           if (meal.status === "selected") {
             meal.status = "locked";

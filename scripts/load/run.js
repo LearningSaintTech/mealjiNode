@@ -26,7 +26,10 @@ const TARGET_P95_MS = { read: 300, heavy: 600, write: 500 };
 await mongoose.connect(env.mongoUri);
 const db = mongoose.connection.db;
 const maxVus = Math.max(...STAGES);
-const users = await db.collection("users").aggregate([{ $match: { loadTest: true } }, { $sample: { size: maxVus * 2 } }, { $project: { _id: 1, phoneNumber: 1 } }]).toArray();
+// About one in five virtual users is a Meal Ji Plus member (meal plan screens).
+const memberUsers = await db.collection("users").aggregate([{ $match: { loadTest: true, "subscription.status": "active" } }, { $sample: { size: Math.ceil(maxVus / 5) } }, { $project: { _id: 1, phoneNumber: 1 } }]).toArray();
+const otherUsers = await db.collection("users").aggregate([{ $match: { loadTest: true, "subscription.status": { $ne: "active" } } }, { $sample: { size: maxVus * 2 } }, { $project: { _id: 1, phoneNumber: 1 } }]).toArray();
+const users = otherUsers.flatMap((user, index) => (index % 4 === 0 && memberUsers[index / 4] ? [memberUsers[index / 4], user] : [user]));
 const kitchen = await db.collection("kitchens").findOne({ status: "active", name: /koramangala/i });
 const dishIds = (await db.collection("kitchendishes").find({ kitchen: kitchen._id, isActive: true, approvalStatus: "live" }).project({ _id: 1 }).toArray()).map((dish) => String(dish._id));
 // Dishes that can go in a cart with no choices (no required option groups).
@@ -197,6 +200,18 @@ const SCREENS = [
     // 409 = this address is outside delivery, or the customer just became a member.
     await call(vu, "GET /subscriptions/checkout/summary", "heavy", "GET", `/subscriptions/checkout/summary?planCode=${plan.planCode}&addressId=${vu.addressId}`, undefined, { expect: [200, 409] });
     if (Math.random() < 0.1) await call(vu, "POST /subscriptions/checkout", "write", "POST", "/subscriptions/checkout", { planCode: plan.planCode, billingMethod: "link", addressId: vu.addressId }, { expect: [201, 409] });
+  }],
+  [2, "15 Meal plan", async (vu) => {
+    const mine = await call(vu, "GET /subscriptions/me", "read", "GET", "/subscriptions/me");
+    if (!mine.data?.subscription) return;
+    const tomorrow = new Date(Date.now() + 330 * 60_000 + 86_400_000).toISOString().slice(0, 10);
+    if (Math.random() < 0.3) await call(vu, "GET /subscriptions/me/week", "heavy", "GET", "/subscriptions/me/week");
+    // 409 = no meal that day (e.g. Sunday).
+    await call(vu, "GET /subscriptions/me/days/:date", "read", "GET", `/subscriptions/me/days/${tomorrow}`, undefined, { expect: [200, 409] });
+    const menu = await call(vu, "GET /subscriptions/me/menu", "read", "GET", `/subscriptions/me/menu?date=${tomorrow}&slot=lunch`);
+    const dish = menu.data?.dishes?.[0];
+    if (dish && Math.random() < 0.3) await call(vu, "PUT …/selection", "write", "PUT", `/subscriptions/me/days/${tomorrow}/slots/lunch/selection`, { items: [{ dishId: dish.dishId, qty: 1 }] }, { expect: [200, 409] });
+    if (Math.random() < 0.1) await call(vu, "GET /subscriptions/me/shift-preview", "read", "GET", `/subscriptions/me/shift-preview?date=${tomorrow}&slot=lunch`, undefined, { expect: [200, 409] });
   }],
   [3, "11 Notifications", async (vu) => {
     await call(vu, "GET /notifications/unread-count", "read", "GET", "/notifications/unread-count");

@@ -66,14 +66,14 @@ customer.post("/subscriptions/:id/verify-payment", idParam(), body("gatewayOrder
 customer.get("/subscriptions/me", asyncHandler(async (req, res) => ok(res, await subs.mySubscription(req.auth.userId), "Subscription fetched.")));
 customer.get("/subscriptions/me/week", asyncHandler(async (req, res) => ok(res, await meals.weekView(req.auth.userId), "Upcoming meals.")));
 customer.get("/subscriptions/me/days/:date", dateParam, validate, asyncHandler(async (req, res) => ok(res, await meals.dayView(req.auth.userId, req.params.date), "Day fetched.")));
-customer.get("/subscriptions/me/menu", query("date").isISO8601({ strict: true }), query("slot").isIn(SLOT_KEYS), validate, asyncHandler(async (req, res) => ok(res, await meals.slotMenu(req.auth.userId, req.query), "Menu fetched.")));
+customer.get("/subscriptions/me/menu", query("date").isISO8601({ strict: true }), query("slot").isIn(SLOT_KEYS), query("q").optional().isString().isLength({ max: 60 }), query("categoryId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => ok(res, await meals.slotMenu(req.auth.userId, req.query), "Menu fetched.")));
 customer.get("/subscriptions/me/days/:date/slots/:slot", dateParam, slotParam, validate, asyncHandler(async (req, res) => ok(res, await meals.getSelection(req.auth.userId, req.params), "Meal fetched.")));
 customer.get("/subscriptions/me/days/:date/slots/:slot/selection", dateParam, slotParam, validate, asyncHandler(async (req, res) => ok(res, await meals.getSelection(req.auth.userId, req.params), "Meal fetched.")));
 customer.put(
   "/subscriptions/me/days/:date/slots/:slot/selection",
   dateParam,
   slotParam,
-  body("items").isArray({ min: 1, max: 20 }),
+  body("items").isArray({ min: 1, max: 20 }).withMessage("Choose at least one dish"),
   body("items.*.dishId").isMongoId(),
   body("items.*.qty").optional().isInt({ min: 1, max: 10 }).toInt(),
   validate,

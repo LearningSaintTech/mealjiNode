@@ -471,11 +471,13 @@ async function seedKitchenOps(kitchens, img) {
     const dishes = new Map((await KitchenDish.find({ kitchen: kitchen._id, isActive: true }).lean()).map((dish) => [dish.name, String(dish._id)]));
     const ids = (names) => names.map((name) => dishes.get(name)).filter(Boolean);
     for (let weekday = 0; weekday < 7; weekday += 1) {
-      const lunch = ids(LUNCH_ROTATION[weekday]);
+      // Prepare-meal screen: three days of the rotation (about 9 dishes over several categories).
+      const spread = (offset) => [...new Set([0, 1, 2].flatMap((step) => LUNCH_ROTATION[(weekday + offset + step) % 7]))];
+      const lunch = ids(spread(0));
       if (lunch.length) await slots.saveSlotMenu(kitchen._id, { slot: "lunch", weekday, dishIds: lunch, defaultDishIds: lunch.slice(0, 1), note: null });
-      const dinner = ids(LUNCH_ROTATION[(weekday + 3) % 7]);
+      const dinner = ids(spread(3));
       if (dinner.length) await slots.saveSlotMenu(kitchen._id, { slot: "dinner", weekday, dishIds: dinner, defaultDishIds: dinner.slice(0, 1) });
-      const breakfast = ids([0, 1, 2].map((offset) => BREAKFAST_ROTATION[(weekday + offset) % BREAKFAST_ROTATION.length]));
+      const breakfast = ids([0, 1, 2, 3].map((offset) => BREAKFAST_ROTATION[(weekday + offset) % BREAKFAST_ROTATION.length]));
       if (breakfast.length) await slots.saveSlotMenu(kitchen._id, { slot: "breakfast", weekday, dishIds: breakfast, defaultDishIds: breakfast.slice(0, 1) });
     }
   }
