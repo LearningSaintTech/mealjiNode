@@ -110,6 +110,8 @@ export async function updatePreferences(userId, input, { ip = null, deviceId = n
 export async function requestPhoneChange(userId, { countryCode, phoneNumber }) {
   const phone = normalizeMobile(phoneNumber);
   const code = countryOrDefault(countryCode);
+  const current = await userRepository.findById(userId);
+  if (current && current.phoneNumber === phone && (current.countryCode || "+91") === code) throw new AppError(422, "This is already your number");
   // Limits come first and the answer is the same whether or not the number has an
   // account, so this cannot be used to test which numbers are registered.
   const cooldown = `otp:cooldown:${PHONE_CHANGE}:${userId}`;
@@ -144,6 +146,18 @@ export async function deleteAccount(userId, { reason = null } = {}) {
   const user = await userRepository.findById(userId);
   if (!user) throw new AppError(404, "Account not found");
   if (user.role?.slug !== "user") throw new AppError(403, "Staff accounts are closed by a super admin");
+  // An order still being made or delivered must finish first (refunds and help need the account).
+  const [{ Order }, { ACTIVE_STATUSES }] = await Promise.all([import("../order/order.model.js"), import("../order/order.states.js")]);
+  const inProgress = await Order.exists({ user: userId, status: { $in: ACTIVE_STATUSES } });
+  if (inProgress) throw new AppError(409, "You have an order on the way. You can close your account once it is delivered.");
+  // A Meal Ji Plus plan stops renewing and autopay is cancelled; paid days stay usable if the account is restored.
+  const { cancel, currentSubscription } = await import("../subscription/subscription.service.js");
+  const plan = await currentSubscription(userId);
+  let planCancelled = false;
+  if (plan && plan.status !== "cancel_scheduled") {
+    await cancel(plan, { reasonId: null, comment: "Account closed" }, "system:account_closed");
+    planCancelled = true;
+  } else if (plan) planCancelled = true;
   const now = new Date();
   await userRepository.updateById(userId, {
     deletedAt: now,
@@ -152,17 +166,39 @@ export async function deleteAccount(userId, { reason = null } = {}) {
     sessionsRevokedAt: now,
   });
   await publishEventSafe("user.deleted", { userId: String(userId), purgeAfterDays: 30 }, { aggregate: { type: "user", id: userId } });
-  return { deleted: true, purgeAfter: new Date(now.getTime() + 30 * 24 * 3600 * 1000) };
+  return { deleted: true, planCancelled, purgeAfter: new Date(now.getTime() + 30 * 24 * 3600 * 1000) };
 }
 
-/** Data access request (DPDP): everything we hold about the person, as JSON. */
+/**
+ * Data access request (DPDP): everything we hold about the person, as JSON.
+ * Gateway tokens, OTPs and session data are never included.
+ */
 export async function exportData(userId) {
-  const { Order } = await import("../order/order.model.js");
+  const [{ Order }, { Subscription }, { Payment, Refund }, { SupportTicket }, { RewardTransaction }, { Favorite }, { SavedPaymentMethod, toMethod }, { Referral }] = await Promise.all([
+    import("../order/order.model.js"),
+    import("../subscription/subscription.model.js"),
+    import("../payment/payment.model.js"),
+    import("../support/support.model.js"),
+    import("../rewards/ledger.model.js"),
+    import("../favorites/favorites.model.js"),
+    import("../payment/paymentMethod.service.js"),
+    import("../rewards/rewards.model.js"),
+  ]);
   const profile = await getProfile(userId);
-  const [addresses, orders, consents] = await Promise.all([
+  const user = await User.findById(userId).select("pointsBalance lifetimePoints").lean();
+  const [addresses, orders, subscriptions, payments, refunds, tickets, points, favorites, methods, referrals, consents, preferences] = await Promise.all([
     Address.find({ user: userId }).lean(),
     Order.find({ user: userId }).sort({ createdAt: -1 }).limit(500).lean(),
+    Subscription.find({ user: userId, status: { $ne: "pending_payment" } }).sort({ createdAt: -1 }).lean(),
+    Payment.find({ user: userId, status: { $ne: "created" } }).sort({ createdAt: -1 }).limit(500).lean(),
+    Refund.find({ user: userId }).sort({ createdAt: -1 }).limit(200).lean(),
+    SupportTicket.find({ user: userId }).sort({ createdAt: -1 }).limit(200).lean(),
+    RewardTransaction.find({ user: userId }).sort({ createdAt: -1 }).limit(500).lean(),
+    Favorite.find({ user: userId }).populate("dish", "name").lean(),
+    SavedPaymentMethod.find({ user: userId }).lean(),
+    Referral.find({ $or: [{ referrer: userId }, { referee: userId }] }).lean(),
     currentConsents(userId),
+    getPreferences(userId),
   ]);
   return {
     generatedAt: new Date().toISOString(),
@@ -173,8 +209,20 @@ export async function exportData(userId) {
       status: order.status,
       placedAt: order.createdAt,
       totalPaise: order.bill?.grandTotalPaise,
+      paymentMethod: order.paymentMethod,
+      deliveryAddress: order.address?.fullAddress || null,
       items: (order.items || []).map((item) => ({ name: item.name, qty: item.qty })),
     })),
+    subscriptions: subscriptions.map((sub) => ({ plan: sub.planSnapshot?.name, status: sub.status, startDate: sub.startDate, validTill: sub.validTill, billingMethod: sub.billingMethod, address: sub.address?.fullAddress || null, cancellation: sub.cancellation?.reason || null, createdAt: sub.createdAt })),
+    payments: payments.map((payment) => ({ for: payment.refType, amountPaise: payment.amountPaise, status: payment.status, method: payment.method, refundedPaise: payment.refundedPaise || 0, at: payment.capturedAt || payment.createdAt })),
+    refunds: refunds.map((refund) => ({ amountPaise: refund.amountPaise, status: refund.status, reason: refund.reason, at: refund.createdAt })),
+    supportTickets: tickets.map((ticket) => ({ number: ticket.number, category: ticket.category, issueType: ticket.issueType, subject: ticket.subject, description: ticket.description, status: ticket.status, createdAt: ticket.createdAt })),
+    points: { balance: user?.pointsBalance || 0, lifetime: user?.lifetimePoints || 0, history: points.map((row) => ({ title: row.title, points: row.points, type: row.type, at: row.createdAt, expiresAt: row.expiresAt || null })) },
+    wallet: { pointsBalance: user?.pointsBalance || 0 },
+    favorites: favorites.map((row) => ({ dish: row.dish?.name || null, addedAt: row.createdAt })),
+    savedPaymentMethods: methods.map(toMethod).map(({ paymentMethodId, title, subtitle, type }) => ({ paymentMethodId, title, subtitle, type })),
+    referrals: referrals.map((row) => ({ role: String(row.referrer) === String(userId) ? "referrer" : "referred", status: row.status, at: row.createdAt })),
+    notificationPreferences: preferences,
     consents,
   };
 }

@@ -8,7 +8,8 @@
 // - Active: verified and not suspended.
 
 export function isSuspended(user) {
-  return Boolean(user?.suspendedAt) || Boolean(user?.isNumberVerified && !user?.isActive);
+  // A closed account (deletedAt) is inactive too, but signing in within 30 days restores it.
+  return Boolean(user?.suspendedAt) || Boolean(user?.isNumberVerified && !user?.isActive && !user?.deletedAt);
 }
 
 export function suspendPatch(now = new Date()) {

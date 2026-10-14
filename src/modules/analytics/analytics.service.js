@@ -12,6 +12,7 @@ import { AnalyticsEvent, MetricsDaily } from "./analytics.model.js";
 import { validateEvent } from "./events.schema.js";
 
 const rejected = { count: 0 };
+const MAX_PROPERTIES_BYTES = 4096;
 
 function round(value) {
   return value == null ? null : Math.round(value * 100) / 100;
@@ -34,7 +35,8 @@ export async function ingest(events, { userId = null, deviceId = null, platform 
   const accepted = [];
   const errors = [];
   for (const [index, event] of events.entries()) {
-    const problem = validateEvent(event, { source: "client" });
+    const size = Buffer.byteLength(JSON.stringify(event?.properties || {}));
+    const problem = size > MAX_PROPERTIES_BYTES ? `Event properties are too large (max ${MAX_PROPERTIES_BYTES / 1024} KB)` : validateEvent(event, { source: "client" });
     if (problem) {
       rejected.count += 1;
       if (!env.isProd) errors.push({ index, message: problem });

@@ -10138,10 +10138,10 @@
 		},
 		{
 			"name": "Step 17 · Account and analytics",
-			"description": "Release step 17 for the app. Screens: Profile (account actions). Integrate after step 16.",
+			"description": "Release step 17. Screens: Personal Information (phone number), plus what the stores and India's DPDP rules need even though the app has no screen yet: download my data and close my account. Also app analytics events and A/B experiments. Integrate after step 16.\n\nChanging the phone number signs the customer out everywhere; sign in again with the new number. Closing the account signs out at once; signing in again within 30 days restores it, after that it is anonymised.",
 			"item": [
 				{
-					"name": "S17.1 · POST /users/me/phone/otp",
+					"name": "S17.1 · New phone number: send OTP",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -10155,10 +10155,10 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/users/me/phone/otp",
-						"description": "POST /api/v1/users/me/phone/otp. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated. Personal Information → Phone Number → Save: `phoneNumber` (same formats as sign-in), optional `countryCode`. An OTP goes to the new number; then show the OTP screen for it. `resendAfterSec` before the next request.\nThe answer is the same when the number belongs to another account (no SMS is sent and the change fails at S17.2), so the screen cannot reveal who is registered. Errors: 422 “This is already your number”, “Enter a valid 10-digit mobile number”; 429 “Please wait before requesting another OTP.”, “Too many number changes today…”.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"phoneNumber\": \"9876543210\"\n}",
+							"raw": "{\n  \"countryCode\": \"+91\",\n  \"phoneNumber\": \"{{newPhoneNumber}}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -10166,11 +10166,126 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "OTP sent",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me/phone/otp"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"countryCode\": \"+91\",\n  \"phoneNumber\": \"9000000096\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"OTP sent to the new number.\",\n  \"data\": {\n    \"otpSent\": true,\n    \"phoneNumber\": \"9000000096\",\n    \"resendAfterSec\": 30\n  }\n}"
+						},
+						{
+							"name": "Again too soon (429)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me/phone/otp"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"countryCode\": \"+91\",\n  \"phoneNumber\": \"9000000096\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Too Many Requests",
+							"code": 429,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Please wait before requesting another OTP.\",\n  \"errors\": null\n}"
+						},
+						{
+							"name": "Same number (422)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me/phone/otp"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"countryCode\": \"+91\",\n  \"phoneNumber\": \"9000000097\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Unprocessable Entity",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"This is already your number\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "1a201640-a175-4a73-b08f-17c2d0d20569"
 				},
 				{
-					"name": "S17.2 · POST /users/me/phone/verify",
+					"name": "S17.2 · New phone number: verify",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -10184,10 +10299,10 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/users/me/phone/verify",
-						"description": "POST /api/v1/users/me/phone/verify. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated. The OTP screen for the new number: `phoneNumber`, `otp`. Returns the updated `profile` and `signedOut: true` — every session ends (also this one): clear tokens and go to sign-in with the new number. Errors: 400 “Invalid OTP.” / “OTP Expired”; 409 “This number is already used by another account”.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"phoneNumber\": \"9876543210\",\n  \"otp\": \"{{otp}}\"\n}",
+							"raw": "{\n  \"countryCode\": \"+91\",\n  \"phoneNumber\": \"{{newPhoneNumber}}\",\n  \"otp\": \"123456\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -10195,11 +10310,88 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Changed",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me/phone/verify"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"countryCode\": \"+91\",\n  \"phoneNumber\": \"9000000096\",\n  \"otp\": \"123456\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Phone number changed. Please sign in again.\",\n  \"data\": {\n    \"profile\": {\n      \"userId\": \"6acf3b5791ab170ce6e070fa\",\n      \"name\": \"Ananya Rao\",\n      \"countryCode\": \"+91\",\n      \"phoneNumber\": \"9000000096\",\n      \"email\": null,\n      \"emailVerified\": false,\n      \"dob\": null,\n      \"gender\": null,\n      \"avatarUrl\": null,\n      \"profileComplete\": true,\n      \"referralCode\": null,\n      \"points\": 0,\n      \"tier\": null,\n      \"preferences\": {\n        \"language\": \"en\",\n        \"vegOnly\": false,\n        \"channels\": {\n          \"push\": true,\n          \"whatsapp\": false,\n          \"email\": true,\n          \"sms\": true\n        },\n        \"topics\": {\n          \"offers\": true,\n          \"rewards\": true,\n          \"account\": true\n        }\n      },\n      \"subscription\": {\n        \"planCode\": null,\n        \"status\": \"none\",\n        \"expiresAt\": null\n      },\n      \"currentLocation\": null,\n      \"createdAt\": \"2026-10-14T08:20:39.710Z\"\n    },\n    \"signedOut\": true\n  }\n}"
+						},
+						{
+							"name": "Wrong code (400)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me/phone/verify"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"countryCode\": \"+91\",\n  \"phoneNumber\": \"9000000096\",\n  \"otp\": \"000001\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Invalid OTP.\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "9287b097-18fb-4436-8220-735c049f1419"
 				},
 				{
-					"name": "S17.3 · GET /users/me/data-export",
+					"name": "S17.3 · Download my data",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -10209,31 +10401,41 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/users/me/data-export",
-						"description": "GET /api/v1/users/me/data-export. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated. Everything held about the customer as JSON (DPDP access request): `profile`, `addresses`, `orders`, `subscriptions`, `payments`, `refunds`, `supportTickets`, `points` (balance and history), `wallet`, `favorites`, `savedPaymentMethods` (masked), `referrals`, `notificationPreferences`, `consents`. No card tokens, codes or session data. Offer it as “Download my data” in Settings (share or save the JSON)."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Export (lists shortened)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me/data-export"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Your data.\",\n  \"data\": {\n    \"generatedAt\": \"2026-10-14T08:20:40.765Z\",\n    \"profile\": {\n      \"userId\": \"6acc8bd3189320566a1fa95b\",\n      \"name\": \"Rahul Sharma\",\n      \"countryCode\": \"+91\",\n      \"phoneNumber\": \"9000000031\",\n      \"email\": null,\n      \"emailVerified\": false,\n      \"dob\": null,\n      \"gender\": \"male\",\n      \"avatarUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/profile-avatar.jpg\",\n      \"profileComplete\": true,\n      \"referralCode\": \"RAHUB035\",\n      \"points\": 1300,\n      \"tier\": \"Silver Tandoor\",\n      \"preferences\": {\n        \"language\": \"en\",\n        \"vegOnly\": false,\n        \"channels\": {\n          \"push\": true,\n          \"whatsapp\": false,\n          \"email\": true,\n          \"sms\": true\n        },\n        \"topics\": {\n          \"offers\": true,\n          \"rewards\": true,\n          \"account\": true\n        }\n      },\n      \"subscription\": {\n        \"planCode\": \"STANDARD_MONTHLY\",\n        \"status\": \"active\",\n        \"expiresAt\": \"2026-11-11T18:29:00.000Z\"\n      },\n      \"currentLocation\": {\n        \"locationText\": \"WJVF+2RR, KHB Games Village, Koramangala, Bengaluru, Karnataka 560095, India\",\n        \"area\": \"KHB Games Village\",\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"postalCode\": \"560095\",\n        \"country\": \"India\",\n        \"latitude\": 12.942795,\n        \"longitude\": 77.624478,\n        \"updatedAt\": \"2026-10-14T08:19:41.568Z\"\n      },\n      \"createdAt\": \"2026-08-15T07:27:15.875Z\",\n      \"stats\": {\n        \"orders\": 14,\n        \"favorites\": 4,\n        \"addresses\": 1,\n        \"paymentMethods\": 0\n      }\n    },\n    \"addresses\": [\n      {\n        \"addressId\": \"6acc8be2189320566a1fae3b\",\n        \"label\": \"home\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Home\",\n        \"recipientName\": \"Rahul Sharma\",\n        \"phone\": \"9000000031\",\n        \"houseFlat\": \"Flat 302, Lakeview Residency\",\n        \"street\": \"5th Cross, 6th Block\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": null,\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560095\",\n        \"latitude\": 12.9412,\n        \"longitude\": 77.6205,\n        \"fullAddress\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\",\n        \"isDefault\": true,\n        \"updatedAt\": \"2026-10-12T10:52:47.806Z\"\n      },\n      {\n        \"addressId\": \"6acc8cf202c9244a63a6b398\",\n        \"label\": \"work\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Office\",\n        \"recipientName\": null,\n        \"phone\": null,\n        \"houseFlat\": \"Smoke Test Office, 2nd Floor\",\n        \"street\": \"80 Feet Road\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": \"Near Forum Mall\",\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560034\",\n        \"latitude\": 12.9352,\n        \"longitude\": 77.6245,\n        \"fullAddress\": \"Smoke Test Office, 2nd Floor, 80 Feet Road, Koramangala, Near Forum Mall, Bengaluru, Karnataka, 560034\",\n        \"isDefault\": false,\n        \"updatedAt\": \"2026-10-12T07:32:02.791Z\"\n      },\n      {\n        \"addressId\": \"6acc8dd814e014b19fc6e82a\",\n        \"label\": \"work\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Office\",\n        \"recipientName\": null,\n        \"phone\": null,\n        \"houseFlat\": \"Smoke Test Office, 2nd Floor\",\n        \"street\": \"80 Feet Road\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": \"Near Forum Mall\",\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560034\",\n        \"latitude\": 12.9352,\n        \"longitude\": 77.6245,\n        \"fullAddress\": \"Smoke Test Office, 2nd Floor, 80 Feet Road, Koramangala, Near Forum Mall, Bengaluru, Karnataka, 560034\",\n        \"isDefault\": false,\n        \"updatedAt\": \"2026-10-12T07:35:52.140Z\"\n      },\n      {\n        \"addressId\": \"6acc905fc33a0d85a0d85652\",\n        \"label\": \"work\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Office\",\n        \"recipientName\": null,\n        \"phone\": null,\n        \"houseFlat\": \"Smoke Test Office, 2nd Floor\",\n        \"street\": \"80 Feet Road\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": \"Near Forum Mall\",\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560034\",\n        \"latitude\": 12.9352,\n        \"longitude\": 77.6245,\n        \"fullAddress\": \"Smoke Test Office, 2nd Floor, 80 Feet Road, Koramangala, Near Forum Mall, Bengaluru, Karnataka, 560034\",\n        \"isDefault\": false,\n        \"updatedAt\": \"2026-10-12T07:46:39.534Z\"\n      },\n      {\n        \"addressId\": \"6acc9bddd26cfe082c4ac8be\",\n        \"label\": \"work\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Office\",\n        \"recipientName\": null,\n        \"phone\": null,\n        \"houseFlat\": \"Smoke Test Office, 2nd Floor\",\n        \"street\": \"80 Feet Road\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": \"Near Forum Mall\",\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560034\",\n        \"latitude\": 12.9352,\n        \"longitude\": 77.6245,\n        \"fullAddress\": \"Smoke Test Office, 2nd Floor, 80 Feet Road, Koramangala, Near Forum Mall, Bengaluru, Karnataka, 560034\",\n        \"isDefault\": false,\n        \"updatedAt\": \"2026-10-12T08:35:41.717Z\"\n      }\n    ],\n    \"orders\": [\n      {\n        \"orderNumber\": \"MJ-10128\",\n        \"status\": \"cancelled\",\n        \"placedAt\": \"2026-10-12T08:38:27.862Z\",\n        \"totalPaise\": 26986,\n        \"paymentMethod\": \"cod\",\n        \"deliveryAddress\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\",\n        \"items\": [\n          {\n            \"name\": \"Masala Papad\",\n            \"qty\": 3\n          }\n        ]\n      },\n      {\n        \"orderNumber\": \"MJ-10055\",\n        \"status\": \"cancelled\",\n        \"placedAt\": \"2026-10-12T07:27:51.062Z\",\n        \"totalPaise\": 106996,\n        \"paymentMethod\": \"upi\",\n        \"deliveryAddress\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\",\n        \"items\": [\n          {\n            \"name\": \"Sharing Platter for 2\",\n            \"qty\": 1\n          }\n        ]\n      },\n      {\n        \"orderNumber\": \"MJ-10012\",\n        \"status\": \"delivered\",\n        \"placedAt\": \"2026-10-11T07:09:00.000Z\",\n        \"totalPaise\": 100486,\n        \"paymentMethod\": \"card\",\n        \"deliveryAddress\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\",\n        \"items\": [\n          {\n            \"name\": \"Butter Chicken Bowl\",\n            \"qty\": 1\n          },\n          {\n            \"name\": \"Jeera Rice\",\n            \"qty\": 1\n          },\n          {\n            \"name\": \"Mutton Biryani\",\n            \"qty\": 1\n          }\n        ]\n      },\n      {\n        \"orderNumber\": \"MJ-10011\",\n        \"status\": \"delivered\",\n        \"placedAt\": \"2026-10-06T13:40:00.000Z\",\n        \"totalPaise\": 84736,\n        \"paymentMethod\": \"upi\",\n        \"deliveryAddress\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\",\n        \"items\": [\n          {\n            \"name\": \"Mutton Biryani\",\n            \"qty\": 1\n          },\n          {\n            \"name\": \"Royal Kulfi Shake\",\n            \"qty\": 1\n          },\n          {\n            \"name\": \"Paneer Tikka Masala\",\n            \"qty\": 1\n          }\n        ]\n      },\n      {\n        \"orderNumber\": \"MJ-10010\",\n        \"status\": \"delivered\",\n        \"placedAt\": \"2026-10-01T06:46:00.000Z\",\n        \"totalPaise\": 48930,\n        \"paymentMethod\": \"card\",\n        \"deliveryAddress\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\",\n        \"items\": [\n          {\n            \"name\": \"Cold Coffee\",\n            \"qty\": 2\n          },\n          {\n            \"name\": \"Masala Papad\",\n            \"qty\": 1\n          },\n          {\n            \"name\": \"Garlic Naan\",\n            \"qty\": 1\n          }\n        ]\n      }\n    ],\n    \"subscriptions\": [\n      {\n        \"plan\": \"Standard Monthly\",\n        \"status\": \"active\",\n        \"startDate\": \"2026-10-13\",\n        \"validTill\": \"2026-11-11\",\n        \"billingMethod\": \"autopay\",\n        \"address\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\",\n        \"cancellation\": null,\n        \"createdAt\": \"2026-10-12T07:27:52.660Z\"\n      }\n    ],\n    \"payments\": [\n      {\n        \"for\": \"subscription\",\n        \"amountPaise\": 449900,\n        \"status\": \"captured\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-10-12T07:27:52.678Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 106996,\n        \"status\": \"refunded\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 106996,\n        \"at\": \"2026-10-12T07:27:51.087Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 100486,\n        \"status\": \"captured\",\n        \"method\": \"card\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-10-11T07:09:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 84736,\n        \"status\": \"captured\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-10-06T13:40:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 48930,\n        \"status\": \"captured\",\n        \"method\": \"card\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-10-01T06:46:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 99330,\n        \"status\": \"captured\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-09-22T14:14:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 106996,\n        \"status\": \"captured\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-09-17T07:22:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 47040,\n        \"status\": \"captured\",\n        \"method\": \"card\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-09-12T13:40:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 151830,\n        \"status\": \"captured\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-09-08T07:05:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 106996,\n        \"status\": \"captured\",\n        \"method\": \"card\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-09-03T14:18:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 52290,\n        \"status\": \"captured\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-08-24T07:01:00.000Z\"\n      },\n      {\n        \"for\": \"order\",\n        \"amountPaise\": 96390,\n        \"status\": \"captured\",\n        \"method\": \"upi\",\n        \"refundedPaise\": 0,\n        \"at\": \"2026-08-20T06:45:00.000Z\"\n      }\n    ],\n    \"refunds\": [\n      {\n        \"amountPaise\": 106996,\n        \"status\": \"processed\",\n        \"reason\": \"Auto-cancelled: not accepted in time\",\n        \"at\": \"2026-10-12T07:43:27.822Z\"\n      },\n      {\n        \"amountPaise\": 96390,\n        \"status\": \"pending_approval\",\n        \"reason\": \"Cancelled: Rider could not reach the customer\",\n        \"at\": \"2026-08-20T06:51:00.000Z\"\n      }\n    ],\n    \"supportTickets\": [],\n    \"points\": {\n      \"balance\": 1300,\n      \"lifetime\": 1300,\n      \"history\": [\n        {\n          \"title\": \"Review Reward\",\n          \"points\": 100,\n          \"type\": \"earned\",\n          \"at\": \"2026-10-12T07:27:41.613Z\",\n          \"expiresAt\": \"2027-10-07T07:27:41.612Z\"\n        },\n        {\n          \"title\": \"Order #MJ-10012\",\n          \"points\": 50,\n          \"type\": \"earned\",\n          \"at\": \"2026-10-12T07:27:41.523Z\",\n          \"expiresAt\": \"2027-10-07T07:27:41.521Z\"\n        },\n        {\n          \"title\": \"Review Reward\",\n          \"points\": 100,\n          \"type\": \"earned\",\n          \"at\": \"2026-10-12T07:27:40.380Z\",\n          \"expiresAt\": \"2027-10-07T07:27:40.379Z\"\n        },\n        {\n          \"title\": \"Order #MJ-10011\",\n          \"points\": 50,\n          \"type\": \"earned\",\n          \"at\": \"2026-10-12T07:27:40.365Z\",\n          \"expiresAt\": \"2027-10-07T07:27:40.363Z\"\n        },\n        {\n          \"title\": \"Review Reward\",\n          \"points\": 100,\n          \"type\": \"earned\",\n          \"at\": \"2026-10-12T07:27:39.497Z\",\n          \"expiresAt\": \"2027-10-07T07:27:39.496Z\"\n        }\n      ]\n    },\n    \"wallet\": {\n      \"pointsBalance\": 1300\n    },\n    \"favorites\": [\n      {\n        \"dish\": \"Paneer Bao (3 pcs)\",\n        \"addedAt\": \"2026-10-12T07:28:01.648Z\"\n      },\n      {\n        \"dish\": \"Butter Chicken Bowl\",\n        \"addedAt\": \"2026-10-12T07:28:01.598Z\"\n      },\n      {\n        \"dish\": \"Mutton Biryani\",\n        \"addedAt\": \"2026-10-14T08:19:52.748Z\"\n      },\n      {\n        \"dish\": \"Gulab Cheesecake\",\n        \"addedAt\": \"2026-10-12T07:28:01.636Z\"\n      }\n    ],\n    \"savedPaymentMethods\": [],\n    \"referrals\": [],\n    \"notificationPreferences\": {\n      \"language\": \"en\",\n      \"vegOnly\": false,\n      \"channels\": {\n        \"push\": true,\n        \"whatsapp\": false,\n        \"email\": true,\n        \"sms\": true\n      },\n      \"topics\": {\n        \"offers\": true,\n        \"rewards\": true,\n        \"account\": true\n      },\n      \"consents\": []\n    },\n    \"consents\": []\n  }\n}"
+						}
+					],
 					"id": "cb3dfa26-e831-40b5-8ab8-c25e22db79de"
 				},
 				{
-					"name": "S17.4 · DELETE /users/me",
+					"name": "S17.4 · Close account",
 					"request": {
 						"method": "DELETE",
-						"header": [
-							{
-								"key": "x-device-id",
-								"value": "{{deviceId}}"
-							}
-						],
-						"url": "{{baseUrl}}/api/v1/users/me",
-						"description": "DELETE /api/v1/users/me. See the API reference in the backend README for permissions and fields."
-					},
-					"response": [],
-					"id": "f0626298-17b7-408e-8489-cd74891183e0"
-				},
-				{
-					"name": "S17.5 · POST /analytics/events",
-					"request": {
-						"method": "POST",
 						"header": [
 							{
 								"key": "x-device-id",
@@ -10244,11 +10446,11 @@
 								"value": "application/json"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/analytics/events",
-						"description": "POST /api/v1/analytics/events. See the API reference in the backend README for permissions and fields.",
+						"url": "{{baseUrl}}/api/v1/users/me",
+						"description": "Authenticated. Delete account (Settings): optional `reason` (300). Sign-in stops at once on every device; signing in again within 30 days restores the account, after that it is anonymised. A Meal Ji Plus plan stops renewing and autopay is cancelled (`planCancelled`); paid days stay usable if restored.\nErrors: 409 “You have an order on the way. You can close your account once it is delivered.”; 403 staff accounts. Ask for confirmation first and mention that unused points are lost after 30 days.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"events\": [\n    {\n      \"name\": \"app_opened\",\n      \"properties\": {}\n    },\n    {\n      \"name\": \"dish_viewed\",\n      \"properties\": {\n        \"dishId\": \"{{dishId}}\"\n      }\n    }\n  ]\n}",
+							"raw": "{\n  \"reason\": \"Not ordering any more\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -10256,11 +10458,164 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Closed",
+							"originalRequest": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"reason\": \"Not ordering any more\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Account closed. Sign in within 30 days to restore it.\",\n  \"data\": {\n    \"deleted\": true,\n    \"planCancelled\": false,\n    \"purgeAfter\": \"2026-11-13T08:20:41.314Z\"\n  }\n}"
+						},
+						{
+							"name": "Staff account (403)",
+							"originalRequest": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/me"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Staff accounts are closed by a super admin\",\n  \"errors\": null\n}"
+						}
+					],
+					"id": "f0626298-17b7-408e-8489-cd74891183e0"
+				},
+				{
+					"name": "S17.5 · App events (analytics)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-device-id",
+								"value": "{{deviceId}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "x-platform",
+								"value": "android"
+							},
+							{
+								"key": "x-app-version",
+								"value": "1.0.0"
+							}
+						],
+						"url": "{{baseUrl}}/api/v1/analytics/events",
+						"description": "Signed in (Bearer) or not (only `x-device-id`). Batches of 1–50 `events`: `name` (from the tracking plan, e.g. app_opened, screen_viewed, add_to_cart…), `eventId` (UUID; repeats are ignored), `occurredAt`, `sessionId`, `properties` (each event's required ones, max 4 KB). Send headers `x-platform` (android / ios) and `x-app-version`.\nReturns 202 with `accepted`, `rejected` and (outside production) `errors` per event. Queue events on the phone and send every ~30 s or when the app goes to the background; never block a screen on it.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"events\": [\n    {\n      \"name\": \"app_opened\",\n      \"eventId\": \"6c9213ad-68b0-42d5-9334-b773e5a61781\",\n      \"occurredAt\": \"2026-10-14T08:20:42.019Z\",\n      \"sessionId\": \"s-1\"\n    },\n    {\n      \"name\": \"screen_viewed\",\n      \"eventId\": \"83003b8b-25ce-42af-a979-a8bb3171c5ff\",\n      \"sessionId\": \"s-1\",\n      \"properties\": {\n        \"screen\": \"Home\"\n      }\n    },\n    {\n      \"name\": \"screen_viewed\",\n      \"properties\": {}\n    }\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"response": [
+						{
+							"name": "Batch",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/analytics/events"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"events\": [\n    {\n      \"name\": \"app_opened\",\n      \"eventId\": \"6c9213ad-68b0-42d5-9334-b773e5a61781\",\n      \"occurredAt\": \"2026-10-14T08:20:42.019Z\",\n      \"sessionId\": \"s-1\"\n    },\n    {\n      \"name\": \"screen_viewed\",\n      \"eventId\": \"83003b8b-25ce-42af-a979-a8bb3171c5ff\",\n      \"sessionId\": \"s-1\",\n      \"properties\": {\n        \"screen\": \"Home\"\n      }\n    },\n    {\n      \"name\": \"screen_viewed\",\n      \"properties\": {}\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Accepted",
+							"code": 202,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Events received.\",\n  \"data\": {\n    \"accepted\": 2,\n    \"rejected\": 1,\n    \"errors\": [\n      {\n        \"index\": 2,\n        \"message\": \"\\\"screen_viewed\\\" needs screen\"\n      }\n    ]\n  }\n}"
+						}
+					],
 					"id": "dd442ccc-4632-4577-9998-b815b4bab9e1"
 				},
 				{
-					"name": "S17.6 · GET /experiments/me",
+					"name": "S17.6 · My experiments",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -10270,9 +10625,35 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/experiments/me",
-						"description": "GET /api/v1/experiments/me. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated. `{ experimentKey: { variant, config } }` for running A/B tests (empty when none run). The same customer always gets the same variant; also included in GET /app/config. Send the variant in analytics events as `experiment` when the screen shows it."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "None running",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/experiments/me"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Experiments.\",\n  \"data\": {}\n}"
+						}
+					],
 					"id": "32bb8065-e262-45a0-90e8-d0899822006f"
 				}
 			]

@@ -644,9 +644,15 @@ export function cancel(userId, { reasonId, comment }, by = "customer") {
     sub.autoRenew = false;
     sub.pause = undefined;
     sub.scheduledChange = undefined;
+    if (sub.gatewaySubscriptionId) {
+      await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
+      // The mandate is cancelled: nothing more is charged; undo continues with payment links.
+      sub.billingMethod = "link";
+      sub.gatewaySubscriptionId = null;
+      sub.mandateStatus = "cancelled";
+    }
     log(sub, "cancel_scheduled", reason?.label, by);
     await sub.save();
-    if (sub.gatewaySubscriptionId) await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
     await syncUser(sub);
     await emit("subscription.cancel_scheduled", sub, { reasonId, reason: reason?.label || null, validTill: sub.validTill });
     return toSubscription(sub);
