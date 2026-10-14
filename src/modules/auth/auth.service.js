@@ -140,7 +140,8 @@ export async function verifyNumberOtp({ userId, otp }, deviceId) {
   await verifyOtp({ subjectId: user._id, purpose: OTP_PURPOSE, otp, source: resolvedDeviceId });
 
   // Signing in during the 30-day window after closing the account restores it.
-  const restoring = Boolean(user.deletedAt);
+  // (an account already anonymised after 30 days cannot come back: its number was released)
+  const restoring = Boolean(user.deletedAt) && !user.purgedAt;
   const updated = await userRepository.updateById(user._id, {
     isNumberVerified: true,
     isActive: true,

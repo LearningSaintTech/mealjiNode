@@ -26,6 +26,11 @@ const paymentSchema = new mongoose.Schema(
     capturedAt: { type: Date, default: null },
     refundedPaise: { type: Number, default: 0 },
     cycle: { type: Number, default: null }, // subscription billing cycle number
+    // pending: captured, its order or plan not updated yet (retried until done); done: applied.
+    applyState: { type: String, enum: ["pending", "done", null], default: null },
+    appliedAt: { type: Date, default: null },
+    // An autopay charge from a mandate no longer linked to a plan: refunded, never applied.
+    orphanCharge: { type: Boolean, default: false },
     raw: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true },
@@ -35,6 +40,7 @@ paymentSchema.index({ gatewayPaymentId: 1 }, { sparse: true });
 paymentSchema.index({ gatewayLinkId: 1 }, { sparse: true });
 paymentSchema.index({ refType: 1, refId: 1, createdAt: -1 });
 paymentSchema.index({ status: 1, createdAt: -1 });
+paymentSchema.index({ applyState: 1, capturedAt: 1 }, { partialFilterExpression: { applyState: "pending" } });
 export const Payment = mongoose.model("Payment", paymentSchema);
 
 const refundSchema = new mongoose.Schema(

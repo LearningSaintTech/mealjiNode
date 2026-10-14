@@ -164,5 +164,15 @@ export default async function step13(ctx) {
     const queue = await me.call("GET", "/admin/support/tickets");
     return { ok: anon.status === 401 && queue.status === 403, detail: `signed out ${anon.status} · customer → staff queue ${queue.status}` };
   });
+  await s.run("13-15", "Ticket attachments must be the customer's own ticket uploads", "Report an Issue → attach a photo", async () => {
+    const mine = (await me.call("POST", "/uploads/presign", { purpose: "ticket", contentType: "image/png", size: 2000 })).data || {};
+    const theirs = String(mine.fileUrl || "").replace(`ticket/${userId}/`, `ticket/${other.session.user.userId}/`);
+    const avatar = (await me.call("POST", "/uploads/presign", { purpose: "avatar", contentType: "image/png", size: 2000 })).data || {};
+    const base = { category: "order", issueType: "Missing item", description: "Photo of the missing item attached." };
+    const foreign = await me.call("POST", "/support/tickets", { ...base, attachments: [theirs] });
+    const wrongPurpose = await me.call("POST", "/support/tickets", { ...base, attachments: [avatar.fileUrl] });
+    const outside = await me.call("POST", "/support/tickets", { ...base, attachments: ["https://example.com/x.png"] });
+    return { ok: mine.fileUrl?.includes(`ticket/${userId}/`) && foreign.status === 422 && foreign.message === "Attach files you uploaded for this ticket" && wrongPurpose.status === 422 && outside.status === 422, detail: `someone else's file ${foreign.status} “${foreign.message}” · avatar upload ${wrongPurpose.status} · outside link ${outside.status} “${outside.message}”` };
+  });
   return s;
 }

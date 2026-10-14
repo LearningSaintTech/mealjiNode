@@ -113,9 +113,27 @@ async function slotsFor(sub) {
   return slots.sort((a, b) => SLOT_KEYS.indexOf(a.key) - SLOT_KEYS.indexOf(b.key));
 }
 
-/** A day after the paid period: it only holds meals shifted there. */
+/**
+ * A day outside the current paid period (after it: extra days for shifted
+ * meals; before it: an earlier period's extra days). Such a day only holds the
+ * meals shifted there.
+ */
 export function isExtensionDay(sub, dateKey) {
-  return Boolean(sub.currentPeriodEnd) && dateKey > sub.currentPeriodEnd;
+  return (Boolean(sub.currentPeriodEnd) && dateKey > sub.currentPeriodEnd) || (Boolean(sub.currentPeriodStart) && dateKey < sub.currentPeriodStart);
+}
+
+/** The days a slot's meals can be served on: the plan's days that the kitchen runs the slot. */
+function serviceDaysFor(sub, slot) {
+  const planDays = sub.planSnapshot?.activeDays?.length ? sub.planSnapshot.activeDays : [0, 1, 2, 3, 4, 5, 6];
+  const slotDays = slot?.activeDays?.length ? slot.activeDays : [0, 1, 2, 3, 4, 5, 6];
+  const both = planDays.filter((day) => slotDays.includes(day));
+  return both.length ? both : planDays;
+}
+
+/** The slot menu's dishes this plan may choose from (its categories, if it has any). */
+export function allowedDishes(sub, dishes) {
+  const categories = (sub.planSnapshot?.categoryIds || []).map(String);
+  return categories.length ? dishes.filter((dish) => categories.includes(String(dish.categoryId))) : dishes;
 }
 
 /**
@@ -163,7 +181,9 @@ async function buildDays(sub, slots, dates) {
   const key = (date, slot) => `${date}:${slot}`;
   let stored = await MealSelection.find({ subscription: sub._id, date: { $in: dates } }).lean();
   const have = new Set(stored.map((meal) => key(meal.date, meal.slot)));
-  const missing = dates.flatMap((date) => slots.filter((slot) => !have.has(key(date, slot.key)) && slotServes(sub, slot, date)).map((slot) => ({ subscription: sub._id, user: sub.user, kitchen: sub.kitchen, date, slot: slot.key, cutoffAt: cutoffAt(slot, date), address: sub.address, timeline: [{ status: "open", at: new Date() }] })));
+  const now = new Date();
+  // Only meals that can still be chosen get a row here; past ones are handled by the cutoff job.
+  const missing = dates.flatMap((date) => slots.filter((slot) => !have.has(key(date, slot.key)) && slotServes(sub, slot, date) && cutoffAt(slot, date) > now).map((slot) => ({ subscription: sub._id, user: sub.user, kitchen: sub.kitchen, date, slot: slot.key, cutoffAt: cutoffAt(slot, date), address: sub.address, timeline: [{ status: "open", at: new Date() }] })));
   if (missing.length) {
     // A parallel request may have created some of them: duplicates are skipped.
     await MealSelection.insertMany(missing, { ordered: false }).catch((err) => {
@@ -208,8 +228,7 @@ export async function slotMenu(userId, { date, slot, q = null, categoryId = null
   const slotDoc = await MealSlot.findOne({ kitchen: sub.kitchen, key: slot, isActive: true }).lean();
   if (!slotDoc || !sub.planSnapshot.slots.includes(slot)) throw new AppError(404, "This meal is not part of your plan");
   const menu = await menuFor(sub.kitchen, slot, date);
-  const allowedCategories = (sub.planSnapshot.categoryIds || []).map(String);
-  const all = allowedCategories.length ? menu.dishes.filter((dish) => allowedCategories.includes(dish.categoryId)) : menu.dishes;
+  const all = allowedDishes(sub, menu.dishes);
   // Category tabs: the categories of today's dishes, in the kitchen's order.
   const counts = new Map();
   for (const dish of all) if (dish.categoryId) counts.set(dish.categoryId, (counts.get(dish.categoryId) || 0) + 1);
@@ -244,7 +263,7 @@ export async function saveSelection(userId, { date, slot, items }) {
   if (!slotServes(sub, slotDoc, date, stored)) throw new AppError(409, "No meal is due on this date");
   if (cutoffAt(slotDoc, date) <= new Date()) throw new AppError(409, "The cutoff for this meal has passed");
   const menu = await menuFor(sub.kitchen, slot, date);
-  const problem = validateSelection(items, { plan: sub.planSnapshot, menuDishIds: menu.dishes.map((dish) => dish.dishId) });
+  const problem = validateSelection(items, { plan: sub.planSnapshot, menuDishIds: allowedDishes(sub, menu.dishes).map((dish) => dish.dishId) });
   if (problem) throw new AppError(422, problem);
   if (slotDoc.capacity > 0) {
     const taken = await MealSelection.countDocuments({ kitchen: sub.kitchen, date, slot, status: { $in: ["selected", "locked"] }, subscription: { $ne: sub._id } });
@@ -280,11 +299,12 @@ export async function getSelection(userId, { date, slot }) {
  * period that has no meal of this slot yet (lunch and dinner of one day share
  * one extra day; a second lunch takes the next one).
  */
-async function extensionDayFor(sub, slotKey) {
+async function extensionDayFor(sub, slot) {
   const end = sub.currentPeriodEnd || sub.validTill;
-  const taken = new Set((await MealSelection.find({ subscription: sub._id, slot: slotKey, date: { $gt: end }, shiftedFrom: { $ne: null } }).select("date").lean()).map((meal) => meal.date));
-  let day = nextServiceDay(end, sub.planSnapshot.activeDays);
-  for (let i = 0; i < 120 && taken.has(day); i += 1) day = nextServiceDay(day, sub.planSnapshot.activeDays);
+  const days = serviceDaysFor(sub, slot);
+  const taken = new Set((await MealSelection.find({ subscription: sub._id, slot: slot.key, date: { $gt: end }, shiftedFrom: { $ne: null } }).select("date").lean()).map((meal) => meal.date));
+  let day = nextServiceDay(end, days);
+  for (let i = 0; i < 120 && taken.has(day); i += 1) day = nextServiceDay(day, days);
   return day;
 }
 
@@ -329,9 +349,10 @@ async function shiftLocked(sub, { date, slot, kind }) {
     const meal = await ensureMeal(sub, slotDoc, date);
     if (kind === "manual" && (cutoffAt(slotDoc, date) <= new Date() || !["open", "selected"].includes(meal.status))) continue;
     if (meal.status === "shifted") continue;
-    const newDay = await extensionDayFor(sub, slotDoc.key);
+    const newDay = await extensionDayFor(sub, slotDoc);
+    // The cutoff job only moves a meal nobody chose (a choice saved at the last second stays).
     const moved = await MealSelection.findOneAndUpdate(
-      { _id: meal._id, status: { $in: ["open", "selected"] } },
+      { _id: meal._id, status: { $in: kind === "auto" ? ["open"] : ["open", "selected"] } },
       { $set: { status: "shifted", shiftedTo: newDay, shiftKind: kind }, $push: { timeline: { status: "shifted", at: new Date() } } },
       { new: true },
     );
@@ -348,7 +369,11 @@ async function shiftLocked(sub, { date, slot, kind }) {
   if (kind === "auto") sub.autoShiftsThisCycle = (sub.autoShiftsThisCycle || 0) + 1;
   const entry = { at: new Date(), event: kind === "auto" ? "meal_auto_shifted" : "meal_shifted", note: `${date} → ${lastDay}`, by: kind === "auto" ? "system" : "customer" };
   if (Array.isArray(sub.history)) sub.history.push(entry);
-  await Subscription.updateOne({ _id: sub._id }, { $set: { validTill: sub.validTill, shiftsThisCycle: sub.shiftsThisCycle || 0, autoShiftsThisCycle: sub.autoShiftsThisCycle || 0 }, $push: { history: entry } });
+  // The next bill comes after the extra days, so the next paid period never overlaps them.
+  const fresh = await Subscription.findById(sub._id).select("nextBillingDate").lean();
+  const nextBilling = fresh?.nextBillingDate && fresh.nextBillingDate <= sub.validTill ? addIstDays(sub.validTill, 1) : null;
+  if (nextBilling) sub.nextBillingDate = nextBilling;
+  await Subscription.updateOne({ _id: sub._id }, { $set: { validTill: sub.validTill, shiftsThisCycle: sub.shiftsThisCycle || 0, autoShiftsThisCycle: sub.autoShiftsThisCycle || 0, ...(nextBilling ? { nextBillingDate: nextBilling } : {}) }, $push: { history: entry } });
   if (sub.validTill !== previousValidTill) {
     const { User } = await import("../user/user.model.js");
     const { istDateTime } = await import("../../common/time.js");
@@ -383,7 +408,7 @@ export async function shiftPreview(userId, { date, slot = null }) {
   const due = slots.filter((item) => slotServes(sub, item, date, stored.get(item.key) || null));
   if (!due.length) throw new AppError(409, "No meal is due on this date");
   const movable = due.filter((item) => cutoffAt(item, date) > new Date() && ["open", "selected"].includes(stored.get(item.key)?.status || "open"));
-  const targets = await Promise.all(movable.map((item) => extensionDayFor(sub, item.key)));
+  const targets = await Promise.all(movable.map((item) => extensionDayFor(sub, item)));
   const shiftedTo = targets.sort().at(-1) || nextServiceDay(sub.currentPeriodEnd || sub.validTill, plan.activeDays);
   const newValidTill = shiftedTo > sub.validTill ? shiftedTo : sub.validTill;
   const left = plan.maxShiftsPerCycle > 0 ? Math.max(0, plan.maxShiftsPerCycle - (sub.shiftsThisCycle || 0)) : null;

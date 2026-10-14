@@ -8,29 +8,67 @@ import { activateDueSettings } from "../modules/settings/settings.service.js";
 
 const lazy = (path, fn) => async () => (await import(path))[fn]();
 
-/** Anonymises accounts closed more than 30 days ago (orders are kept for tax). */
+/**
+ * Anonymises accounts closed more than 30 days ago. Orders and invoices are
+ * kept for tax with only the city, state and PIN code of the address; every
+ * other personal detail goes: profile, addresses, devices, notifications,
+ * cart, favorites, saved payment methods, support ticket text and files, app
+ * analytics, plan addresses. Each account is claimed atomically first, so one
+ * restored by a sign-in during the run is never touched. Runs until the
+ * backlog is cleared (in batches), not a fixed number a day.
+ */
 async function purgeDeletedAccounts() {
   const { User } = await import("../modules/user/user.model.js");
   const { Address } = await import("../modules/address/address.model.js");
   const { DeviceToken, Notification } = await import("../modules/notification/notification.model.js");
   const { Order } = await import("../modules/order/order.model.js");
   const { Cart } = await import("../modules/cart/cart.model.js");
+  const { Favorite } = await import("../modules/favorites/favorites.model.js");
+  const { SavedPaymentMethod } = await import("../modules/payment/paymentMethod.service.js");
+  const { SupportTicket, TicketMessage } = await import("../modules/support/support.model.js");
+  const { AnalyticsEvent } = await import("../modules/analytics/analytics.model.js");
+  const { Subscription } = await import("../modules/subscription/subscription.model.js");
   const cutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-  const users = await User.find({ purgedAt: null, deletedAt: { $lte: cutoff } }).limit(200).lean();
-  for (const user of users) {
-    await Promise.all([
-      Address.deleteMany({ user: user._id }),
-      DeviceToken.deleteMany({ user: user._id }),
-      Notification.deleteMany({ user: user._id }),
-      Cart.deleteOne({ user: user._id }),
-      Order.updateMany({ user: user._id }, { $set: { "customer.name": "Deleted user", "customer.phone": null, "address.recipientName": null, "address.phone": null } }),
-    ]);
-    await User.updateOne({ _id: user._id }, {
-      $set: { name: "Deleted user", phoneNumber: `deleted-${user._id}`, email: null, dob: null, dobMonthDay: null, gender: null, avatarUrl: null, currentLocation: null, isActive: false, purgedAt: new Date() },
-      $unset: { referralCode: 1 },
-    });
+  const addressGone = { recipientName: null, phone: null, houseFlat: null, street: null, locality: null, landmark: null, fullAddress: null, latitude: null, longitude: null };
+  const prefixed = (prefix) => Object.fromEntries(Object.entries(addressGone).map(([key, value]) => [`${prefix}.${key}`, value]));
+  let purged = 0;
+  for (let batch = 0; batch < 100; batch += 1) {
+    const due = await User.find({ purgedAt: null, deletedAt: { $lte: cutoff } }).select("_id").limit(200).lean();
+    if (!due.length) break;
+    for (const { _id } of due) {
+      // Claim: still closed and not restored meanwhile.
+      const user = await User.findOneAndUpdate({ _id, purgedAt: null, deletedAt: { $lte: cutoff } }, { $set: { purgedAt: new Date() } }, { new: true }).lean();
+      if (!user) continue;
+      try {
+        const tickets = await SupportTicket.find({ user: _id }).select("_id").lean();
+        await Promise.all([
+          Address.deleteMany({ user: _id }),
+          DeviceToken.deleteMany({ user: _id }),
+          Notification.deleteMany({ user: _id }),
+          Cart.deleteOne({ user: _id }),
+          Favorite.deleteMany({ user: _id }),
+          SavedPaymentMethod.deleteMany({ user: _id }),
+          Order.updateMany({ user: _id }, { $set: { "customer.name": "Deleted user", "customer.phone": null, ...prefixed("address") } }),
+          Subscription.updateMany({ user: _id }, { $set: prefixed("address") }),
+          // A plan still running after 30 days ends with the account.
+          Subscription.updateMany({ user: _id, status: { $in: ["active", "pause_scheduled", "paused", "cancel_scheduled", "past_due", "pending_payment"] } }, { $set: { status: "cancelled", autoRenew: false } }),
+          SupportTicket.updateMany({ user: _id }, { $set: { subject: "[removed]", description: "[removed]", attachments: [] } }),
+          TicketMessage.updateMany({ ticket: { $in: tickets.map((ticket) => ticket._id) }, "author.userId": _id }, { $set: { body: "[removed]", attachments: [], "author.name": "Deleted user" } }),
+          AnalyticsEvent.deleteMany({ userId: _id }).catch((err) => logger.warn({ err: err.message }, "Analytics events of a closed account not removed")),
+        ]);
+        await User.updateOne({ _id }, {
+          $set: { name: "Deleted user", phoneNumber: `deleted-${_id}`, email: null, dob: null, dobMonthDay: null, gender: null, avatarUrl: null, currentLocation: null, isActive: false, deletionReason: null },
+          $unset: { referralCode: 1, preferences: 1, gatewayCustomer: 1 },
+        });
+        purged += 1;
+      } catch (err) {
+        // Not finished: release the claim so the next run completes it.
+        await User.updateOne({ _id, purgedAt: user.purgedAt }, { $set: { purgedAt: null } });
+        logger.error({ err: err.message, userId: String(_id) }, "Account purge failed; retried next run");
+      }
+    }
   }
-  return users.length;
+  return purged;
 }
 
 export const SCHEDULED_TASKS = [
@@ -38,6 +76,7 @@ export const SCHEDULED_TASKS = [
   { name: "order-watchdog", every: 60_000, description: "Expires unpaid orders, raises accept-SLA alerts and auto-cancels unaccepted orders", run: lazy("../modules/order/order.service.js", "orderWatchdog") },
   { name: "delivery-watchdog", every: 60_000, description: "Books deliveries after the accept offset and retries failed bookings", run: lazy("../modules/delivery/delivery.service.js", "deliveryWatchdog") },
   { name: "analytics-rollup", pattern: "5 * * * *", description: "Hourly metrics rollups for today and yesterday", run: lazy("../modules/analytics/analytics.service.js", "rollupRecent") },
+  { name: "payment-apply-retry", every: 5 * 60_000, description: "Finishes captured payments whose order or plan was not updated", run: lazy("../modules/payment/payment.service.js", "retryUnappliedPayments") },
   { name: "payment-reconciliation", pattern: "0 3 * * *", description: "Compares captured payments with the gateway", run: lazy("../modules/payment/payment.service.js", "reconcilePayments") },
   { name: "report-schedules", every: 5 * 60_000, description: "Emails scheduled report exports", run: lazy("../modules/report/report.service.js", "runDueSchedules") },
   { name: "account-purge", pattern: "30 2 * * *", description: "Anonymises accounts closed more than 30 days ago", run: purgeDeletedAccounts },

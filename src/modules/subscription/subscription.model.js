@@ -120,6 +120,9 @@ const subscriptionSchema = new mongoose.Schema(
     cancellation: { reasonId: String, reason: String, comment: String, effectiveOn: String, requestedAt: Date },
     gatewaySubscriptionId: { type: String, default: null },
     mandateStatus: { type: String, default: null },
+    mandateUrl: { type: String, default: null }, // where the customer approves the autopay mandate
+    pastMandateIds: { type: [String], default: [] }, // mandates no longer used (a late charge on one is refunded)
+    lastPaymentId: { type: ObjectId, default: null }, // the payment that paid the current cycle
     paymentLink: { url: String, linkId: String, amountPaise: Number, cycle: Number, sentAt: Date },
     shiftsThisCycle: { type: Number, default: 0 },
     autoShiftsThisCycle: { type: Number, default: 0 },

@@ -145,6 +145,12 @@ export async function cancelGatewaySubscription(gatewaySubscriptionId) {
   return { id: gatewaySubscriptionId, status: "cancelled" };
 }
 
+/** Closes a payment link so it can no longer be paid (cycle already paid, plan ended, price changed). */
+export async function cancelPaymentLink(gatewayLinkId) {
+  if (gatewayName() === "razorpay") return rzp("post", `/payment_links/${gatewayLinkId}/cancel`, {});
+  return { id: gatewayLinkId, status: "cancelled" };
+}
+
 /** Stops autopay charges while a plan is paused (the paid cycle is not affected). */
 export async function pauseGatewaySubscription(gatewaySubscriptionId) {
   if (gatewayName() === "razorpay") return rzp("post", `/subscriptions/${gatewaySubscriptionId}/pause`, { pause_at: "now" });

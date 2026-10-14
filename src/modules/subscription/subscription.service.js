@@ -4,7 +4,7 @@ import { addIstDays, istDateKey, istDateTime } from "../../common/time.js";
 import { acquireLock, releaseLock } from "../../infrastructure/redisStore.js";
 import { logger } from "../../config/logger.js";
 import { publishEventSafe } from "../../events/eventBus.js";
-import { cancelGatewaySubscription, createGatewayOrder, createGatewaySubscription, createPaymentLink, gatewayName, pauseGatewaySubscription, resumeGatewaySubscription, updateGatewaySubscriptionAmount } from "../../infrastructure/payments/gateway.js";
+import { cancelGatewaySubscription, cancelPaymentLink, createGatewayOrder, createGatewaySubscription, createPaymentLink, gatewayName, pauseGatewaySubscription, resumeGatewaySubscription, updateGatewaySubscriptionAmount } from "../../infrastructure/payments/gateway.js";
 import { publish } from "../../realtime/hub.js";
 import { Address, addressSnapshot, toAddress } from "../address/address.model.js";
 import { issueInvoice } from "../billing/billing.service.js";
@@ -74,7 +74,7 @@ export function toSubscription(sub) {
     scheduledChange: sub.scheduledChange?.plan ? { planId: String(sub.scheduledChange.plan), planName: sub.scheduledChange.planName, pricePaise: sub.scheduledChange.pricePaise ?? null, effectiveOn: sub.scheduledChange.effectiveOn, effectiveOnText: dayMonthYear(sub.scheduledChange.effectiveOn), label: `Changes to ${sub.scheduledChange.planName} on ${dayMonthYear(sub.scheduledChange.effectiveOn)}` } : null,
     cancellation: sub.cancellation?.effectiveOn ? sub.cancellation : null,
     shiftsThisCycle: sub.shiftsThisCycle || 0,
-    shiftsLeft: Math.max(0, (plan.maxShiftsPerCycle || 0) - (sub.shiftsThisCycle || 0)),
+    shiftsLeft: plan.maxShiftsPerCycle > 0 ? Math.max(0, plan.maxShiftsPerCycle - (sub.shiftsThisCycle || 0)) : null, // null = no limit
     paymentLink: sub.paymentLink?.url ? { url: sub.paymentLink.url, amountPaise: sub.paymentLink.amountPaise, cycle: sub.paymentLink.cycle } : null,
     pastDueSince: sub.pastDueSince,
     createdAt: sub.createdAt,
@@ -92,6 +92,7 @@ export function toSubscription(sub) {
     autoRenewLabel: sub.autoRenew === false ? "Auto-renewal off" : "Auto-renewal on",
     planChangeNote: "Any plan change starts from your next billing cycle.",
     addressNote: "Changes apply to your next delivery",
+    mandateUrl: sub.billingMethod === "autopay" && sub.mandateUrl && !["active", "authenticated", "paused"].includes(sub.mandateStatus) ? sub.mandateUrl : null,
   };
 }
 
@@ -294,19 +295,42 @@ async function refundExtraPayment(payment, sub, reason) {
 }
 
 async function applyCapture(payment) {
-  const sub = await Subscription.findById(payment.refId);
-  if (!sub) {
+  const found = await Subscription.findById(payment.refId).select("_id").lean();
+  if (!found) {
     // The checkout was replaced or cleaned up before this payment arrived.
     if ((payment.cycle || 1) === 1) await refundExtraPayment(payment, null, "Payment for a plan checkout that no longer exists");
     return;
   }
+  // Same lock as customer actions and the billing jobs: nothing changes the plan meanwhile.
+  return withSubLock(found, (sub) => applyCaptureLocked(sub, payment));
+}
+
+/** Whether a cycle that is already paid was paid by this payment (a retry) or by another one. */
+async function paidByAnother(sub, payment, cycle) {
+  if (sub.lastPaymentId) return String(sub.lastPaymentId) !== String(payment._id);
+  // Plans paid before lastPaymentId existed: another captured payment for the same cycle.
+  return Boolean(await Payment.exists({ refType: "subscription", refId: sub._id, cycle, _id: { $ne: payment._id }, status: { $in: ["captured", "partially_refunded"] }, orphanCharge: { $ne: true } }));
+}
+
+async function applyCaptureLocked(sub, payment) {
   const cycle = payment.cycle || sub.cycle + 1;
-  if (cycle <= sub.cycle) return; // already applied
+  if (cycle <= sub.cycle) {
+    // Already paid: a second payment for the same cycle (two links, link + autopay) is given back.
+    if (await paidByAnother(sub, payment, cycle)) await refundExtraPayment(payment, sub, "This month was already paid");
+    return;
+  }
   // A renewal charged while the plan is paused (e.g. autopay that could not be stopped) is given back.
   if (cycle > 1 && (sub.status === "paused" || (sub.status === "pause_scheduled" && sub.pause?.startsOn && sub.pause.startsOn <= (sub.nextBillingDate || istDateKey())))) {
     log(sub, "paused_charge_refunded", `cycle ${cycle}`);
     await sub.save();
     await refundExtraPayment(payment, sub, "Charged while the plan was paused");
+    return;
+  }
+  // A renewal for a plan that ended or is set to end (a late link payment) does not bring it back.
+  if (cycle > 1 && ["cancelled", "expired", "cancel_scheduled"].includes(sub.status)) {
+    log(sub, "late_payment_refunded", `cycle ${cycle}`);
+    await sub.save();
+    await refundExtraPayment(payment, sub, sub.status === "cancel_scheduled" ? "The plan is set to end" : "The plan had already ended");
     return;
   }
   if (cycle === 1 && sub.status === "pending_payment") {
@@ -336,32 +360,41 @@ async function applyCapture(payment) {
         const mandate = await createGatewaySubscription({ planAmountPaise: sub.renewalPricePaise, intervalDays: plan.cycleDays, notes: { subscriptionId: String(sub._id), planName: plan.name }, customer: { phone: user?.phoneNumber } });
         sub.gatewaySubscriptionId = mandate.gatewaySubscriptionId;
         sub.mandateStatus = mandate.status;
+        // The customer approves the mandate here (Plan confirmed shows it until approved).
+        sub.mandateUrl = mandate.shortUrl || null;
       } catch (err) {
         logger.warn({ err: err.message }, "Autopay mandate could not be created; falling back to payment links");
         sub.billingMethod = "link";
       }
     }
   } else {
-    // Renewal: apply a scheduled plan change, carry shifted days forward.
+    // Renewal: apply a scheduled plan change when this payment covers its price.
     if (sub.scheduledChange?.plan) {
       const next = await SubscriptionPlan.findById(sub.scheduledChange.plan).lean();
-      if (next) {
+      if (next && payment.amountPaise >= next.pricePaise) {
         sub.plan = next._id;
         sub.planSnapshot = planSnapshot(next);
         sub.renewalPricePaise = next.pricePaise;
+        sub.scheduledChange = undefined;
         log(sub, "plan_changed", next.name);
         await emit("subscription.plan_changed", sub);
+      } else if (next) {
+        // Paid the old price (a link sent before the change): the change waits one more cycle.
+        log(sub, "plan_change_deferred", `${next.name}: paid ${payment.amountPaise}, needs ${next.pricePaise}`);
+      } else {
+        sub.scheduledChange = undefined;
       }
-      sub.scheduledChange = undefined;
     }
-    const carry = sub.validTill && sub.currentPeriodEnd ? Math.max(0, daysBetween(sub.currentPeriodEnd, sub.validTill)) : 0;
-    const start = sub.nextBillingDate && sub.nextBillingDate > istDateKey() ? sub.nextBillingDate : (sub.status === "paused" || sub.status === "past_due" ? istDateKey() : sub.nextBillingDate);
+    // The new period starts after the last served day: shifted meals on extra
+    // days are never overlapped by the paid days of the next cycle.
+    let start = sub.nextBillingDate && sub.nextBillingDate > istDateKey() ? sub.nextBillingDate : (sub.status === "paused" || sub.status === "past_due" ? istDateKey() : sub.nextBillingDate);
+    if (sub.validTill && start <= sub.validTill) start = addIstDays(sub.validTill, 1);
     sub.currentPeriodStart = start;
     sub.currentPeriodEnd = addIstDays(start, sub.planSnapshot.cycleDays - 1);
-    sub.validTill = addIstDays(sub.currentPeriodEnd, carry);
+    sub.validTill = sub.currentPeriodEnd;
     sub.nextBillingDate = addIstDays(sub.currentPeriodEnd, 1);
     sub.cycle = cycle;
-    sub.status = sub.status === "cancel_scheduled" ? "cancel_scheduled" : "active";
+    sub.status = "active";
     sub.pastDueSince = null;
     sub.renewalAttempts = 0;
     sub.shiftsThisCycle = 0;
@@ -370,21 +403,73 @@ async function applyCapture(payment) {
     sub.remindersSent = [];
     log(sub, "renewed", `cycle ${cycle}`);
   }
+  sub.lastPaymentId = payment._id;
   await sub.save();
+  // Other unpaid links for this cycle can no longer be paid.
+  await cancelOpenLinks(sub, { cycle, except: payment._id });
   await syncUser(sub);
   await invoiceCycle(sub, payment);
   await emit(cycle === 1 ? "subscription.activated" : "subscription.renewed", sub, { cycle, amountPaise: payment.amountPaise });
 }
 
+/** The last day meals are served: the paid period, or later when meals were shifted past it. */
+export function lastServedDay(sub) {
+  return sub.validTill && sub.currentPeriodEnd && sub.validTill > sub.currentPeriodEnd ? sub.validTill : sub.currentPeriodEnd;
+}
+
+/**
+ * Stops the autopay mandate (cancelled at the gateway) and remembers its id, so
+ * a charge that still arrives from it is recognised and refunded.
+ */
+export async function dropMandate(sub, note) {
+  const had = Boolean(sub.gatewaySubscriptionId);
+  if (had) {
+    await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch((err) => logger.warn({ err: err.message, subscriptionId: String(sub._id) }, "Mandate cancel failed (a late charge will be refunded)"));
+    sub.pastMandateIds = [...new Set([...(sub.pastMandateIds || []), sub.gatewaySubscriptionId])];
+  }
+  sub.gatewaySubscriptionId = null;
+  if (had) sub.mandateStatus = "cancelled";
+  sub.mandateUrl = null;
+  if (sub.billingMethod === "autopay") {
+    sub.billingMethod = "link";
+    if (note) log(sub, "billing_switched", note);
+  }
+}
+
+/** Closes unpaid payment links of a plan (all, or one cycle's except the payment that paid it). */
+export async function cancelOpenLinks(sub, { cycle = null, except = null } = {}) {
+  const open = await Payment.find({ refType: "subscription", refId: sub._id, status: "created", gatewayLinkId: { $ne: null }, ...(cycle ? { cycle } : {}), ...(except ? { _id: { $ne: except } } : {}) }).lean();
+  for (const link of open) {
+    await cancelPaymentLink(link.gatewayLinkId).catch((err) => logger.warn({ err: err.message, paymentId: String(link._id) }, "Payment link cancel failed (a payment on it will be refunded)"));
+    await Payment.updateOne({ _id: link._id, status: "created" }, { $set: { status: "cancelled" } });
+  }
+  if (sub.paymentLink?.linkId && open.some((link) => link.gatewayLinkId === sub.paymentLink.linkId)) sub.paymentLink = undefined;
+  return open.length;
+}
+
+/** After a plan change: a link already sent for the next cycle at another price is replaced. */
+async function replaceStaleLink(sub) {
+  const nextCycle = sub.cycle + 1;
+  if (sub.paymentLink?.linkId && sub.paymentLink.cycle === nextCycle && sub.paymentLink.amountPaise !== nextCyclePricePaise(sub)) {
+    await cancelOpenLinks(sub, { cycle: nextCycle });
+    sub.paymentLink = undefined;
+    log(sub, "payment_link_replaced", "plan changed");
+    // A reminder in the window gets a fresh link at the right price.
+    if (sub.nextBillingDate && daysBetween(istDateKey(), sub.nextBillingDate) <= 3) await sendPaymentLink(sub, { reason: "plan_changed" }).catch(() => {});
+  }
+}
+
 export async function onSubscriptionPaymentFailed(payment, reason) {
-  const sub = await Subscription.findById(payment.refId);
-  if (!sub || sub.status === "pending_payment") return;
-  sub.renewalAttempts += 1;
-  log(sub, "renewal_failed", reason);
-  await sub.save();
-  await emit("subscription.renewal_failed", sub, { reason });
-  // Autopay failed: fall back to a payment link for this cycle.
-  if (sub.billingMethod === "autopay") await sendPaymentLink(sub, { reason: "autopay_failed" }).catch(() => {});
+  const found = await Subscription.findById(payment.refId).select("_id status").lean();
+  if (!found || found.status === "pending_payment") return;
+  await withSubLock(found, async (sub) => {
+    sub.renewalAttempts += 1;
+    log(sub, "renewal_failed", reason);
+    await sub.save();
+    await emit("subscription.renewal_failed", sub, { reason });
+    // Autopay failed: fall back to a payment link for this cycle.
+    if (sub.billingMethod === "autopay") await sendPaymentLink(sub, { reason: "autopay_failed" }).catch(() => {});
+  }).catch((err) => logger.warn({ err: err.message, subscriptionId: String(found._id) }, "Failed renewal not recorded"));
 }
 
 /** Razorpay subscription and payment-link webhooks. */
@@ -398,7 +483,14 @@ export async function onSubscriptionWebhook(body) {
     return "processed";
   }
   const entity = body.payload?.subscription?.entity;
-  const sub = entity ? await Subscription.findOne({ gatewaySubscriptionId: entity.id }) : null;
+  let sub = entity ? await Subscription.findOne({ gatewaySubscriptionId: entity.id }) : null;
+  if (!sub && entity) {
+    // A mandate the plan no longer uses (cancelled at cycle end, switched, paused failed).
+    const old = await Subscription.findOne({ $or: [{ pastMandateIds: entity.id }, ...(entity.notes?.subscriptionId && /^[a-f0-9]{24}$/.test(String(entity.notes.subscriptionId)) ? [{ _id: entity.notes.subscriptionId }] : [])] });
+    if (old && body.event === "subscription.charged") return refundOrphanCharge(old, body.payload?.payment?.entity, entity.id);
+    if (!old && body.event === "subscription.charged") logger.error({ mandate: entity.id, payment: body.payload?.payment?.entity?.id }, "Autopay charge for an unknown mandate: refund it in the Razorpay dashboard");
+    return "ignored";
+  }
   if (!sub) return "ignored";
   if (body.event === "subscription.charged") {
     const paymentEntity = body.payload?.payment?.entity;
@@ -423,6 +515,15 @@ export async function onSubscriptionWebhook(body) {
     return "processed";
   }
   return "ignored";
+}
+
+/** A charge from a mandate the plan no longer uses: recorded and refunded in full, never applied. */
+async function refundOrphanCharge(sub, paymentEntity, mandateId) {
+  if (!paymentEntity?.id) return "ignored";
+  if (await Payment.exists({ gatewayPaymentId: paymentEntity.id })) return "ignored";
+  const payment = await Payment.create({ user: sub.user, refType: "subscription", refId: sub._id, kitchen: sub.kitchen, amountPaise: paymentEntity.amount, method: paymentEntity.method || "autopay", gateway: "razorpay", gatewayPaymentId: paymentEntity.id, gatewaySubscriptionId: mandateId, status: "captured", capturedAt: new Date(), applyState: "done", appliedAt: new Date(), orphanCharge: true });
+  await refundExtraPayment(payment, sub, "Charge from an autopay mandate that was already stopped");
+  return "processed";
 }
 
 /** Creates (or re-sends) the payment link for the next cycle. */
@@ -465,7 +566,7 @@ async function requireOwn(userId) {
 async function withSubLock(target, work) {
   const found = typeof target === "object" && target?._id ? target : await requireOwn(target);
   const lockKey = `subscription:action:${found._id}`;
-  const token = await acquireLock(lockKey, 30);
+  const token = await acquireLock(lockKey, 90);
   if (!token) throw new AppError(409, "Another change to your plan is in progress. Try again in a moment.");
   try {
     const sub = await Subscription.findById(found._id);
@@ -495,7 +596,7 @@ export async function subscriptionCard(userId) {
 function pauseChoices(sub, policy) {
   const options = [];
   for (let months = policy.pauseMinMonths; months <= policy.pauseMaxMonths; months += 1) {
-    const dates = pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: sub.currentPeriodEnd, today: istDateKey() });
+    const dates = pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: lastServedDay(sub), today: istDateKey() });
     const title = `Pause for ${months} month${months > 1 ? "s" : ""}`;
     options.push({ months, ...dates, title, subtitle: `Resume automatically on ${dayMonthYear(dates.resumesOn)}`, buttonLabel: title, startsOnText: dayMonthYear(dates.startsOn) });
   }
@@ -536,11 +637,7 @@ async function setMandatePaused(sub, paused) {
     // Could not pause the mandate: stop autopay instead, so no charge is taken while paused.
     if (!paused) throw err;
     logger.warn({ err: err.message, subscriptionId: String(sub._id) }, "Mandate pause failed; switching to payment links");
-    await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
-    sub.billingMethod = "link";
-    sub.gatewaySubscriptionId = null;
-    sub.mandateStatus = null;
-    log(sub, "billing_switched", "link (autopay could not be paused)");
+    await dropMandate(sub, "link (autopay could not be paused)");
   }
 }
 
@@ -549,7 +646,7 @@ export function pause(userId, { months }, by = "customer") {
     const policy = await policyFor(sub);
     if (!Number.isInteger(months) || months < policy.pauseMinMonths || months > policy.pauseMaxMonths) throw new AppError(422, `Pause for ${policy.pauseMinMonths} to ${policy.pauseMaxMonths} month(s)`);
     if (sub.status !== "active") throw new AppError(409, sub.status === "cancel_scheduled" ? "Undo the cancellation first to pause your plan" : ["pause_scheduled", "paused"].includes(sub.status) ? "Your plan is already paused" : "Only an active subscription can be paused");
-    const dates = pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: sub.currentPeriodEnd, today: istDateKey() });
+    const dates = pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: lastServedDay(sub), today: istDateKey() });
     // A pause from tomorrow keeps the paid days that are left: they run after the pause.
     const daysLeft = policy.pauseStarts === "next_day" && sub.validTill && sub.validTill >= dates.startsOn ? daysBetween(dates.startsOn, sub.validTill) + 1 : 0;
     sub.pause = { ...dates, months, daysLeft, requestedAt: new Date() };
@@ -644,13 +741,10 @@ export function cancel(userId, { reasonId, comment }, by = "customer") {
     sub.autoRenew = false;
     sub.pause = undefined;
     sub.scheduledChange = undefined;
-    if (sub.gatewaySubscriptionId) {
-      await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
-      // The mandate is cancelled: nothing more is charged; undo continues with payment links.
-      sub.billingMethod = "link";
-      sub.gatewaySubscriptionId = null;
-      sub.mandateStatus = "cancelled";
-    }
+    // The mandate is cancelled: nothing more is charged; undo continues with payment links.
+    await dropMandate(sub, "plan cancelled");
+    // An unpaid link for the next cycle must not renew a plan that is ending.
+    await cancelOpenLinks(sub);
     log(sub, "cancel_scheduled", reason?.label, by);
     await sub.save();
     await syncUser(sub);
@@ -666,12 +760,8 @@ export function undoCancel(userId) {
     sub.status = "active";
     sub.autoRenew = true;
     sub.cancellation = undefined;
-    if (sub.billingMethod === "autopay" && sub.gatewaySubscriptionId) {
-      // The old mandate was cancelled; renewals continue by payment link until a new mandate is set up.
-      sub.billingMethod = "link";
-      sub.gatewaySubscriptionId = null;
-      sub.mandateStatus = null;
-    }
+    // Any old mandate was cancelled; renewals continue by payment link until a new mandate is set up.
+    if (sub.gatewaySubscriptionId) await dropMandate(sub, "plan kept after a cancel");
     log(sub, "cancel_undone", null, "customer");
     await sub.save();
     await syncUser(sub);
@@ -747,11 +837,7 @@ async function syncMandateAmount(sub, amountPaise, planName) {
   } catch (err) {
     // The mandate keeps the old amount: bill by payment link instead so the right price is charged.
     logger.warn({ err: err.message, subscriptionId: String(sub._id) }, "Mandate amount update failed; switching to payment links");
-    await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
-    sub.billingMethod = "link";
-    sub.gatewaySubscriptionId = null;
-    sub.mandateStatus = null;
-    log(sub, "billing_switched", "link (autopay amount could not be changed)");
+    await dropMandate(sub, "link (autopay amount could not be changed)");
   }
 }
 
@@ -764,6 +850,7 @@ export function changePlan(userId, planCode) {
       if (!sub.scheduledChange?.plan) throw new AppError(409, "You are already on this plan");
       sub.scheduledChange = undefined;
       await syncMandateAmount(sub, sub.renewalPricePaise ?? sub.planSnapshot.pricePaise, sub.planSnapshot.name);
+      await replaceStaleLink(sub);
       log(sub, "plan_change_cancelled", null, "customer");
       await sub.save();
       return toSubscription(sub);
@@ -781,6 +868,7 @@ export function changePlan(userId, planCode) {
       log(sub, "plan_change_scheduled", next.name, "customer");
     }
     await syncMandateAmount(sub, next.pricePaise, next.name);
+    await replaceStaleLink(sub);
     await sub.save();
     await emit("subscription.plan_change_scheduled", sub, { nextPlanName: next.name, effectiveOn: preview.effectiveOn });
     return toSubscription(sub);
@@ -809,11 +897,14 @@ export function switchBillingMethod(userId, billingMethod, by = "customer") {
   return withSubLock(userId, async (sub) => {
     if (!sub.planSnapshot.billingMethods?.includes(billingMethod)) throw new AppError(422, "This plan does not offer that billing method");
     if (sub.billingMethod === billingMethod) return toSubscription(sub);
+    if (billingMethod === "autopay" && sub.status === "cancel_scheduled") throw new AppError(409, "Undo the cancellation first to turn on autopay");
+    if (billingMethod === "autopay" && sub.status === "past_due") throw new AppError(409, "Pay the due bill first, then turn on autopay");
     if (billingMethod === "autopay") {
       const user = await User.findById(sub.user).lean();
       const mandate = await createGatewaySubscription({ planAmountPaise: nextCyclePricePaise(sub), intervalDays: sub.planSnapshot.cycleDays, notes: { subscriptionId: String(sub._id), planName: sub.scheduledChange?.planName || sub.planSnapshot.name }, customer: { phone: user?.phoneNumber } });
       sub.gatewaySubscriptionId = mandate.gatewaySubscriptionId;
       sub.mandateStatus = mandate.status;
+      sub.mandateUrl = mandate.shortUrl || null;
       sub.billingMethod = "autopay";
       // A paused plan: the new mandate waits too.
       if (["pause_scheduled", "paused"].includes(sub.status)) await setMandatePaused(sub, true);
@@ -821,10 +912,8 @@ export function switchBillingMethod(userId, billingMethod, by = "customer") {
       await sub.save();
       return { ...toSubscription(sub), mandateUrl: mandate.shortUrl };
     }
-    if (sub.gatewaySubscriptionId) await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
+    await dropMandate(sub, null);
     sub.billingMethod = "link";
-    sub.gatewaySubscriptionId = null;
-    sub.mandateStatus = null;
     log(sub, "billing_switched", "link", by);
     await sub.save();
     return toSubscription(sub);
@@ -986,4 +1075,4 @@ export async function subscriptionDashboard({ from, to }) {
   };
 }
 
-export { LIVE, emit, log, policyFor, syncUser };
+export { LIVE, emit, log, policyFor, syncUser, withSubLock };

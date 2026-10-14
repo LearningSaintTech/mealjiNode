@@ -27,6 +27,7 @@ export default async function step16(ctx) {
     await database.collection("users").updateOne({ _id: userId }, { $set: { subscription: userBefore.subscription } });
     const payments = await database.collection("payments").find({ refType: "subscription", refId: original._id, createdAt: { $gte: startedAt } }).project({ _id: 1 }).toArray();
     await database.collection("invoices").deleteMany({ refType: "subscription", refId: { $in: payments.map((p) => p._id) } });
+    await database.collection("refunds").deleteMany({ payment: { $in: payments.map((p) => p._id) } });
     await database.collection("payments").deleteMany({ _id: { $in: payments.map((p) => p._id) } });
     await database.collection("addresses").deleteMany({ user: userId, createdAt: { $gte: startedAt } });
     await database.collection("notifications").deleteMany({ user: userId, createdAt: { $gte: startedAt } });
@@ -211,5 +212,52 @@ export default async function step16(ctx) {
     const d = await me.call("POST", "/subscriptions/me/pause", { months: 9 });
     return { ok: a.status === 404 && b.status === 404 && c.status === 401 && d.status === 422, detail: `non-member ${a.status}/${b.status} “${a.message}” · signed out ${c.status} · 9 months ${d.status} “${d.message}”` };
   });
+  // ---- Audit fixes: links, late payments and plan changes around renewal
+  const fresh = () => database.collection("subscriptions").findOne({ _id: original._id });
+  const payRow = async (row) => {
+    const gatewayOrderId = `order_test_audit16_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    await database.collection("payments").insertOne({ currency: "INR", gateway: "test", status: "created", refundedPaise: 0, createdAt: new Date(), updatedAt: new Date(), user: userId, refType: "subscription", refId: original._id, kitchen: original.kitchen, method: "link", ...row, gatewayOrderId });
+    const res = await me.call("POST", "/payments/test/complete", { gatewayOrderId });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return { res, payment: await database.collection("payments").findOne({ gatewayOrderId }) };
+  };
+  const resetPlan = async () => {
+    const { _id, ...rest } = original;
+    await database.collection("subscriptions").replaceOne({ _id }, { _id, ...rest });
+  };
+  await s.run("16-18", "A link sent before a plan change is replaced: the old price can no longer be paid", "Change Plan after the renewal reminder", async () => {
+    await resetPlan();
+    await admin.call("POST", `/admin/subscriptions/${original._id}/actions`, { action: "resend_link", reason: "step 16 audit" });
+    const oldLink = await database.collection("payments").findOne({ refId: original._id, gatewayLinkId: { $ne: null }, createdAt: { $gte: startedAt } }, { sort: { createdAt: -1 } });
+    const change = await me.call("POST", "/subscriptions/me/change-plan", { planCode: "STANDARD_MONTHLY" });
+    const after = await database.collection("payments").findOne({ _id: oldLink._id });
+    const sub = await fresh();
+    return { ok: change.status === 200 && after.status === "cancelled" && (!sub.paymentLink?.linkId || sub.paymentLink.amountPaise === target.pricePaise), detail: `old link ${rupees(oldLink.amountPaise)} → ${after.status} · plan change ${change.status} · current link ${sub.paymentLink?.amountPaise ? rupees(sub.paymentLink.amountPaise) : "none yet (sent on the due day)"}` };
+  });
+  await s.run("16-19", "Renewal paid at the old price: the plan change waits a cycle; the new period starts after the last served day", "Renewal with a planned change", async () => {
+    const sub = await fresh();
+    const { res, payment } = await payRow({ amountPaise: original.renewalPricePaise, cycle: sub.cycle + 1 });
+    const after = await fresh();
+    return {
+      ok: res.status === 200 && payment.applyState === "done" && after.cycle === sub.cycle + 1 && after.planSnapshot.planCode === original.planSnapshot.planCode && after.scheduledChange?.planName === "Standard Monthly" && after.currentPeriodStart > sub.validTill,
+      detail: `cycle ${sub.cycle} → ${after.cycle} · plan ${after.planSnapshot.name}, change to ${after.scheduledChange?.planName} still planned · new period ${after.currentPeriodStart}–${after.currentPeriodEnd} (was paid till ${sub.validTill})`,
+    };
+  });
+  await s.run("16-20", "Cancelling closes open links; a renewal paid while the plan is ending is refunded", "Cancel Subscription → late link payment", async () => {
+    await resetPlan();
+    await admin.call("POST", `/admin/subscriptions/${original._id}/actions`, { action: "resend_link", reason: "step 16 audit" });
+    const link = await database.collection("payments").findOne({ refId: original._id, gatewayLinkId: { $ne: null }, status: "created" }, { sort: { createdAt: -1 } });
+    const cancel = await me.call("POST", "/subscriptions/me/cancel", { reasonId: "r1" });
+    const closed = await database.collection("payments").findOne({ _id: link._id });
+    const sub = await fresh();
+    const { res, payment } = await payRow({ amountPaise: original.renewalPricePaise, cycle: sub.cycle + 1 });
+    const after = await fresh();
+    const refund = await database.collection("refunds").findOne({ payment: payment._id });
+    return {
+      ok: cancel.status === 200 && closed.status === "cancelled" && res.status === 200 && after.status === "cancel_scheduled" && after.cycle === sub.cycle && refund?.amountPaise === original.renewalPricePaise,
+      detail: `link → ${closed.status} · late renewal ${res.status}: plan ${after.status}, cycle ${sub.cycle} → ${after.cycle}, refund ${refund ? rupees(refund.amountPaise) : "none"}`,
+    };
+  });
+  await resetPlan();
   return s;
 }

@@ -48,10 +48,16 @@ export async function invoiceOrder(order) {
 export async function onPaymentCaptured(payment, { gatewayPaymentId = null, method = null, raw = null } = {}) {
   const claimed = await Payment.findOneAndUpdate(
     { _id: payment._id, status: { $in: ["created", "failed"] } },
-    { $set: { status: "captured", capturedAt: new Date(), gatewayPaymentId: gatewayPaymentId || payment.gatewayPaymentId, ...(method ? { method } : {}), ...(raw ? { raw } : {}), failureReason: null } },
+    { $set: { status: "captured", capturedAt: new Date(), gatewayPaymentId: gatewayPaymentId || payment.gatewayPaymentId, ...(method ? { method } : {}), ...(raw ? { raw } : {}), failureReason: null, applyState: "pending" } },
     { new: true },
   );
-  if (!claimed) return Payment.findById(payment._id).lean();
+  if (!claimed) {
+    // Already captured. If its order or plan was never updated (a crash or a busy
+    // lock last time), a retry of the webhook / verify call finishes the job.
+    const current = await Payment.findById(payment._id).lean();
+    if (current?.applyState === "pending") await applyCapturedPayment(current);
+    return current;
+  }
   if (claimed.saveMethod) {
     const { saveMethodFromPayment } = await import("./paymentMethod.service.js");
     await saveMethodFromPayment(claimed.user, claimed, {}).catch((err) => logger.warn({ err: err.message, paymentId: String(claimed._id) }, "Payment method not saved"));
@@ -59,38 +65,76 @@ export async function onPaymentCaptured(payment, { gatewayPaymentId = null, meth
   await publishEventSafe("payment.captured", { paymentId: String(claimed._id), refType: claimed.refType, refId: String(claimed.refId), userId: String(claimed.user), amountPaise: claimed.amountPaise, method: claimed.method }, { aggregate: { type: "payment", id: claimed._id } });
   publish(`user:${claimed.user}`, "payment:status", { refType: claimed.refType, refId: String(claimed.refId), status: "captured" });
 
-  if (claimed.refType === "order") {
-    const { transition } = await import("../order/order.service.js");
-    const order = await Order.findById(claimed.refId);
-    if (!order) return claimed;
-    if (["payment_pending", "payment_failed"].includes(order.status)) {
-      const placed = await placePaidOrder(order, transition);
-      if (!placed) {
-        // Cancelled while paying, or the dishes sold out after a late payment: give the money back.
-        await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
-        await requestRefund({ orderId: order._id, paymentId: claimed._id, amountPaise: claimed.amountPaise, reason: "Payment received for an order that could not go ahead", actor: { role: "system" }, permissions: ["refunds.approve"] });
-      }
-    } else if (order.status === "cancelled") {
-      // Paid after the order was closed: refund it straight away.
-      await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
-      await requestRefund({ orderId: order._id, amountPaise: claimed.amountPaise, reason: "Payment received after the order was cancelled", actor: { role: "system" }, permissions: ["refunds.approve"] });
-    } else {
-      // The order was already paid by another payment (e.g. an old checkout
-      // finished after a retry): give this second payment back in full.
-      const other = await Payment.exists({ refType: "order", refId: order._id, _id: { $ne: claimed._id }, status: { $in: ["captured", "partially_refunded"] } });
-      if (other) {
-        await requestRefund({ orderId: order._id, paymentId: claimed._id, amountPaise: claimed.amountPaise, reason: "Duplicate payment for an order that was already paid", actor: { role: "system" }, permissions: ["refunds.approve"], duplicate: true });
-        logger.warn({ orderId: String(order._id), paymentId: String(claimed._id) }, "Duplicate payment refunded");
-      }
-    }
-    // No GST invoice for an order that was cancelled and refunded instead.
-    const final = await Order.findById(order._id).lean();
-    if (final && final.status !== "cancelled") await invoiceOrder(final);
-  } else if (claimed.refType === "subscription") {
-    const { onSubscriptionPaymentCaptured } = await import("../subscription/subscription.service.js");
-    await onSubscriptionPaymentCaptured(claimed);
-  }
+  await applyCapturedPayment(claimed);
   return claimed;
+}
+
+/**
+ * Updates the order or Meal Ji Plus plan a captured payment pays for, once.
+ * The payment stays "pending" until this finishes, so a failure part-way is
+ * retried (webhook retry, verify call, or the payment-apply-retry job).
+ */
+export async function applyCapturedPayment(captured) {
+  const lockKey = `payment:apply:${captured._id}`;
+  const token = await acquireLock(lockKey, 120);
+  if (!token) return; // another request is applying it right now
+  try {
+    const claimed = await Payment.findById(captured._id).lean();
+    if (claimed?.applyState !== "pending") return;
+    if (claimed.refType === "order") {
+      const { transition } = await import("../order/order.service.js");
+      const order = await Order.findById(claimed.refId);
+      if (!order) return markApplied(claimed);
+      if (["payment_pending", "payment_failed"].includes(order.status)) {
+        const placed = await placePaidOrder(order, transition);
+        if (!placed) {
+          // Cancelled while paying, or the dishes sold out after a late payment: give the money back.
+          await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
+          await requestRefund({ orderId: order._id, paymentId: claimed._id, amountPaise: claimed.amountPaise, reason: "Payment received for an order that could not go ahead", actor: { role: "system" }, permissions: ["refunds.approve"] });
+        }
+      } else if (order.status === "cancelled") {
+        // Paid after the order was closed: refund it straight away.
+        await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: "paid" } });
+        await requestRefund({ orderId: order._id, amountPaise: claimed.amountPaise, reason: "Payment received after the order was cancelled", actor: { role: "system" }, permissions: ["refunds.approve"] });
+      } else {
+        // The order was already paid by another payment (e.g. an old checkout
+        // finished after a retry): give this second payment back in full.
+        const other = await Payment.exists({ refType: "order", refId: order._id, _id: { $ne: claimed._id }, status: { $in: ["captured", "partially_refunded"] } });
+        if (other) {
+          await requestRefund({ orderId: order._id, paymentId: claimed._id, amountPaise: claimed.amountPaise, reason: "Duplicate payment for an order that was already paid", actor: { role: "system" }, permissions: ["refunds.approve"], duplicate: true });
+          logger.warn({ orderId: String(order._id), paymentId: String(claimed._id) }, "Duplicate payment refunded");
+        }
+      }
+      // No GST invoice for an order that was cancelled and refunded instead.
+      const final = await Order.findById(order._id).lean();
+      if (final && final.status !== "cancelled") await invoiceOrder(final);
+    } else if (claimed.refType === "subscription") {
+      const { onSubscriptionPaymentCaptured } = await import("../subscription/subscription.service.js");
+      await onSubscriptionPaymentCaptured(claimed);
+    }
+    await markApplied(claimed);
+  } finally {
+    await releaseLock(lockKey, token);
+  }
+}
+
+async function markApplied(payment) {
+  await Payment.updateOne({ _id: payment._id, applyState: "pending" }, { $set: { applyState: "done", appliedAt: new Date() } });
+}
+
+/** Every 5 minutes: finishes captured payments whose order or plan was not updated. */
+export async function retryUnappliedPayments() {
+  const stuck = await Payment.find({ applyState: "pending", capturedAt: { $lt: new Date(Date.now() - 2 * 60_000) } }).sort({ capturedAt: 1 }).limit(200).lean();
+  let done = 0;
+  for (const payment of stuck) {
+    try {
+      await applyCapturedPayment(payment);
+      done += 1;
+    } catch (err) {
+      logger.warn({ err: err.message, paymentId: String(payment._id) }, "Captured payment could not be applied yet");
+    }
+  }
+  return done;
 }
 
 /**

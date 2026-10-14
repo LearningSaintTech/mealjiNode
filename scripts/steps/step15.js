@@ -25,7 +25,11 @@ export default async function step15(ctx) {
   ctx.cleanups.push(async () => {
     await database.collection("mealselections").deleteMany({ subscription: sub._id });
     if (meals.length) await database.collection("mealselections").insertMany(meals);
-    await database.collection("subscriptions").updateOne({ _id: sub._id }, { $set: { validTill: sub.validTill, shiftsThisCycle: sub.shiftsThisCycle || 0, autoShiftsThisCycle: sub.autoShiftsThisCycle || 0, history: sub.history } });
+    await database.collection("subscriptions").replaceOne({ _id: sub._id }, sub);
+    const payments = await database.collection("payments").find({ refType: "subscription", refId: sub._id, createdAt: { $gte: startedAt } }).project({ _id: 1 }).toArray();
+    await database.collection("invoices").deleteMany({ refType: "subscription", refId: { $in: payments.map((p) => p._id) } });
+    await database.collection("refunds").deleteMany({ payment: { $in: payments.map((p) => p._id) } });
+    await database.collection("payments").deleteMany({ _id: { $in: payments.map((p) => p._id) } });
     await database.collection("users").updateOne({ _id: userId }, { $set: { "subscription.expiresAt": new Date(`${sub.validTill}T23:59:00+05:30`) } });
     await database.collection("notifications").deleteMany({ user: userId, createdAt: { $gte: startedAt } });
   });
@@ -140,6 +144,30 @@ export default async function step15(ctx) {
     const badSlot = await me.call("GET", `/subscriptions/me/menu?date=${mealDay}&slot=brunch`);
     const badDate = await me.call("GET", "/subscriptions/me/days/2026-13-40");
     return { ok: none.status === 404 && /Meal Ji Plus/i.test(none.message) && anon.status === 401 && badSlot.status === 422 && badDate.status === 422, detail: `non-member ${none.status} “${none.message}” · signed out ${anon.status} · slot ${badSlot.status} “${badSlot.message}” · date ${badDate.status}` };
+  });
+  // ---- Audit fixes
+  await s.run("15-12", "A plan limited to some categories cannot save a dish from another one", "Prepare meal (Basic plan categories)", async () => {
+    const keep = menu.categories[0];
+    const other = menu.dishes.find((d) => d.categoryId !== keep.categoryId);
+    await database.collection("subscriptions").updateOne({ _id: sub._id }, { $set: { "planSnapshot.categoryIds": [new mongoose.Types.ObjectId(keep.categoryId)] } });
+    const shown = (await me.call("GET", `/subscriptions/me/menu?date=${mealDay}&slot=lunch`)).data?.dishes || [];
+    const sneaky = await me.call("PUT", `/subscriptions/me/days/${mealDay}/slots/lunch/selection`, { items: [{ dishId: other.dishId, qty: 1 }] });
+    await database.collection("subscriptions").updateOne({ _id: sub._id }, { $set: { "planSnapshot.categoryIds": sub.planSnapshot.categoryIds || [] } });
+    return { ok: shown.length >= 1 && shown.every((d) => d.categoryId === keep.categoryId) && sneaky.status === 422, detail: `menu shows ${shown.length} ${keep.name} dish(es) · ${other.name} sent directly → ${sneaky.status} “${sneaky.message}”` };
+  });
+  await s.run("15-13", "Shifting moves the next bill after the extra day; the renewal starts after it and keeps it to the shifted meals", "Plan end after a shift → renewal", async () => {
+    const before = await database.collection("subscriptions").findOne({ _id: sub._id });
+    const gatewayOrderId = `order_test_audit15_${Date.now()}`;
+    await database.collection("payments").insertOne({ user: userId, refType: "subscription", refId: sub._id, kitchen: sub.kitchen, amountPaise: before.renewalPricePaise, currency: "INR", method: "link", gateway: "test", gatewayOrderId, status: "created", cycle: before.cycle + 1, refundedPaise: 0, createdAt: new Date(), updatedAt: new Date() });
+    const pay = await me.call("POST", "/payments/test/complete", { gatewayOrderId });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const after = await database.collection("subscriptions").findOne({ _id: sub._id });
+    const extra = (await me.call("GET", `/subscriptions/me/days/${shifted.shiftedTo}`)).data;
+    const nextDay = (d) => new Date(new Date(`${d}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+    return {
+      ok: before.nextBillingDate === nextDay(before.validTill) && pay.status === 200 && after.cycle === before.cycle + 1 && after.currentPeriodStart === nextDay(before.validTill) && extra?.meals?.map((m) => m.slot).sort().join() === "dinner,lunch",
+      detail: `paid till ${before.validTill}, next bill ${before.nextBillingDate} · renewal ${pay.status}: new period ${after.currentPeriodStart}–${after.currentPeriodEnd} · extra day ${shifted.shiftedTo}: ${extra?.meals?.map((m) => m.slotName).join(", ")}`,
+    };
   });
   return s;
 }

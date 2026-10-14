@@ -7,7 +7,7 @@ import { publishEventSafe } from "../../events/eventBus.js";
 import { publish } from "../../realtime/hub.js";
 import { Order } from "../order/order.model.js";
 import { resolveSetting } from "../settings/settings.service.js";
-import { assertOwnFileUrl, assertUploadedSize, privateFileLink } from "../upload/upload.service.js";
+import { assertOwnTicketFile, assertUploadedSize, privateFileLink } from "../upload/upload.service.js";
 import { CannedReply, Faq, SupportCategory, SupportTicket, TicketMessage } from "./support.model.js";
 
 // The app's “How can we help you?” tiles (name, icon, two-line subtitle).
@@ -227,7 +227,7 @@ async function createTicketLocked(userId, input) {
     kitchen: order?.kitchen || null,
     subject: input.subject || null,
     description: input.description,
-    attachments: await Promise.all((input.attachments || []).slice(0, 5).map((url) => assertUploadedSize(assertOwnFileUrl(url, "Attachment"), "ticket"))),
+    attachments: await Promise.all((input.attachments || []).slice(0, 5).map((url) => assertUploadedSize(assertOwnTicketFile(url, userId), "ticket"))),
     priority: ["order", "payment"].includes(input.category) ? "high" : "normal",
     priorityRank: ["order", "payment"].includes(input.category) ? PRIORITY_RANK.high : PRIORITY_RANK.normal,
     slaDueAt: new Date(Date.now() + slaHours * 3600_000),
@@ -261,7 +261,7 @@ export async function addMessage(ticketId, { body, attachments = [], internal = 
   const ticket = await SupportTicket.findOne(filter);
   if (!ticket) throw new AppError(404, "Ticket not found");
   if (ticket.status === "closed") throw new AppError(409, "This ticket is closed. Open a new one.");
-  const message = await TicketMessage.create({ ticket: ticket._id, author: { userId, name, role }, body, attachments: await Promise.all(attachments.slice(0, 5).map((url) => assertUploadedSize(assertOwnFileUrl(url, "Attachment"), "ticket"))), internal: role === "agent" && internal });
+  const message = await TicketMessage.create({ ticket: ticket._id, author: { userId, name, role }, body, attachments: await Promise.all((Array.isArray(attachments) ? attachments : []).slice(0, 5).map((url) => assertUploadedSize(assertOwnTicketFile(url, userId), "ticket"))), internal: role === "agent" && internal });
   ticket.lastMessageAt = new Date();
   if (role === "agent" && !internal) {
     if (!ticket.firstResponseAt) ticket.firstResponseAt = new Date();

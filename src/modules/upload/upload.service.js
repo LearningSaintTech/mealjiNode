@@ -58,6 +58,21 @@ export function keyFromUrl(url) {
   return null;
 }
 
+/**
+ * A support attachment the caller uploaded themselves: stored under
+ * `ticket/<their id>/`. Anything else (someone else's file, another purpose,
+ * an outside link) is refused, so a ticket can never hand out a signed link
+ * to a file the person did not upload.
+ */
+export function assertOwnTicketFile(url, userId) {
+  const value = assertOwnFileUrl(url, "Attachment");
+  if (!value) return null;
+  const key = keyFromUrl(value);
+  const relative = key && env.storageDriver === "s3" && env.s3KeyPrefix && key.startsWith(`${env.s3KeyPrefix}/`) ? key.slice(env.s3KeyPrefix.length + 1) : key;
+  if (!relative || !relative.startsWith(`ticket/${String(userId)}/`)) throw new AppError(422, "Attach files you uploaded for this ticket");
+  return value;
+}
+
 /** A private file (support attachment) as a 1-hour signed link; other storage keeps its URL. */
 export function privateFileLink(url) {
   const key = keyFromUrl(url);

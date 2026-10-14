@@ -150,5 +150,35 @@ export default async function step17(ctx) {
     const anon = await new Client().call("GET", "/experiments/me");
     return { ok: a.status === 200 && typeof a.data === "object" && !Array.isArray(a.data) && JSON.stringify(a.data) === JSON.stringify(b.data) && anon.status === 401, detail: `${a.status} ${JSON.stringify(a.data).slice(0, 80)} · same again ${JSON.stringify(a.data) === JSON.stringify(b.data)} · signed out ${anon.status}` };
   });
+  await s.run("17-11", "After 30 days a closed account is anonymised everywhere (orders kept for tax with city, state, PIN only)", "Account → Delete account (30 days later)", async () => {
+    const gone = new Client("step17-device-010");
+    await gone.signIn("9000000097");
+    const mongoose = (await import("mongoose")).default;
+    const id = new mongoose.Types.ObjectId(gone.session.user.userId);
+    await gone.call("PATCH", "/users/me", { name: "Purge Me", email: "purge.me@example.com" });
+    await gone.call("POST", "/users/me/addresses", { label: "home", houseFlat: "Flat 97", street: "1st Main", locality: "Koramangala", city: "Bengaluru", state: "Karnataka", pincode: "560095", latitude: POINTS.served.latitude, longitude: POINTS.served.longitude, recipientName: "Purge Me", phone: "9000000097" });
+    const ticket = await gone.call("POST", "/support/tickets", { category: "account", issueType: (await gone.call("GET", "/support/categories")).data.find((c) => c.key === "account")?.issueTypes?.[0] || "Other", description: "My personal story in a ticket." });
+    await database.collection("orders").insertOne({ user: id, orderNumber: `MJ-PURGE-${Date.now()}`, status: "delivered", customer: { name: "Purge Me", phone: "9000000097" }, address: { recipientName: "Purge Me", phone: "9000000097", houseFlat: "Flat 97", fullAddress: "Flat 97, Koramangala, Bengaluru", city: "Bengaluru", state: "Karnataka", pincode: "560095", latitude: 12.9, longitude: 77.6 }, items: [], createdAt: new Date(), updatedAt: new Date() });
+    const closed = await gone.call("DELETE", "/users/me", {});
+    await database.collection("users").updateOne({ _id: id }, { $set: { deletedAt: new Date(Date.now() - 31 * 86_400_000) } });
+    const { runTask } = await import("../../src/jobs/tasks.js");
+    const purged = await runTask("account-purge");
+    const user = await database.collection("users").findOne({ _id: id });
+    const order = await database.collection("orders").findOne({ user: id });
+    const t = await database.collection("supporttickets").findOne({ _id: new mongoose.Types.ObjectId(ticket.data?.ticketId) });
+    const addresses = await database.collection("addresses").countDocuments({ user: id });
+    const again = new Client("step17-device-011");
+    const relogin = await again.signIn("9000000097");
+    const isNew = again.session?.user?.userId && again.session.user.userId !== String(id);
+    ctx.cleanups.push(async () => {
+      await database.collection("orders").deleteMany({ user: id });
+      await database.collection("supporttickets").deleteMany({ user: id });
+      await database.collection("users").deleteMany({ _id: id });
+    });
+    return {
+      ok: closed.status === 200 && purged >= 1 && user.purgedAt && user.name === "Deleted user" && user.phoneNumber.startsWith("deleted-") && !user.email && addresses === 0 && t?.description === "[removed]" && order.customer.name === "Deleted user" && order.address.fullAddress === null && order.address.houseFlat === null && order.address.latitude === null && order.address.pincode === "560095" && order.address.state === "Karnataka" && relogin.status === 201 && isNew,
+      detail: `purged ${purged} · user “${user.name}”, ${user.phoneNumber} · addresses ${addresses} · ticket “${t?.description}” · order address “${order.address.fullAddress}” keeps ${order.address.city}, ${order.address.state} ${order.address.pincode} · the number signs in as a new account: ${Boolean(isNew)}`,
+    };
+  });
   return s;
 }

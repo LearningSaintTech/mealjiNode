@@ -3,7 +3,7 @@
 // My Subscription. Demo customer 9000000036 buys a plan here (everything it
 // creates is removed afterwards); 9000000031 already has Standard Monthly.
 import mongoose from "mongoose";
-import { Client, createSuite, db, DEMO, headOk } from "./harness.js";
+import { Client, createSuite, db, DEMO, headOk, POINTS } from "./harness.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const rupees = (paise) => `₹${Math.round(paise / 100).toLocaleString("en-IN")}`;
@@ -153,6 +153,73 @@ export default async function step14(ctx) {
     const anon = await new Client().call("GET", "/subscription-plans");
     const verify = await member.call("POST", `/subscriptions/${bought?.subscriptionId}/verify-payment`, { gatewayOrderId: "order_x", gatewayPaymentId: "pay_x", signature: "bad" });
     return { ok: anon.status === 401 && [404, 409].includes(verify.status), detail: `signed out ${anon.status} · verify another customer's plan ${verify.status}` };
+  });
+  // ---- Audit fixes: money is never kept without a plan or a refund
+  const TEMP = ["9000000093", "9000000094"];
+  const removeTemp = async () => {
+    const ids = (await database.collection("users").find({ phoneNumber: { $in: TEMP } }).project({ _id: 1 }).toArray()).map((u) => u._id);
+    const payments = await database.collection("payments").find({ user: { $in: ids } }).project({ _id: 1 }).toArray();
+    await database.collection("invoices").deleteMany({ refId: { $in: payments.map((p) => p._id) } });
+    await database.collection("refunds").deleteMany({ user: { $in: ids } });
+    await database.collection("payments").deleteMany({ user: { $in: ids } });
+    for (const name of ["subscriptions", "addresses", "notifications", "carts", "consents", "userstats", "devices", "refreshtokens"]) await database.collection(name).deleteMany({ user: { $in: ids } });
+    await database.collection("users").deleteMany({ _id: { $in: ids } });
+  };
+  await removeTemp();
+  ctx.cleanups.push(removeTemp);
+  const buyerFor = async (phone, device, billingMethod = "link") => {
+    const client = new Client(device);
+    await client.signIn(phone);
+    const addr = await client.call("POST", "/users/me/addresses", { label: "home", houseFlat: "Flat 14", street: "1st Main", locality: "Koramangala", city: "Bengaluru", state: "Karnataka", pincode: "560095", latitude: POINTS.served.latitude, longitude: POINTS.served.longitude, recipientName: "Temp", phone });
+    const res = await client.call("POST", "/subscriptions/checkout", { planCode: "BASIC_MONTHLY", billingMethod, addressId: addr.data?.addressId });
+    return { client, userId: new mongoose.Types.ObjectId(client.session.user.userId), checkout: res };
+  };
+  // A payment the app completes for a payment row made here (the test gateway signs it).
+  const payRow = async (client, row) => {
+    const gatewayOrderId = `order_test_audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    await database.collection("payments").insertOne({ currency: "INR", gateway: "test", status: "created", refundedPaise: 0, createdAt: new Date(), updatedAt: new Date(), ...row, gatewayOrderId });
+    const res = await client.call("POST", "/payments/test/complete", { gatewayOrderId });
+    await wait(400);
+    return { res, payment: await database.collection("payments").findOne({ gatewayOrderId }) };
+  };
+  let auditBuyer = null;
+  await s.run("14-10", "A captured payment whose plan was not started (crash) is finished on the retry", "Checkout → pay (server stopped half-way)", async () => {
+    auditBuyer = await buyerFor("9000000094", "step14-audit-device-1");
+    const gatewayOrderId = auditBuyer.checkout.data?.payment?.gatewayOrderId;
+    // As if the server stopped right after recording the payment as captured.
+    await database.collection("payments").updateOne({ gatewayOrderId }, { $set: { status: "captured", capturedAt: new Date(), gatewayPaymentId: "pay_test_crash", applyState: "pending" } });
+    const before = await database.collection("subscriptions").findOne({ user: auditBuyer.userId });
+    const retry = await auditBuyer.client.call("POST", "/payments/test/complete", { gatewayOrderId });
+    await wait(400);
+    const after = await database.collection("subscriptions").findOne({ user: auditBuyer.userId });
+    const payment = await database.collection("payments").findOne({ gatewayOrderId });
+    return { ok: before.status === "pending_payment" && retry.status === 200 && after.status === "active" && payment.applyState === "done" && String(after.lastPaymentId) === String(payment._id), detail: `before ${before.status} · retry ${retry.status} · plan ${after.status} · payment ${payment.applyState}` };
+  });
+  await s.run("14-11", "A second payment for a month already paid is refunded; the plan is unchanged", "Two payment links paid / link + autopay", async () => {
+    const sub = await database.collection("subscriptions").findOne({ user: auditBuyer.userId });
+    const { res, payment } = await payRow(auditBuyer.client, { user: auditBuyer.userId, refType: "subscription", refId: sub._id, kitchen: sub.kitchen, amountPaise: sub.renewalPricePaise, method: "link", cycle: 1 });
+    const after = await database.collection("subscriptions").findOne({ _id: sub._id });
+    const refund = await database.collection("refunds").findOne({ payment: payment._id });
+    return { ok: res.status === 200 && after.cycle === 1 && String(after.lastPaymentId) === String(sub.lastPaymentId) && refund?.amountPaise === payment.amountPaise, detail: `paid ${res.status} · cycle ${after.cycle} · refund ${refund ? `${rupees(refund.amountPaise)} ${refund.status}` : "none"}` };
+  });
+  await s.run("14-12", "An autopay charge from a mandate the plan no longer uses is refunded", "Razorpay subscription.charged (old mandate)", async () => {
+    const sub = await database.collection("subscriptions").findOne({ user: auditBuyer.userId });
+    await database.collection("subscriptions").updateOne({ _id: sub._id }, { $set: { pastMandateIds: ["sub_test_old_mandate"] } });
+    const event = { event: "subscription.charged", payload: { subscription: { entity: { id: "sub_test_old_mandate", status: "active", notes: {} } }, payment: { entity: { id: `pay_test_orphan_${Date.now()}`, amount: sub.renewalPricePaise, method: "upi" } } } };
+    const signed = (await new Client().call("POST", "/webhooks/razorpay/test-sign", event)).data;
+    const hook = await new Client().call("POST", "/webhooks/razorpay", signed.body, { raw: true, headers: { "x-razorpay-signature": signed.signature, "x-razorpay-event-id": `evt_test_${Date.now()}` } });
+    await wait(400);
+    const orphan = await database.collection("payments").findOne({ gatewayPaymentId: event.payload.payment.entity.id });
+    const refund = orphan ? await database.collection("refunds").findOne({ payment: orphan._id }) : null;
+    const after = await database.collection("subscriptions").findOne({ _id: sub._id });
+    return { ok: hook.status === 200 && orphan?.orphanCharge === true && refund?.amountPaise === sub.renewalPricePaise && after.cycle === sub.cycle, detail: `webhook ${hook.status} · recorded ${Boolean(orphan)} (orphan ${orphan?.orphanCharge}) · refund ${refund ? rupees(refund.amountPaise) : "none"} · cycle ${sub.cycle} → ${after.cycle}` };
+  });
+  await s.run("14-13", "Autopay chosen at checkout: the approval link is shown until it is approved", "Payment (autopay) → Plan confirmed", async () => {
+    const buyer = await buyerFor("9000000093", "step14-audit-device-2", "autopay");
+    await buyer.client.call("POST", "/payments/test/complete", { gatewayOrderId: buyer.checkout.data?.payment?.gatewayOrderId });
+    await wait(400);
+    const sub = (await buyer.client.call("GET", "/subscriptions/me")).data?.subscription;
+    return { ok: buyer.checkout.status === 201 && sub?.billingMethod === "autopay" && /^https?:\/\//.test(sub.mandateUrl || ""), detail: `${sub?.status} · ${sub?.billingMethod} · approve at ${sub?.mandateUrl}` };
   });
   return s;
 }
