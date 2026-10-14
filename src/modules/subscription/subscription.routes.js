@@ -29,12 +29,23 @@ customer.get("/subscription-plans", query("kitchenId").optional({ values: "falsy
   const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId, user: req.auth.user });
   return ok(res, await plans.plansForKitchen(kitchen._id), "Plans fetched.");
 }));
-customer.get("/subscription-plans/:code", param("code").isString().isLength({ max: 30 }), validate, asyncHandler(async (req, res) => {
+customer.get("/subscription-plans/:code", param("code").isString().isLength({ max: 30 }), query("kitchenId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => {
   const { SubscriptionPlan } = await import("./subscription.model.js");
   const plan = await SubscriptionPlan.findOne({ code: req.params.code.toUpperCase(), status: "active" }).lean();
   if (!plan) throw new AppError(404, "Plan not found");
-  return ok(res, plans.toPlan(plan), "Plan fetched.");
+  // Plan details “Available Categories”: from the kitchen serving the customer.
+  const kitchen = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId, user: req.auth.user }).then((found) => found.kitchen, () => null);
+  return ok(res, { ...plans.toPlan(plan), categories: await plans.planCategories(plan, kitchen?._id || null) }, "Plan fetched.");
 }));
+customer.get(
+  "/subscriptions/checkout/summary",
+  query("planCode").isString().isLength({ min: 2, max: 30 }),
+  query("addressId").isMongoId(),
+  query("billingMethod").optional({ values: "falsy" }).isIn(["autopay", "link"]),
+  query("startDate").optional({ values: "falsy" }).isISO8601({ strict: true }),
+  validate,
+  asyncHandler(async (req, res) => ok(res, await subs.checkoutSummary(req.auth.userId, req.query), "Plan payment summary.")),
+);
 customer.post(
   "/subscriptions/checkout",
   body("planCode").isString().isLength({ min: 2, max: 30 }),

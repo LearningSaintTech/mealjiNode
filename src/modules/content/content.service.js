@@ -410,7 +410,11 @@ export async function homeFor(user, { latitude = null, longitude = null, veg = n
     }
     if (section.type === "subscription_promo") {
       const plans = await safely("plans", async () => (await import("../subscription/plan.service.js")).plansForKitchen(kitchenId, { limit: 3 }), []);
-      return plans.length ? { ...base, items: plans } : null;
+      // A member sees their own plan here (the app swaps “Subscribe Now” for it).
+      const subscription = ["active", "paused"].includes(user?.subscription?.status)
+        ? await safely("plus card", async () => (await import("../subscription/subscription.service.js")).subscriptionCard(userId), null)
+        : null;
+      return plans.length || subscription ? { ...base, items: plans, isMember: Boolean(subscription), subscription } : null;
     }
     return null;
   }));

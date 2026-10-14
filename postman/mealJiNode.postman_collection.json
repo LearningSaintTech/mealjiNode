@@ -8069,10 +8069,10 @@
 		},
 		{
 			"name": "Step 14 · MealJi Plus: plans and buying",
-			"description": "Release step 14 for the app. Screens: MealJi Plus, Choose plan, Plan details, Plan payment, Plan confirmed. Integrate after step 13.",
+			"description": "Release step 14. Screens: Home “Meal Ji Plus” banner, Profile banner (Upgrade Now), Choose plan, Plan details, Plan payment, Plan confirmed (“Welcome to Meal Ji Plus”), My Subscription (header). Integrate after step 13.\n\nFlow: plans → plan details → payment summary → Checkout (creates the plan and the payment) → Razorpay sheet → verify-payment → Plan confirmed from the returned subscription. Pay on Delivery is not offered for a plan (`payOnDelivery: false`). Prices and wording come from the API (admin console: Plans).",
 			"item": [
 				{
-					"name": "S14.1 · GET /subscription-plans",
+					"name": "S14.1 · Plans (Choose plan, Home banner)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -8082,13 +8082,89 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscription-plans",
-						"description": "GET /api/v1/subscription-plans. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated. Plans sold at the kitchen serving the customer (optional `kitchenId`). Same list on the Home banner (Basic / Standard / Premium) and Choose plan.\n- Card wording: `name`, `subtitle` (“Everyday healthy home meals”), `priceLabel` (“₹4,499/Month”), `priceRupees` for the banner's “In Just 4499/- Monthly”, `badge` / `isPopular` (one plan), `benefits` (What you get), `ctaLabel` (“Select Standard Plan”), `imageUrl`.\n- Also: `pricePaise`, `originalPricePaise` (strike-through, may be null), `cycleDays`, `cycleLabel`, `slots`, `mealsPerDay`, `billingMethods`, `perks` (free delivery / % off on normal orders for members).\nHome: the `subscription_promo` section has the same `items`; for a member `isMember: true` and `subscription` (their plan) — show that instead of Subscribe Now."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Plans",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscription-plans"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Plans fetched.\",\n  \"data\": [\n    {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"subtitle\": \"Simple and light meals\",\n      \"badge\": null,\n      \"description\": \"\",\n      \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meals-hero-kitchen.jpg\",\n      \"pricePaise\": 349900,\n      \"originalPricePaise\": null,\n      \"mrpPaise\": null,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"mealsPerDay\": 3,\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"maxItemsPerMeal\": 1,\n      \"minItemsPerMeal\": 1,\n      \"deliveryIncluded\": true,\n      \"deliveryFeePaise\": 0,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ],\n      \"perks\": {\n        \"freeDeliveryOnOrders\": true,\n        \"orderDiscountPercent\": 0\n      },\n      \"billingMethods\": [\n        \"autopay\",\n        \"link\"\n      ],\n      \"activeDays\": [\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"maxShiftsPerCycle\": 4,\n      \"isPopular\": false,\n      \"sortOrder\": 1,\n      \"priceLabel\": \"₹3,499/Month\",\n      \"priceRupees\": \"3499\",\n      \"ctaLabel\": \"Select Basic Plan\"\n    },\n    {\n      \"planId\": \"6acc8be1189320566a1fad8d\",\n      \"planCode\": \"STANDARD_MONTHLY\",\n      \"name\": \"Standard Monthly\",\n      \"subtitle\": \"Everyday healthy home meals\",\n      \"badge\": \"Most popular\",\n      \"description\": \"\",\n      \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\",\n      \"pricePaise\": 449900,\n      \"originalPricePaise\": null,\n      \"mrpPaise\": null,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"mealsPerDay\": 3,\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"maxItemsPerMeal\": 2,\n      \"minItemsPerMeal\": 1,\n      \"deliveryIncluded\": true,\n      \"deliveryFeePaise\": 0,\n      \"benefits\": [\n        \"5+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ],\n      \"perks\": {\n        \"freeDeliveryOnOrders\": true,\n        \"orderDiscountPercent\": 10\n      },\n      \"billingMethods\": [\n        \"autopay\",\n        \"link\"\n      ],\n      \"activeDays\": [\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"maxShiftsPerCycle\": 4,\n      \"isPopular\": true,\n      \"sortOrder\": 2,\n      \"priceLabel\": \"₹4,499/Month\",\n      \"priceRupees\": \"4499\",\n      \"ctaLabel\": \"Select Standard Plan\"\n    },\n    {\n      \"planId\": \"6acc8be1189320566a1fad91\",\n      \"planCode\": \"PREMIUM_MONTHLY\",\n      \"name\": \"Premium Monthly\",\n      \"subtitle\": \"Gourmet meals, extra variety\",\n      \"badge\": null,\n      \"description\": \"\",\n      \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/combo-spread.jpg\",\n      \"pricePaise\": 549900,\n      \"originalPricePaise\": null,\n      \"mrpPaise\": null,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"mealsPerDay\": 3,\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"maxItemsPerMeal\": 3,\n      \"minItemsPerMeal\": 1,\n      \"deliveryIncluded\": true,\n      \"deliveryFeePaise\": 0,\n      \"benefits\": [\n        \"7+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"3 vegetable dishes\",\n        \"Fresh salad\",\n        \"5 chapatis\",\n        \"2 sweets\"\n      ],\n      \"perks\": {\n        \"freeDeliveryOnOrders\": true,\n        \"orderDiscountPercent\": 15\n      },\n      \"billingMethods\": [\n        \"autopay\",\n        \"link\"\n      ],\n      \"activeDays\": [\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"maxShiftsPerCycle\": 4,\n      \"isPopular\": false,\n      \"sortOrder\": 3,\n      \"priceLabel\": \"₹5,499/Month\",\n      \"priceRupees\": \"5499\",\n      \"ctaLabel\": \"Select Premium Plan\"\n    }\n  ]\n}"
+						},
+						{
+							"name": "Home section (not a member)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/home"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Home fetched.\",\n  \"data\": {\n    \"sections\": [\n      {\n        \"key\": \"plus\",\n        \"type\": \"subscription_promo\",\n        \"title\": \"Meal Ji Plus\",\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"planId\": \"6acc8be1189320566a1fad89\",\n            \"planCode\": \"BASIC_MONTHLY\",\n            \"name\": \"Basic Monthly\",\n            \"subtitle\": \"Simple and light meals\",\n            \"badge\": null,\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meals-hero-kitchen.jpg\",\n            \"pricePaise\": 349900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 1,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"3+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"2 vegetable dishes\",\n              \"Fresh salad\",\n              \"4 chapatis\",\n              \"1 sweet\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 0\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": false,\n            \"sortOrder\": 1,\n            \"priceLabel\": \"₹3,499/Month\",\n            \"priceRupees\": \"3499\",\n            \"ctaLabel\": \"Select Basic Plan\"\n          },\n          {\n            \"planId\": \"6acc8be1189320566a1fad8d\",\n            \"planCode\": \"STANDARD_MONTHLY\",\n            \"name\": \"Standard Monthly\",\n            \"subtitle\": \"Everyday healthy home meals\",\n            \"badge\": \"Most popular\",\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\",\n            \"pricePaise\": 449900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 2,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"5+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"2 vegetable dishes\",\n              \"Fresh salad\",\n              \"4 chapatis\",\n              \"1 sweet\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 10\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": true,\n            \"sortOrder\": 2,\n            \"priceLabel\": \"₹4,499/Month\",\n            \"priceRupees\": \"4499\",\n            \"ctaLabel\": \"Select Standard Plan\"\n          },\n          {\n            \"planId\": \"6acc8be1189320566a1fad91\",\n            \"planCode\": \"PREMIUM_MONTHLY\",\n            \"name\": \"Premium Monthly\",\n            \"subtitle\": \"Gourmet meals, extra variety\",\n            \"badge\": null,\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/combo-spread.jpg\",\n            \"pricePaise\": 549900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 3,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"7+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"3 vegetable dishes\",\n              \"Fresh salad\",\n              \"5 chapatis\",\n              \"2 sweets\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 15\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": false,\n            \"sortOrder\": 3,\n            \"priceLabel\": \"₹5,499/Month\",\n            \"priceRupees\": \"5499\",\n            \"ctaLabel\": \"Select Premium Plan\"\n          }\n        ],\n        \"isMember\": false,\n        \"subscription\": null\n      }\n    ]\n  }\n}"
+						},
+						{
+							"name": "Home section (member)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/home"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Home fetched.\",\n  \"data\": {\n    \"sections\": [\n      {\n        \"key\": \"plus\",\n        \"type\": \"subscription_promo\",\n        \"title\": \"Meal Ji Plus\",\n        \"subtitle\": null,\n        \"items\": [\n          {\n            \"planId\": \"6acc8be1189320566a1fad89\",\n            \"planCode\": \"BASIC_MONTHLY\",\n            \"name\": \"Basic Monthly\",\n            \"subtitle\": \"Simple and light meals\",\n            \"badge\": null,\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meals-hero-kitchen.jpg\",\n            \"pricePaise\": 349900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 1,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"3+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"2 vegetable dishes\",\n              \"Fresh salad\",\n              \"4 chapatis\",\n              \"1 sweet\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 0\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": false,\n            \"sortOrder\": 1,\n            \"priceLabel\": \"₹3,499/Month\",\n            \"priceRupees\": \"3499\",\n            \"ctaLabel\": \"Select Basic Plan\"\n          },\n          {\n            \"planId\": \"6acc8be1189320566a1fad8d\",\n            \"planCode\": \"STANDARD_MONTHLY\",\n            \"name\": \"Standard Monthly\",\n            \"subtitle\": \"Everyday healthy home meals\",\n            \"badge\": \"Most popular\",\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\",\n            \"pricePaise\": 449900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 2,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"5+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"2 vegetable dishes\",\n              \"Fresh salad\",\n              \"4 chapatis\",\n              \"1 sweet\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 10\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": true,\n            \"sortOrder\": 2,\n            \"priceLabel\": \"₹4,499/Month\",\n            \"priceRupees\": \"4499\",\n            \"ctaLabel\": \"Select Standard Plan\"\n          },\n          {\n            \"planId\": \"6acc8be1189320566a1fad91\",\n            \"planCode\": \"PREMIUM_MONTHLY\",\n            \"name\": \"Premium Monthly\",\n            \"subtitle\": \"Gourmet meals, extra variety\",\n            \"badge\": null,\n            \"description\": \"\",\n            \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/combo-spread.jpg\",\n            \"pricePaise\": 549900,\n            \"originalPricePaise\": null,\n            \"mrpPaise\": null,\n            \"cycleDays\": 30,\n            \"cycleLabel\": \"Monthly\",\n            \"mealsPerDay\": 3,\n            \"slots\": [\n              \"breakfast\",\n              \"lunch\",\n              \"dinner\"\n            ],\n            \"maxItemsPerMeal\": 3,\n            \"minItemsPerMeal\": 1,\n            \"deliveryIncluded\": true,\n            \"deliveryFeePaise\": 0,\n            \"benefits\": [\n              \"7+ Food Categories\",\n              \"3 meals / Day\",\n              \"Free doorstep delivery\",\n              \"3 vegetable dishes\",\n              \"Fresh salad\",\n              \"5 chapatis\",\n              \"2 sweets\"\n            ],\n            \"perks\": {\n              \"freeDeliveryOnOrders\": true,\n              \"orderDiscountPercent\": 15\n            },\n            \"billingMethods\": [\n              \"autopay\",\n              \"link\"\n            ],\n            \"activeDays\": [\n              1,\n              2,\n              3,\n              4,\n              5,\n              6\n            ],\n            \"maxShiftsPerCycle\": 4,\n            \"isPopular\": false,\n            \"sortOrder\": 3,\n            \"priceLabel\": \"₹5,499/Month\",\n            \"priceRupees\": \"5499\",\n            \"ctaLabel\": \"Select Premium Plan\"\n          }\n        ],\n        \"isMember\": true,\n        \"subscription\": {\n          \"subscriptionId\": \"6acf241c1217d368bf4df7f7\",\n          \"status\": \"active\",\n          \"statusLabel\": \"Active\",\n          \"planName\": \"Basic Monthly\",\n          \"planCode\": \"BASIC_MONTHLY\",\n          \"priceLabel\": \"₹3,499 / month\",\n          \"validTill\": \"2026-11-13\",\n          \"validTillText\": \"Valid till 13 Nov 2026\",\n          \"daysLeft\": 31,\n          \"slots\": [\n            \"breakfast\",\n            \"lunch\",\n            \"dinner\"\n          ]\n        }\n      }\n    ]\n  }\n}"
+						}
+					],
 					"id": "afb6a4a4-861f-4e01-bd7b-50c99b83adde"
 				},
 				{
-					"name": "S14.2 · GET /subscription-plans/:code",
+					"name": "S14.2 · Plan details",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -8097,14 +8173,107 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/subscription-plans/{{code}}",
-						"description": "GET /api/v1/subscription-plans/:code. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/subscription-plans/{{planCode}}",
+						"description": "Authenticated. Plan details screen: everything from the list plus `categories` [{ `categoryId`, `name`, `imageUrl` }] for “Available Categories” (the plan's own categories, else the kitchen's categories that have dishes). `planCode` is not case sensitive. Unknown or retired plan → 404 “Plan not found”."
 					},
-					"response": [],
-					"id": "fd81286f-849c-491a-9727-82fe173d20fd"
+					"response": [
+						{
+							"name": "Basic Monthly",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscription-plans/{{planCode}}"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Plan fetched.\",\n  \"data\": {\n    \"planId\": \"6acc8be1189320566a1fad89\",\n    \"planCode\": \"BASIC_MONTHLY\",\n    \"name\": \"Basic Monthly\",\n    \"subtitle\": \"Simple and light meals\",\n    \"badge\": null,\n    \"description\": \"\",\n    \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meals-hero-kitchen.jpg\",\n    \"pricePaise\": 349900,\n    \"originalPricePaise\": null,\n    \"mrpPaise\": null,\n    \"cycleDays\": 30,\n    \"cycleLabel\": \"Monthly\",\n    \"mealsPerDay\": 3,\n    \"slots\": [\n      \"breakfast\",\n      \"lunch\",\n      \"dinner\"\n    ],\n    \"maxItemsPerMeal\": 1,\n    \"minItemsPerMeal\": 1,\n    \"deliveryIncluded\": true,\n    \"deliveryFeePaise\": 0,\n    \"benefits\": [\n      \"3+ Food Categories\",\n      \"3 meals / Day\",\n      \"Free doorstep delivery\",\n      \"2 vegetable dishes\",\n      \"Fresh salad\",\n      \"4 chapatis\",\n      \"1 sweet\"\n    ],\n    \"perks\": {\n      \"freeDeliveryOnOrders\": true,\n      \"orderDiscountPercent\": 0\n    },\n    \"billingMethods\": [\n      \"autopay\",\n      \"link\"\n    ],\n    \"activeDays\": [\n      1,\n      2,\n      3,\n      4,\n      5,\n      6\n    ],\n    \"maxShiftsPerCycle\": 4,\n    \"isPopular\": false,\n    \"sortOrder\": 1,\n    \"priceLabel\": \"₹3,499/Month\",\n    \"priceRupees\": \"3499\",\n    \"ctaLabel\": \"Select Basic Plan\",\n    \"categories\": [\n      {\n        \"categoryId\": \"6acc8bdc189320566a1faa75\",\n        \"name\": \"Paneer\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/paneer-bao.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdc189320566a1faa93\",\n        \"name\": \"Daal & Curries\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/dal-ramen.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdc189320566a1faaae\",\n        \"name\": \"Roti & Rice\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-naan.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdd189320566a1faad2\",\n        \"name\": \"Meal Ji Meals\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meal-ji-meal.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdd189320566a1faae4\",\n        \"name\": \"Signature Bowls\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/butter-chicken-bowl.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdd189320566a1faaff\",\n        \"name\": \"Biryani\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/chicken-biryani.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdd189320566a1fab2c\",\n        \"name\": \"Small Bites\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/biryani-arancini.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdd189320566a1fab59\",\n        \"name\": \"Desserts & Shakes\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/gulab-cheesecake.jpg\"\n      },\n      {\n        \"categoryId\": \"6acc8bdd189320566a1fab86\",\n        \"name\": \"Drinks\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/cold-drink.jpg\"\n      }\n    ]\n  }\n}"
+						},
+						{
+							"name": "Unknown plan (404)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscription-plans/GOLD_YEARLY"
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Plan not found\",\n  \"errors\": null\n}"
+						}
+					],
+					"id": "4e4eb0a3-dd09-4f3f-88d3-652f6f643bf0"
 				},
 				{
-					"name": "S14.3 · POST /subscriptions/checkout",
+					"name": "S14.3 · Plan payment summary",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-device-id",
+								"value": "{{deviceId}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/v1/subscriptions/checkout/summary?planCode={{planCode}}&addressId={{addressId}}",
+						"description": "Authenticated. Plan payment screen before Checkout. Query: `planCode`, `addressId` (Delivery Address card; “Add new address” → step 03), optional `startDate` (YYYY-MM-DD, default tomorrow, within 30 days).\n- `address` (displayLabel, fullAddress), `billLines` [{ `label`, `amountPaise`, `text` }] for View details, `totalPaise` / `totalLabel` (“₹3,499”), `startDateLabel` (“Tomorrow, Oct 15”), `nextBillingDateLabel` (“Nov 14, 2026”).\n- `paymentOptions` (UPI, card, Wallets “Paytm, Amazon Pay, Mobikwik”, Net Banking “50+ banks”) — all open inside the Razorpay sheet; `savedMethods` (step 09 Payment methods, e.g. “HDFC Debit •••• 4291 / Expires 12/28”); `payOnDelivery: false` (hide Pay on Delivery for plans); `billingMethods`.\nErrors: 409 “You already have a MealJi Plus subscription”, “We don't deliver MealJi Plus to this address yet”; 404 plan or address."
+					},
+					"response": [
+						{
+							"name": "Summary",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/checkout/summary?planCode={{planCode}}&addressId={{addressId}}"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Plan payment summary.\",\n  \"data\": {\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"subtitle\": \"Simple and light meals\",\n      \"badge\": null,\n      \"description\": \"\",\n      \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meals-hero-kitchen.jpg\",\n      \"pricePaise\": 349900,\n      \"originalPricePaise\": null,\n      \"mrpPaise\": null,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"mealsPerDay\": 3,\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"maxItemsPerMeal\": 1,\n      \"minItemsPerMeal\": 1,\n      \"deliveryIncluded\": true,\n      \"deliveryFeePaise\": 0,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ],\n      \"perks\": {\n        \"freeDeliveryOnOrders\": true,\n        \"orderDiscountPercent\": 0\n      },\n      \"billingMethods\": [\n        \"autopay\",\n        \"link\"\n      ],\n      \"activeDays\": [\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"maxShiftsPerCycle\": 4,\n      \"isPopular\": false,\n      \"sortOrder\": 1,\n      \"priceLabel\": \"₹3,499/Month\",\n      \"priceRupees\": \"3499\",\n      \"ctaLabel\": \"Select Basic Plan\"\n    },\n    \"address\": {\n      \"addressId\": \"6acc8be2189320566a1fae64\",\n      \"label\": \"work\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Office\",\n      \"recipientName\": \"Ananya Singh\",\n      \"phone\": \"9000000036\",\n      \"houseFlat\": \"3rd Floor, WeWork Galaxy\",\n      \"street\": \"Residency Road\",\n      \"locality\": \"Koramangala\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560034\",\n      \"latitude\": 12.9462,\n      \"longitude\": 77.6155,\n      \"fullAddress\": \"3rd Floor, WeWork Galaxy, Residency Road, Koramangala, Bengaluru, Karnataka, 560034\",\n      \"isDefault\": true,\n      \"updatedAt\": \"2026-10-12T10:55:44.567Z\"\n    },\n    \"billLines\": [\n      {\n        \"key\": \"plan\",\n        \"label\": \"Basic Monthly (30 days)\",\n        \"amountPaise\": 349900,\n        \"text\": \"₹3,499\"\n      },\n      {\n        \"key\": \"delivery\",\n        \"label\": \"Delivery\",\n        \"amountPaise\": 0,\n        \"text\": \"Free\"\n      },\n      {\n        \"key\": \"tax\",\n        \"label\": \"Taxes\",\n        \"amountPaise\": 0,\n        \"text\": \"Included\"\n      }\n    ],\n    \"totalPaise\": 349900,\n    \"totalLabel\": \"₹3,499\",\n    \"startDate\": \"2026-10-15\",\n    \"startDateLabel\": \"Tomorrow, Oct 15\",\n    \"nextBillingDate\": \"2026-11-14\",\n    \"nextBillingDateLabel\": \"Nov 14, 2026\",\n    \"billingMethods\": [\n      \"autopay\",\n      \"link\"\n    ],\n    \"paymentOptions\": [\n      {\n        \"key\": \"upi\",\n        \"label\": \"UPI\",\n        \"subtitle\": \"Google Pay, PhonePe, Paytm and other UPI apps\"\n      },\n      {\n        \"key\": \"card\",\n        \"label\": \"Credit / Debit card\",\n        \"subtitle\": \"Visa, Mastercard, RuPay\"\n      },\n      {\n        \"key\": \"wallet\",\n        \"label\": \"Wallets\",\n        \"subtitle\": \"Paytm, Amazon Pay, Mobikwik\"\n      },\n      {\n        \"key\": \"netbanking\",\n        \"label\": \"Net Banking\",\n        \"subtitle\": \"50+ banks\"\n      }\n    ],\n    \"payOnDelivery\": false,\n    \"savedMethods\": []\n  }\n}"
+						}
+					],
+					"id": "bfee7c75-479a-4139-8136-551fd532f8cc"
+				},
+				{
+					"name": "S14.4 · Checkout (buy the plan)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -8115,13 +8284,17 @@
 							{
 								"key": "Content-Type",
 								"value": "application/json"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "{{$guid}}"
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/checkout",
-						"description": "POST /api/v1/subscriptions/checkout. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated, send an `Idempotency-Key`. Body: `planCode`, `billingMethod` (“link” = pay each month; “autopay” = UPI/card mandate after the first payment, if the plan offers it), `addressId`, optional `startDate`.\nReturns 201 `subscription` (status pending_payment) and `payment` { `keyId`, `gatewayOrderId`, `amountPaise`, `prefill`, `description` } → open the Razorpay checkout with these.\nA second tap while the first is running → 409 “Your plan purchase is already in progress”. A payment that arrives for a replaced checkout, or while another plan is already live, is refunded automatically — never two plans. Errors: 409 already a member, 404 plan / address (someone else's address is 404), 422 billing method.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"planCode\": \"LUNCH30\",\n  \"billingMethod\": \"link\",\n  \"addressId\": \"{{addressId}}\"\n}",
+							"raw": "{\n  \"planCode\": \"{{planCode}}\",\n  \"billingMethod\": \"link\",\n  \"addressId\": \"{{addressId}}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -8129,11 +8302,150 @@
 							}
 						}
 					},
-					"response": [],
-					"id": "47ff5eb6-823b-4d53-9bf2-7e85690630a8"
+					"response": [
+						{
+							"name": "Created (201)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Idempotency-Key",
+										"value": "{{$guid}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/checkout"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"planCode\": \"BASIC_MONTHLY\",\n  \"billingMethod\": \"link\",\n  \"addressId\": \"6acc8be2189320566a1fae64\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Subscription created. Complete the payment to start.\",\n  \"data\": {\n    \"subscription\": {\n      \"subscriptionId\": \"6acf241c1217d368bf4df7f7\",\n      \"status\": \"pending_payment\",\n      \"plan\": {\n        \"planId\": \"6acc8be1189320566a1fad89\",\n        \"planCode\": \"BASIC_MONTHLY\",\n        \"name\": \"Basic Monthly\",\n        \"pricePaise\": 349900,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"mealsPerDay\": 3,\n        \"maxItemsPerMeal\": 1,\n        \"benefits\": [\n          \"3+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"2 vegetable dishes\",\n          \"Fresh salad\",\n          \"4 chapatis\",\n          \"1 sweet\"\n        ]\n      },\n      \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n      \"address\": {\n        \"addressId\": \"6acc8be2189320566a1fae64\",\n        \"label\": \"work\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Office\",\n        \"recipientName\": \"Ananya Singh\",\n        \"phone\": \"9000000036\",\n        \"houseFlat\": \"3rd Floor, WeWork Galaxy\",\n        \"street\": \"Residency Road\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": null,\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560034\",\n        \"latitude\": 12.9462,\n        \"longitude\": 77.6155,\n        \"fullAddress\": \"3rd Floor, WeWork Galaxy, Residency Road, Koramangala, Bengaluru, Karnataka, 560034\"\n      },\n      \"billingMethod\": \"link\",\n      \"startDate\": \"2026-10-15\",\n      \"cycle\": 0,\n      \"currentPeriodStart\": null,\n      \"currentPeriodEnd\": null,\n      \"validTill\": null,\n      \"nextBillingDate\": null,\n      \"renewalPricePaise\": 349900,\n      \"daysLeft\": null,\n      \"autoRenew\": true,\n      \"pause\": null,\n      \"scheduledChange\": null,\n      \"cancellation\": null,\n      \"shiftsThisCycle\": 0,\n      \"shiftsLeft\": 4,\n      \"paymentLink\": null,\n      \"pastDueSince\": null,\n      \"createdAt\": \"2026-10-14T06:41:32.318Z\",\n      \"statusLabel\": \"Payment pending\",\n      \"planLabel\": \"Basic Monthly (₹3,499)\",\n      \"priceLabel\": \"₹3,499 / month\",\n      \"startDateLabel\": \"Tomorrow, Oct 15\",\n      \"nextBillingDateLabel\": null,\n      \"validTillLabel\": null,\n      \"validTillText\": null\n    },\n    \"payment\": {\n      \"paymentId\": \"6acf241c1217d368bf4df7fa\",\n      \"gateway\": \"test\",\n      \"keyId\": \"test\",\n      \"gatewayOrderId\": \"order_test_ba1bcca3d90b9b\",\n      \"amountPaise\": 349900,\n      \"currency\": \"INR\",\n      \"prefill\": {\n        \"name\": \"Ananya Singh\",\n        \"contact\": \"9000000036\",\n        \"email\": null\n      },\n      \"description\": \"MealJi Plus – Basic Monthly\"\n    }\n  }\n}"
+						},
+						{
+							"name": "Already a member (409)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Idempotency-Key",
+										"value": "{{$guid}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/checkout"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"planCode\": \"BASIC_MONTHLY\",\n  \"billingMethod\": \"link\",\n  \"addressId\": \"6acc8be2189320566a1fae64\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"You already have a MealJi Plus subscription\",\n  \"errors\": null\n}"
+						},
+						{
+							"name": "Billing method not offered (422)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Idempotency-Key",
+										"value": "{{$guid}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/checkout"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"planCode\": \"BASIC_MONTHLY\",\n  \"billingMethod\": \"cash\",\n  \"addressId\": \"6acc8be2189320566a1fae64\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Unprocessable Entity",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Please check what you entered\",\n  \"errors\": [\n    {\n      \"field\": \"billingMethod\",\n      \"message\": \"Please check what you entered\"\n    }\n  ]\n}"
+						}
+					],
+					"id": "47ff5eb6-823b-4d53-9bf2-7e85690630a8",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const d = pm.response.json().data;",
+									"if (d && d.subscription) pm.collectionVariables.set('subscriptionId', d.subscription.subscriptionId);"
+								]
+							}
+						}
+					]
 				},
 				{
-					"name": "S14.4 · POST /subscriptions/:id/verify-payment",
+					"name": "S14.5 · Verify payment",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -8144,13 +8456,17 @@
 							{
 								"key": "Content-Type",
 								"value": "application/json"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "{{$guid}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/subscriptions/{{id}}/verify-payment",
-						"description": "POST /api/v1/subscriptions/:id/verify-payment. See the API reference in the backend README for permissions and fields.",
+						"url": "{{baseUrl}}/api/v1/subscriptions/{{subscriptionId}}/verify-payment",
+						"description": "Authenticated. After the Razorpay sheet succeeds, send its `razorpay_order_id`, `razorpay_payment_id`, `razorpay_signature` as `gatewayOrderId`, `gatewayPaymentId`, `signature`. Returns the active subscription (same shape as S14.6) — draw Plan confirmed from it.\nThe webhook activates the plan too, so if the app is closed after paying the plan still starts; on a network error just call GET /subscriptions/me. Another customer's plan → 404; a payment of another plan → 409.",
 						"body": {
 							"mode": "raw",
-							"raw": "{}",
+							"raw": "{\n  \"gatewayOrderId\": \"order_from_razorpay\",\n  \"gatewayPaymentId\": \"pay_from_razorpay\",\n  \"signature\": \"razorpay_signature\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -8158,11 +8474,54 @@
 							}
 						}
 					},
-					"response": [],
-					"id": "a3010db9-bb8f-482b-b97c-61b380b0cc08"
+					"response": [
+						{
+							"name": "Another customer's plan (404)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Idempotency-Key",
+										"value": "{{$guid}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/{{subscriptionId}}/verify-payment"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"gatewayOrderId\": \"order_from_razorpay\",\n  \"gatewayPaymentId\": \"pay_from_razorpay\",\n  \"signature\": \"razorpay_signature\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Payment not found\",\n  \"errors\": null\n}"
+						}
+					],
+					"id": "8dc738af-58b5-4df3-827f-09731555fefe"
 				},
 				{
-					"name": "S14.5 · GET /subscriptions/me",
+					"name": "S14.6 · My plan (Plan confirmed, My Subscription)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -8172,9 +8531,85 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me",
-						"description": "GET /api/v1/subscriptions/me. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated. `subscription` (null when not a member; then `lastSubscription` may hold an ended one).\n- Plan confirmed: `planLabel` (“Basic Monthly (₹3,499)”), `startDateLabel` (“Tomorrow, Oct 15”), `nextBillingDateLabel` (“Nov 14, 2026”), `address.fullAddress`.\n- My Subscription header: `plan.name`, `priceLabel` (“₹4,499 / month”), `status` + `statusLabel` (Active, Paused, Payment due…), `validTillText` (“Valid till 11 Nov 2026”), `daysLeft`.\n- Also `startDate`, `validTill`, `nextBillingDate` (YYYY-MM-DD), `billingMethod`, `renewalPricePaise`, `pause`, `cancellation`, `scheduledChange`, `paymentLink` (when a renewal is due). Managing the plan is step 15."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Just bought",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Subscription fetched.\",\n  \"data\": {\n    \"subscription\": {\n      \"subscriptionId\": \"6acf241c1217d368bf4df7f7\",\n      \"status\": \"active\",\n      \"plan\": {\n        \"planId\": \"6acc8be1189320566a1fad89\",\n        \"planCode\": \"BASIC_MONTHLY\",\n        \"name\": \"Basic Monthly\",\n        \"pricePaise\": 349900,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"mealsPerDay\": 3,\n        \"maxItemsPerMeal\": 1,\n        \"benefits\": [\n          \"3+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"2 vegetable dishes\",\n          \"Fresh salad\",\n          \"4 chapatis\",\n          \"1 sweet\"\n        ]\n      },\n      \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n      \"address\": {\n        \"addressId\": \"6acc8be2189320566a1fae64\",\n        \"label\": \"work\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Office\",\n        \"recipientName\": \"Ananya Singh\",\n        \"phone\": \"9000000036\",\n        \"houseFlat\": \"3rd Floor, WeWork Galaxy\",\n        \"street\": \"Residency Road\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": null,\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560034\",\n        \"latitude\": 12.9462,\n        \"longitude\": 77.6155,\n        \"fullAddress\": \"3rd Floor, WeWork Galaxy, Residency Road, Koramangala, Bengaluru, Karnataka, 560034\"\n      },\n      \"billingMethod\": \"link\",\n      \"startDate\": \"2026-10-15\",\n      \"cycle\": 1,\n      \"currentPeriodStart\": \"2026-10-15\",\n      \"currentPeriodEnd\": \"2026-11-13\",\n      \"validTill\": \"2026-11-13\",\n      \"nextBillingDate\": \"2026-11-14\",\n      \"renewalPricePaise\": 349900,\n      \"daysLeft\": 31,\n      \"autoRenew\": true,\n      \"pause\": null,\n      \"scheduledChange\": null,\n      \"cancellation\": null,\n      \"shiftsThisCycle\": 0,\n      \"shiftsLeft\": 4,\n      \"paymentLink\": null,\n      \"pastDueSince\": null,\n      \"createdAt\": \"2026-10-14T06:41:32.318Z\",\n      \"statusLabel\": \"Active\",\n      \"planLabel\": \"Basic Monthly (₹3,499)\",\n      \"priceLabel\": \"₹3,499 / month\",\n      \"startDateLabel\": \"Tomorrow, Oct 15\",\n      \"nextBillingDateLabel\": \"Nov 14, 2026\",\n      \"validTillLabel\": \"13 Nov 2026\",\n      \"validTillText\": \"Valid till 13 Nov 2026\"\n    }\n  }\n}"
+						},
+						{
+							"name": "Member for a while",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Subscription fetched.\",\n  \"data\": {\n    \"subscription\": {\n      \"subscriptionId\": \"6acc8bf8189320566a1fc29f\",\n      \"status\": \"active\",\n      \"plan\": {\n        \"planId\": \"6acc8be1189320566a1fad8d\",\n        \"planCode\": \"STANDARD_MONTHLY\",\n        \"name\": \"Standard Monthly\",\n        \"pricePaise\": 449900,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"mealsPerDay\": 3,\n        \"maxItemsPerMeal\": 2,\n        \"benefits\": [\n          \"5+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"2 vegetable dishes\",\n          \"Fresh salad\",\n          \"4 chapatis\",\n          \"1 sweet\"\n        ]\n      },\n      \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n      \"address\": {\n        \"addressId\": \"6acc8be2189320566a1fae3b\",\n        \"label\": \"home\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Home\",\n        \"recipientName\": \"Rahul Sharma\",\n        \"phone\": \"9000000031\",\n        \"houseFlat\": \"Flat 302, Lakeview Residency\",\n        \"street\": \"5th Cross, 6th Block\",\n        \"locality\": \"Koramangala\",\n        \"landmark\": null,\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560095\",\n        \"latitude\": 12.9412,\n        \"longitude\": 77.6205,\n        \"fullAddress\": \"Flat 302, Lakeview Residency, 5th Cross, 6th Block, Koramangala, Bengaluru, Karnataka, 560095\"\n      },\n      \"billingMethod\": \"autopay\",\n      \"startDate\": \"2026-10-13\",\n      \"cycle\": 1,\n      \"currentPeriodStart\": \"2026-10-13\",\n      \"currentPeriodEnd\": \"2026-11-11\",\n      \"validTill\": \"2026-11-11\",\n      \"nextBillingDate\": \"2026-11-12\",\n      \"renewalPricePaise\": 449900,\n      \"daysLeft\": 29,\n      \"autoRenew\": true,\n      \"pause\": null,\n      \"scheduledChange\": null,\n      \"cancellation\": null,\n      \"shiftsThisCycle\": 0,\n      \"shiftsLeft\": 4,\n      \"paymentLink\": null,\n      \"pastDueSince\": null,\n      \"createdAt\": \"2026-10-12T07:27:52.660Z\",\n      \"statusLabel\": \"Active\",\n      \"planLabel\": \"Standard Monthly (₹4,499)\",\n      \"priceLabel\": \"₹4,499 / month\",\n      \"startDateLabel\": \"Tue, Oct 13\",\n      \"nextBillingDateLabel\": \"Nov 12, 2026\",\n      \"validTillLabel\": \"11 Nov 2026\",\n      \"validTillText\": \"Valid till 11 Nov 2026\"\n    }\n  }\n}"
+						},
+						{
+							"name": "Not a member",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Subscription fetched.\",\n  \"data\": {\n    \"subscription\": null,\n    \"lastSubscription\": null\n  }\n}"
+						}
+					],
 					"id": "243a0a29-ce0f-42db-a39e-1925733537d9"
 				}
 			]

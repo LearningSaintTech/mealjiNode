@@ -444,6 +444,18 @@ export async function startPayment(order, user, { saveMethod = false } = {}) {
 }
 
 export async function retryPayment(userId, orderId) {
+  // One retry at a time per order: two taps must not start two payments.
+  const lockKey = `order:retry:${orderId}`;
+  const token = await acquireLock(lockKey, 30);
+  if (!token) throw new AppError(409, "This payment is already being retried");
+  try {
+    return await retryPaymentLocked(userId, orderId);
+  } finally {
+    await releaseLock(lockKey, token);
+  }
+}
+
+async function retryPaymentLocked(userId, orderId) {
   const order = await Order.findOne({ _id: objectId(orderId, "order ID"), user: userId });
   if (!order) throw new AppError(404, "Order not found");
   if (!["payment_pending", "payment_failed"].includes(order.status)) throw new AppError(409, "This order does not need payment");

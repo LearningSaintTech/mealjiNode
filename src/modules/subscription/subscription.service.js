@@ -1,24 +1,55 @@
 import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
 import { addIstDays, istDateKey, istDateTime } from "../../common/time.js";
+import { acquireLock, releaseLock } from "../../infrastructure/redisStore.js";
 import { logger } from "../../config/logger.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { cancelGatewaySubscription, createGatewayOrder, createGatewaySubscription, createPaymentLink, gatewayName } from "../../infrastructure/payments/gateway.js";
 import { publish } from "../../realtime/hub.js";
-import { Address, addressSnapshot } from "../address/address.model.js";
+import { Address, addressSnapshot, toAddress } from "../address/address.model.js";
 import { issueInvoice } from "../billing/billing.service.js";
 import { Invoice } from "../billing/billing.model.js";
 import { Payment } from "../payment/payment.model.js";
 import { kitchenCovers, kitchenForPoint } from "../serviceability/serviceability.service.js";
 import { resolveSetting } from "../settings/settings.service.js";
 import { User } from "../user/user.model.js";
-import { planSnapshot, plansForKitchen, toPlan } from "./plan.service.js";
+import { cycleUnit, planSnapshot, plansForKitchen, toPlan } from "./plan.service.js";
 import { Subscription, SubscriptionPlan } from "./subscription.model.js";
 import { daysBetween, pauseDates } from "./subscription.rules.js";
 
 const LIVE = ["active", "pause_scheduled", "paused", "cancel_scheduled", "past_due"];
 
 // ------------------------------------------------------------------ views
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const STATUS_LABELS = { pending_payment: "Payment pending", active: "Active", pause_scheduled: "Active", paused: "Paused", cancel_scheduled: "Active", past_due: "Payment due", cancelled: "Cancelled", expired: "Expired" };
+const rupeeText = (paise) => `₹${Math.round((paise || 0) / 100).toLocaleString("en-IN")}`;
+
+function keyParts(dateKey) {
+  const [year, month, day] = String(dateKey).split("-").map(Number);
+  return { year, month, day, weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay() };
+}
+/** “Nov 24, 2026” */
+export function monthDayYear(dateKey) {
+  if (!dateKey) return null;
+  const d = keyParts(dateKey);
+  return `${MONTHS[d.month - 1]} ${d.day}, ${d.year}`;
+}
+/** “28 Oct 2026” */
+export function dayMonthYear(dateKey) {
+  if (!dateKey) return null;
+  const d = keyParts(dateKey);
+  return `${d.day} ${MONTHS[d.month - 1]} ${d.year}`;
+}
+/** “Today, Oct 24”, “Tomorrow, Oct 25”, else “Sat, Oct 26”. */
+export function startLabel(dateKey) {
+  if (!dateKey) return null;
+  const d = keyParts(dateKey);
+  const today = istDateKey();
+  const prefix = dateKey === today ? "Today" : dateKey === addIstDays(today, 1) ? "Tomorrow" : WEEKDAYS[d.weekday];
+  return `${prefix}, ${MONTHS[d.month - 1]} ${d.day}`;
+}
 
 export function toSubscription(sub) {
   const plan = sub.planSnapshot || {};
@@ -47,6 +78,14 @@ export function toSubscription(sub) {
     paymentLink: sub.paymentLink?.url ? { url: sub.paymentLink.url, amountPaise: sub.paymentLink.amountPaise, cycle: sub.paymentLink.cycle } : null,
     pastDueSince: sub.pastDueSince,
     createdAt: sub.createdAt,
+    // Screen wording: Plan confirmed and My Subscription.
+    statusLabel: STATUS_LABELS[sub.status] || sub.status,
+    planLabel: `${plan.name} (${rupeeText(plan.pricePaise)})`,
+    priceLabel: `${rupeeText(sub.renewalPricePaise ?? plan.pricePaise)} / ${cycleUnit(plan).toLowerCase()}`,
+    startDateLabel: startLabel(sub.startDate),
+    nextBillingDateLabel: monthDayYear(sub.nextBillingDate),
+    validTillLabel: dayMonthYear(sub.validTill),
+    validTillText: sub.validTill ? `Valid till ${dayMonthYear(sub.validTill)}` : null,
   };
 }
 
@@ -95,11 +134,12 @@ async function policyFor(sub) {
  * address, then creates a pending subscription and the first payment. With
  * autopay the mandate for later cycles is set up after the first payment.
  */
-export async function checkout(userId, { planCode, billingMethod, addressId, startDate = null }) {
+/** Checks shared by the payment screen and Checkout: plan, address, kitchen, start day. */
+async function quote(userId, { planCode, billingMethod = null, addressId, startDate = null }) {
   if (await currentSubscription(userId)) throw new AppError(409, "You already have a MealJi Plus subscription");
   const plan = await SubscriptionPlan.findOne({ code: String(planCode).toUpperCase(), status: "active" }).lean();
   if (!plan) throw new AppError(404, "Plan not found");
-  if (!plan.billingMethods.includes(billingMethod)) throw new AppError(422, `This plan is billed by ${plan.billingMethods.join(" or ")}`);
+  if (billingMethod && !plan.billingMethods.includes(billingMethod)) throw new AppError(422, `This plan is billed by ${plan.billingMethods.join(" or ")}`);
   const address = await Address.findOne({ _id: objectId(addressId, "address ID"), user: userId, deletedAt: null }).lean();
   if (!address) throw new AppError(404, "Address not found");
   const match = await kitchenForPoint(address.latitude, address.longitude, { preferOpen: false });
@@ -109,7 +149,61 @@ export async function checkout(userId, { planCode, billingMethod, addressId, sta
   const today = istDateKey();
   const start = startDate && startDate > today ? startDate : addIstDays(today, 1);
   if (daysBetween(today, start) > 30) throw new AppError(422, "Start within the next 30 days");
+  const deliveryPaise = plan.deliveryIncluded ? 0 : plan.deliveryFeePaise || 0;
+  return { plan, address, match, start, deliveryPaise, amountPaise: plan.pricePaise + deliveryPaise };
+}
 
+// Ways to pay on the plan payment screen (all inside the gateway checkout).
+// Pay on Delivery is not offered for a subscription.
+const PLAN_PAYMENT_OPTIONS = [
+  { key: "upi", label: "UPI", subtitle: "Google Pay, PhonePe, Paytm and other UPI apps" },
+  { key: "card", label: "Credit / Debit card", subtitle: "Visa, Mastercard, RuPay" },
+  { key: "wallet", label: "Wallets", subtitle: "Paytm, Amazon Pay, Mobikwik" },
+  { key: "netbanking", label: "Net Banking", subtitle: "50+ banks" },
+];
+
+/** Plan payment screen: address, bill, total, start and next billing date, ways to pay. */
+export async function checkoutSummary(userId, input) {
+  const { plan, address, start, deliveryPaise, amountPaise } = await quote(userId, input);
+  const { SavedPaymentMethod, toMethod } = await import("../payment/paymentMethod.service.js");
+  const saved = await SavedPaymentMethod.find({ user: userId }).sort({ isDefault: -1, updatedAt: -1 }).limit(10).lean();
+  const nextBilling = addIstDays(start, plan.cycleDays);
+  return {
+    plan: toPlan(plan),
+    address: toAddress(address),
+    billLines: [
+      { key: "plan", label: `${plan.name} (${plan.cycleDays} days)`, amountPaise: plan.pricePaise, text: rupeeText(plan.pricePaise) },
+      { key: "delivery", label: "Delivery", amountPaise: deliveryPaise, text: deliveryPaise ? rupeeText(deliveryPaise) : "Free" },
+      { key: "tax", label: "Taxes", amountPaise: 0, text: "Included" },
+    ],
+    totalPaise: amountPaise,
+    totalLabel: rupeeText(amountPaise),
+    startDate: start,
+    startDateLabel: startLabel(start),
+    nextBillingDate: nextBilling,
+    nextBillingDateLabel: monthDayYear(nextBilling),
+    billingMethods: plan.billingMethods,
+    paymentOptions: PLAN_PAYMENT_OPTIONS,
+    payOnDelivery: false,
+    savedMethods: saved.map(toMethod).filter((method) => !method.expired),
+  };
+}
+
+export async function checkout(userId, input) {
+  // One checkout at a time per customer: a double tap must not start two plans.
+  const lockKey = `subscription:checkout:${userId}`;
+  const token = await acquireLock(lockKey, 30);
+  if (!token) throw new AppError(409, "Your plan purchase is already in progress", [{ field: "subscription", message: "CHECKOUT_IN_PROGRESS" }]);
+  try {
+    return await checkoutLocked(userId, input);
+  } finally {
+    await releaseLock(lockKey, token);
+  }
+}
+
+async function checkoutLocked(userId, input) {
+  const { billingMethod } = input;
+  const { plan, address, match, start, amountPaise } = await quote(userId, input);
   await Subscription.deleteMany({ user: userId, status: "pending_payment" });
   const policy = (await resolveSetting("subscription_policy", { kitchenId: match.kitchen._id })).values;
   const sub = await Subscription.create({
@@ -127,7 +221,6 @@ export async function checkout(userId, { planCode, billingMethod, addressId, sta
     history: [{ at: new Date(), event: "checkout", by: "customer" }],
   });
   const user = await User.findById(userId).lean();
-  const amountPaise = plan.pricePaise + (plan.deliveryIncluded ? 0 : plan.deliveryFeePaise || 0);
   const gateway = await createGatewayOrder({ amountPaise, receipt: `SUB-${String(sub._id).slice(-10)}`, notes: { subscriptionId: String(sub._id), cycle: 1 } });
   const payment = await Payment.create({ user: userId, refType: "subscription", refId: sub._id, kitchen: sub.kitchen, amountPaise, method: billingMethod, gateway: gateway.gateway, gatewayOrderId: gateway.gatewayOrderId, cycle: 1 });
   return {
@@ -164,10 +257,49 @@ async function invoiceCycle(sub, payment) {
 
 /** A captured subscription payment: first activation or a renewal cycle. */
 export async function onSubscriptionPaymentCaptured(payment) {
+  if ((payment.cycle || 0) > 1) return applyCapture(payment);
+  // First payments of one customer are applied one at a time, so two paid
+  // checkouts can never both become live plans.
+  const lockKey = `subscription:activate:${payment.user}`;
+  let token = null;
+  for (let attempt = 0; attempt < 20 && !token; attempt += 1) {
+    token = await acquireLock(lockKey, 30);
+    if (!token) await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (!token) throw new AppError(503, "Subscription activation is busy. It will be retried.");
+  try {
+    return await applyCapture(payment);
+  } finally {
+    await releaseLock(lockKey, token);
+  }
+}
+
+/** Gives back a first payment that cannot start a plan (checkout gone, or another plan already live). */
+async function refundExtraPayment(payment, sub, reason) {
+  const { requestRefund } = await import("../payment/payment.service.js");
+  await requestRefund({ subscriptionId: sub?._id || null, paymentId: payment._id, amountPaise: payment.amountPaise, reason, actor: { role: "system" }, permissions: ["refunds.approve"] });
+  logger.warn({ paymentId: String(payment._id), subscriptionId: sub ? String(sub._id) : null }, "Extra subscription payment refunded");
+}
+
+async function applyCapture(payment) {
   const sub = await Subscription.findById(payment.refId);
-  if (!sub) return;
+  if (!sub) {
+    // The checkout was replaced or cleaned up before this payment arrived.
+    if ((payment.cycle || 1) === 1) await refundExtraPayment(payment, null, "Payment for a plan checkout that no longer exists");
+    return;
+  }
   const cycle = payment.cycle || sub.cycle + 1;
   if (cycle <= sub.cycle) return; // already applied
+  if (cycle === 1 && sub.status === "pending_payment") {
+    const other = await Subscription.exists({ user: sub.user, _id: { $ne: sub._id }, status: { $in: LIVE } });
+    if (other) {
+      sub.status = "cancelled";
+      log(sub, "duplicate_payment_refunded");
+      await sub.save();
+      await refundExtraPayment(payment, sub, "Duplicate payment: a Meal Ji Plus plan is already active");
+      return;
+    }
+  }
   const plan = sub.planSnapshot;
   if (cycle === 1) {
     const start = sub.startDate < istDateKey() ? istDateKey() : sub.startDate;
@@ -318,7 +450,7 @@ export async function subscriptionCard(userId) {
   const sub = await currentSubscription(userId);
   if (!sub) return null;
   const view = toSubscription(sub);
-  return { subscriptionId: view.subscriptionId, status: view.status, planName: view.plan.name, validTill: view.validTill, daysLeft: view.daysLeft, slots: view.plan.slots };
+  return { subscriptionId: view.subscriptionId, status: view.status, statusLabel: view.statusLabel, planName: view.plan.name, planCode: view.plan.planCode, priceLabel: view.priceLabel, validTill: view.validTill, validTillText: view.validTillText, daysLeft: view.daysLeft, slots: view.plan.slots };
 }
 
 export async function pauseOptions(userId) {

@@ -1,7 +1,8 @@
 // Step 09 · Place order and pay — Pay ₹X, payment (test gateway), Order confirmed,
 // saved payment methods. Demo customers 9000000037/38; every order made here is
 // cancelled (and refunded) by the admin API afterwards.
-import { Client, createSuite, DEMO } from "./harness.js";
+import mongoose from "mongoose";
+import { Client, createSuite, db, DEMO } from "./harness.js";
 
 const CUSTOMER = "9000000037";
 
@@ -169,8 +170,8 @@ export default async function step09(ctx) {
     await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 2 });
     const upi = (await me.call("POST", "/orders", { paymentMethod: "upi" })).data;
     if (upi?.order?.orderId) made.push(upi.order.orderId);
-    const { transition } = await import("../../src/modules/order/order.service.js");
-    await transition(upi.order.orderId, "payment_failed", { actor: "system", note: "step 09 test" });
+    // The payment failed (the server's own expiry would do this later).
+    await (await db()).collection("orders").updateOne({ _id: new mongoose.Types.ObjectId(upi.order.orderId) }, { $set: { status: "payment_failed", stockReservedAt: null } });
     const [a, b] = await Promise.all([me.call("POST", `/orders/${upi.order.orderId}/retry-payment`), me.call("POST", `/orders/${upi.order.orderId}/retry-payment`)]);
     return { ok: [a.status, b.status].sort().join() === "200,409", detail: `taps ${a.status}/${b.status} · “${(a.status === 409 ? a : b).message}”` };
   });

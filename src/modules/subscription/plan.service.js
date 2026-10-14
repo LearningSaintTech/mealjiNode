@@ -4,7 +4,16 @@ import { normalizeCity } from "../settings/settings.resolver.js";
 import { assertOwnFileUrl } from "../upload/upload.service.js";
 import { livePlanCache, NO_SELECTION_POLICIES, SLOT_KEYS, Subscription, SubscriptionPlan } from "./subscription.model.js";
 
+const rupeeText = (paise) => `₹${Math.round((paise || 0) / 100).toLocaleString("en-IN")}`;
+const CYCLE_UNITS = { Monthly: "Month", Weekly: "Week", Quarterly: "Quarter", Yearly: "Year" };
+
+/** “Month” for a monthly plan, else “30 days”: the unit after the price. */
+export function cycleUnit(plan) {
+  return CYCLE_UNITS[plan.cycleLabel] || `${plan.cycleDays} days`;
+}
+
 export function toPlan(plan, { admin = false } = {}) {
+  const shortName = String(plan.name || "").replace(/\s+(Monthly|Weekly|Quarterly|Yearly)$/i, "");
   const view = {
     planId: String(plan._id),
     planCode: plan.code,
@@ -32,6 +41,10 @@ export function toPlan(plan, { admin = false } = {}) {
     maxShiftsPerCycle: plan.maxShiftsPerCycle,
     isPopular: Boolean(plan.isPopular),
     sortOrder: plan.sortOrder || 0,
+    // Card wording: “₹3,499/Month”, the banner's “In Just 3499/- Monthly”, “Select Standard Plan”.
+    priceLabel: `${rupeeText(plan.pricePaise)}/${cycleUnit(plan)}`,
+    priceRupees: String(Math.round((plan.pricePaise || 0) / 100)),
+    ctaLabel: `Select ${shortName || plan.name} Plan`,
   };
   if (!admin) return view;
   return {
@@ -198,4 +211,22 @@ export async function plansForKitchen(kitchenId, { limit = 50 } = {}) {
     .filter((plan) => (!plan.kitchens?.length || plan.kitchens.map(String).includes(String(kitchenId))) && (!plan.cities?.length || plan.cities.includes(city)))
     .slice(0, limit)
     .map((plan) => toPlan(plan));
+}
+
+/**
+ * Plan details “Available Categories”: the plan's own categories, else the
+ * kitchen's categories that have dishes (what a member can pick from).
+ */
+export async function planCategories(plan, kitchenId) {
+  const { KitchenCategory } = await import("../catalog/catalog.model.js");
+  if (plan.categoryIds?.length) {
+    const rows = await KitchenCategory.find({ _id: { $in: plan.categoryIds }, isActive: { $ne: false } }).sort({ sortOrder: 1, name: 1 }).lean();
+    if (rows.length) return rows.map((row) => ({ categoryId: String(row._id), name: row.name, imageUrl: row.imageUrl ?? null }));
+  }
+  if (!kitchenId) return [];
+  const { listCategories } = await import("../catalog/catalog.service.js");
+  return (await listCategories(kitchenId))
+    .filter((category) => category.isActive && category.dishCount > 0)
+    .slice(0, 12)
+    .map((category) => ({ categoryId: category.categoryId, name: category.name, imageUrl: category.imageUrl }));
 }

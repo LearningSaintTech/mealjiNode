@@ -488,7 +488,7 @@ const PLANS = [
   { ...PLAN_BASE, code: "BASIC_MONTHLY", name: "Basic Monthly", subtitle: "Simple and light meals", image: "mealsHeroKitchen", pricePaise: 349900, maxItemsPerMeal: 1, benefits: ["3+ Food Categories", "3 meals / Day", "Free doorstep delivery", "2 vegetable dishes", "Fresh salad", "4 chapatis", "1 sweet"], sortOrder: 1 },
   { ...PLAN_BASE, code: "STANDARD_MONTHLY", name: "Standard Monthly", subtitle: "Everyday healthy home meals", image: "completeMeal", badge: "Most popular", isPopular: true, pricePaise: 449900, maxItemsPerMeal: 2, benefits: ["5+ Food Categories", "3 meals / Day", "Free doorstep delivery", "2 vegetable dishes", "Fresh salad", "4 chapatis", "1 sweet"], perks: { freeDeliveryOnOrders: true, orderDiscountPercent: 10 }, sortOrder: 2 },
   // The app's card says "4 meals / Day"; plans support up to 3 slots, so Premium is 3 larger meals.
-  { ...PLAN_BASE, code: "PREMIUM_MONTHLY", name: "Premium Monthly", subtitle: "Gourmet meals for foodies", image: "comboSpread", pricePaise: 549900, maxItemsPerMeal: 3, benefits: ["7+ Food Categories", "3 meals / Day", "Free doorstep delivery", "3 vegetable dishes", "Fresh salad", "5 chapatis", "2 sweets"], perks: { freeDeliveryOnOrders: true, orderDiscountPercent: 15 }, sortOrder: 3 },
+  { ...PLAN_BASE, code: "PREMIUM_MONTHLY", name: "Premium Monthly", subtitle: "Gourmet meals, extra variety", image: "comboSpread", pricePaise: 549900, maxItemsPerMeal: 3, benefits: ["7+ Food Categories", "3 meals / Day", "Free doorstep delivery", "3 vegetable dishes", "Fresh salad", "5 chapatis", "2 sweets"], perks: { freeDeliveryOnOrders: true, orderDiscountPercent: 15 }, sortOrder: 3 },
 ];
 
 async function seedPlans(img) {
