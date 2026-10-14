@@ -172,6 +172,32 @@ const SCREENS = [
     // Some taps on Redeem; 409 = not enough points / already redeeming.
     if (reward && Math.random() < 0.1) await call(vu, "POST /rewards/:id/redeem", "write", "POST", `/rewards/${reward.rewardId}/redeem`, undefined, { expect: [201, 409] });
   }],
+  [2, "13 Help and support", async (vu) => {
+    await call(vu, "GET /support/config", "read", "GET", `/support/config?context=${Math.random() < 0.8 ? "default" : "subscription"}`);
+    const cats = await call(vu, "GET /support/categories", "read", "GET", "/support/categories");
+    await call(vu, "GET /support/faqs", "read", "GET", "/support/faqs?limit=6");
+    if (Math.random() < 0.3) await call(vu, "GET /support/faqs?q=", "read", "GET", `/support/faqs?q=${pick(["refund", "order", "payment", "cancel", "plan"])}`);
+    if (Math.random() < 0.4) {
+      const list = await call(vu, "GET /support/tickets", "read", "GET", "/support/tickets?page=1&limit=10");
+      const ticket = list.data?.items?.[0];
+      if (ticket && Math.random() < 0.5) await call(vu, "GET /support/tickets/:id", "read", "GET", `/support/tickets/${ticket.ticketId}`);
+    }
+    const category = cats.data?.find?.((c) => c.issueTypes?.length && c.key !== "order");
+    // Few people raise a ticket; a repeat within 2 minutes returns the same one (200).
+    if (category && Math.random() < 0.05) await call(vu, "POST /support/tickets", "write", "POST", "/support/tickets", { category: category.key, issueType: category.issueTypes[0], description: "Load test: please help with this." }, { expect: [200, 201] });
+  }],
+  [2, "14 Meal Ji Plus", async (vu) => {
+    const plans = await call(vu, "GET /subscription-plans", "read", "GET", "/subscription-plans");
+    const plan = pick(plans.data || [{ planCode: "STANDARD_MONTHLY" }]);
+    if (Math.random() < 0.5) await call(vu, "GET /subscription-plans/:code", "read", "GET", `/subscription-plans/${plan.planCode}`);
+    const mine = await call(vu, "GET /subscriptions/me", "read", "GET", "/subscriptions/me");
+    if (mine.data?.subscription || Math.random() < 0.5) return;
+    if (vu.addressId === undefined) vu.addressId = (await call(vu, "GET /users/me/addresses", "read", "GET", "/users/me/addresses")).data?.[0]?.addressId || null;
+    if (!vu.addressId) return;
+    // 409 = this address is outside delivery, or the customer just became a member.
+    await call(vu, "GET /subscriptions/checkout/summary", "heavy", "GET", `/subscriptions/checkout/summary?planCode=${plan.planCode}&addressId=${vu.addressId}`, undefined, { expect: [200, 409] });
+    if (Math.random() < 0.1) await call(vu, "POST /subscriptions/checkout", "write", "POST", "/subscriptions/checkout", { planCode: plan.planCode, billingMethod: "link", addressId: vu.addressId }, { expect: [201, 409] });
+  }],
   [3, "11 Notifications", async (vu) => {
     await call(vu, "GET /notifications/unread-count", "read", "GET", "/notifications/unread-count");
     const inbox = await call(vu, "GET /notifications", "read", "GET", `/notifications?category=${pick(["all", "orders", "offers", "rewards", "account"])}&limit=20`);
