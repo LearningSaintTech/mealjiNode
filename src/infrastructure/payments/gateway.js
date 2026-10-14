@@ -86,6 +86,20 @@ export async function findRefund(gatewayPaymentId, refundId) {
   return hit ? { gatewayRefundId: hit.id, status: hit.status === "processed" ? "processed" : "processing" } : null;
 }
 
+/**
+ * The gateway customer that saved cards / UPI belong to (Razorpay needs one for
+ * checkout with `save: 1`). Razorpay returns the existing customer for the same
+ * contact (fail_existing: 0), so this is safe to call again.
+ */
+export async function createGatewayCustomer({ name, email, contact }) {
+  assertGatewayAllowed();
+  if (gatewayName() === "razorpay") {
+    const customer = await rzp("post", "/customers", { name: name || "Meal Ji customer", email: email || undefined, contact: contact || undefined, fail_existing: "0" });
+    return customer.id;
+  }
+  return testId("cust");
+}
+
 export async function fetchPayment(gatewayPaymentId) {
   if (gatewayName() === "razorpay") return rzp("get", `/payments/${gatewayPaymentId}`);
   return { id: gatewayPaymentId, status: "captured", method: "upi" };

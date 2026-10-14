@@ -52,6 +52,10 @@ export async function onPaymentCaptured(payment, { gatewayPaymentId = null, meth
     { new: true },
   );
   if (!claimed) return Payment.findById(payment._id).lean();
+  if (claimed.saveMethod) {
+    const { saveMethodFromPayment } = await import("./paymentMethod.service.js");
+    await saveMethodFromPayment(claimed.user, claimed, {}).catch((err) => logger.warn({ err: err.message, paymentId: String(claimed._id) }, "Payment method not saved"));
+  }
   await publishEventSafe("payment.captured", { paymentId: String(claimed._id), refType: claimed.refType, refId: String(claimed.refId), userId: String(claimed.user), amountPaise: claimed.amountPaise, method: claimed.method }, { aggregate: { type: "payment", id: claimed._id } });
   publish(`user:${claimed.user}`, "payment:status", { refType: claimed.refType, refId: String(claimed.refId), status: "captured" });
 

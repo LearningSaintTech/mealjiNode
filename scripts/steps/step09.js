@@ -174,5 +174,17 @@ export default async function step09(ctx) {
     const [a, b] = await Promise.all([me.call("POST", `/orders/${upi.order.orderId}/retry-payment`), me.call("POST", `/orders/${upi.order.orderId}/retry-payment`)]);
     return { ok: [a.status, b.status].sort().join() === "200,409", detail: `taps ${a.status}/${b.status} · “${(a.status === 409 ? a : b).message}”` };
   });
+  await s.run("09-16", "“Save this payment method”: checkout gets the customer, the method is saved after paying", "Payment: Save this payment method → Payment methods (Google Pay · UPI linked to …)", async () => {
+    await me.call("DELETE", "/cart");
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 2 });
+    const before = (await me.call("GET", "/payment-methods")).data.map((m) => m.paymentMethodId);
+    const placed = (await me.call("POST", "/orders", { paymentMethod: "upi", savePaymentMethod: true })).data;
+    if (placed?.order?.orderId) made.push(placed.order.orderId);
+    await me.call("POST", "/payments/test/complete", { gatewayOrderId: placed.payment.gatewayOrderId });
+    const added = (await me.call("GET", "/payment-methods")).data.filter((m) => !before.includes(m.paymentMethodId));
+    for (const m of added) await me.call("DELETE", `/payment-methods/${m.paymentMethodId}`);
+    const p = placed.payment;
+    return { ok: p.canSaveMethod && p.customerId && p.checkoutOptions?.customer_id === p.customerId && p.checkoutOptions.save === 1 && added.length === 1 && added[0].title && added[0].subtitle?.startsWith("UPI linked to"), detail: `customer ${p.customerId} · saved “${added[0]?.title} · ${added[0]?.subtitle}”` };
+  });
   return s;
 }

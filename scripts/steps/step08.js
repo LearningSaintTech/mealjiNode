@@ -247,5 +247,13 @@ export default async function step08(ctx) {
     await me.call("DELETE", "/cart");
     return { ok: on === true && off === false && bad.status === 422 && bad.message && bad.message !== "Validation failed" && bad.message !== "Invalid value", detail: `true → ${on}, "false" → ${off} · bad tip: ${bad.status} “${bad.message}”` };
   });
+  await s.run("08-28", "Pickup card: kitchen address and ready time", "Checkout (pickup): kitchen name, address, “Pickup ready in 15-20 mins”", async () => {
+    await me.call("DELETE", "/cart");
+    const papad = ((await me.call("GET", "/dishes?limit=100")).data.items || []).find((d) => d.name === "Masala Papad");
+    await me.call("POST", "/cart/items", { dishId: papad.dishId, qty: 2 });
+    const kitchen = (await me.call("GET", "/cart")).data.kitchen;
+    await me.call("DELETE", "/cart");
+    return { ok: kitchen?.name && kitchen.address?.fullAddress && kitchen.address.latitude != null && /^Pickup ready in \d+–\d+ mins$/.test(kitchen.pickupReadyLabel), detail: `${kitchen?.name} · ${kitchen?.address?.fullAddress} · ${kitchen?.pickupReadyLabel}` };
+  });
   return s;
 }

@@ -30,7 +30,7 @@ async function profileStats(userId) {
     import("../order/order.model.js"),
     import("../favorites/favorites.model.js"),
     import("../catalog/catalog.model.js"),
-    import("../payment/paymentMethod.routes.js"),
+    import("../payment/paymentMethod.service.js"),
   ]);
   const [orders, favoriteDishes, addresses, paymentMethods] = await Promise.all([
     Order.countDocuments({ user: userId, status: { $nin: ["payment_pending", "payment_failed"] } }),

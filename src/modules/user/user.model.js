@@ -53,6 +53,8 @@ const userSchema = new mongoose.Schema(
     dob: { type: String, default: null }, // YYYY-MM-DD
     dobMonthDay: { type: String, default: null }, // "MM-DD" from dob: the birthday job looks people up by it
     purgedAt: { type: Date, default: undefined }, // set when a closed account was anonymised
+    // Razorpay customer that saved cards / UPI belong to (and which gateway created it).
+    gatewayCustomer: { id: { type: String, default: null }, gateway: { type: String, default: null } },
     gender: { type: String, enum: ["male", "female", "other", "prefer_not", null], default: null },
     avatarUrl: { type: String, default: null, maxlength: 500 },
     preferences: {

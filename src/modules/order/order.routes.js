@@ -29,6 +29,7 @@ customerOrderRouter.post(
   body("usePoints").optional().isBoolean().toBoolean(true),
   body("scheduledFor").optional({ values: "null" }).isISO8601(),
   body("platform").optional().isIn(["android", "ios", "web"]),
+  body("savePaymentMethod").optional().isBoolean().toBoolean(true),
   validate,
   idempotent(),
   asyncHandler(async (req, res) => ok(res, await orders.placeOrder(req.auth.userId, req.body, { user: req.auth.user }), "Order created.", 201)),

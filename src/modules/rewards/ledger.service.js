@@ -64,8 +64,9 @@ export async function spendPoints({ userId, points, source, title, referenceType
   // Oldest lots first. Each lot is taken atomically, so the expiry job (or another
   // spend) working on the same lot can never write back a stale amount.
   let left = points;
-  for (let round = 0; left > 0 && round < 5; round += 1) {
-    const lots = await RewardTransaction.find({ user: userId, remaining: { $gt: 0 } }).sort({ expiresAt: 1, createdAt: 1 }).select("remaining").session(session || null).lean();
+  for (let round = 0; left > 0 && round < 20; round += 1) {
+    // Only the oldest lots are needed (a long history can hold hundreds with points left).
+    const lots = await RewardTransaction.find({ user: userId, remaining: { $gt: 0 } }).sort({ expiresAt: 1, createdAt: 1 }).select("remaining").limit(50).session(session || null).lean();
     if (!lots.length) break;
     for (const lot of lots) {
       if (left <= 0) break;

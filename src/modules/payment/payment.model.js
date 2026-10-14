@@ -17,6 +17,8 @@ const paymentSchema = new mongoose.Schema(
     gatewayLinkId: { type: String, default: null },
     gatewaySubscriptionId: { type: String, default: null },
     status: { type: String, enum: ["created", "captured", "failed", "refunded", "partially_refunded", "cancelled"], default: "created" },
+    // The customer ticked “Save this payment method”: saved automatically once captured.
+    saveMethod: { type: Boolean, default: false },
     failureReason: { type: String, default: null },
     feePaise: { type: Number, default: 0 },
     taxOnFeePaise: { type: Number, default: 0 },

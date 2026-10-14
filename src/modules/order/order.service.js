@@ -396,7 +396,7 @@ async function placeOrderLocked(userId, input, { platform = null, user: signedIn
   let paymentError = null;
   if (!cod) {
     try {
-      payment = await startPayment(order, user);
+      payment = await startPayment(order, user, { saveMethod: input.savePaymentMethod === true });
     } catch (err) {
       logger.error({ err: err.message, orderId: String(order._id) }, "Could not start payment");
       paymentError = { message: "We could not open the payment page. Tap Retry payment.", retryable: true };
@@ -410,8 +410,11 @@ async function placeOrderLocked(userId, input, { platform = null, user: signedIn
 }
 
 /** Creates (or re-creates for a retry) the gateway order for an unpaid order. */
-export async function startPayment(order, user) {
+export async function startPayment(order, user, { saveMethod = false } = {}) {
   const gateway = await createGatewayOrder({ amountPaise: order.bill.grandTotalPaise, receipt: order.orderNumber, notes: { orderId: String(order._id), orderNumber: order.orderNumber } });
+  // Saved cards / UPI live under a gateway customer (created once per Meal Ji customer).
+  const { ensureGatewayCustomer } = await import("../payment/paymentMethod.service.js");
+  const customerId = user ? await ensureGatewayCustomer(user) : null;
   const payment = await Payment.create({
     user: order.user,
     refType: "order",
@@ -421,6 +424,7 @@ export async function startPayment(order, user) {
     method: order.paymentMethod,
     gateway: gateway.gateway,
     gatewayOrderId: gateway.gatewayOrderId,
+    saveMethod: Boolean(saveMethod && customerId),
   });
   return {
     paymentId: String(payment._id),
@@ -430,7 +434,12 @@ export async function startPayment(order, user) {
     amountPaise: gateway.amountPaise,
     currency: "INR",
     prefill: { name: user?.name || null, contact: user?.phoneNumber || null, email: user?.email || null },
-    description: `MealJi order ${order.orderNumber}`,
+    description: `Meal Ji order ${order.orderNumber}`,
+    // Pass to Razorpay checkout: `customer_id` always (shows saved methods), plus `save: 1`
+    // when the customer ticked “Save this payment method” (sent as savePaymentMethod).
+    customerId,
+    checkoutOptions: customerId ? { customer_id: customerId, ...(saveMethod ? { save: 1 } : {}) } : {},
+    canSaveMethod: Boolean(customerId),
   };
 }
 

@@ -342,7 +342,23 @@ export async function buildCart(userId, overrides = {}, { user: loaded = null, c
 
   return {
     cartId: String(cart._id),
-    kitchen: { kitchenId: String(kitchen._id), name: kitchen.name, isOpenNow: state.canOrder, message: state.message },
+    kitchen: {
+      kitchenId: String(kitchen._id),
+      name: kitchen.name,
+      isOpenNow: state.canOrder,
+      message: state.message,
+      // Pickup card on Checkout: where to collect, and when it is ready.
+      address: {
+        line: kitchen.addressLine || null,
+        area: kitchen.area || null,
+        city: kitchen.city || null,
+        pincode: kitchen.postalCode || null,
+        fullAddress: [kitchen.addressLine, kitchen.area, kitchen.city, kitchen.postalCode].filter(Boolean).join(", "),
+        latitude: kitchen.latitude ?? null,
+        longitude: kitchen.longitude ?? null,
+      },
+      pickupReadyLabel: `Pickup ready in ${priced.pricingValues?.pickupReadyMinutes || 15}–${(priced.pricingValues?.pickupReadyMinutes || 15) + 5} mins`,
+    },
     items: lines.map((line) => ({ ...line, optionsText: optionsText(line) })),
     itemCount: orderable.reduce((sum, line) => sum + line.qty, 0),
     coupon,
