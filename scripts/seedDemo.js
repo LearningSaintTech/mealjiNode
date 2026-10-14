@@ -647,20 +647,40 @@ async function seedThemes(img) {
 // ------------------------------------------------------------------ support & loyalty
 
 async function seedSupportAndRewards(kitchens, img) {
-  for (const [index, category] of (await support.listCategories({ all: true })).entries()) {
-    await support.saveCategory(category.key, { name: category.name, icon: category.icon, issueTypes: category.issueTypes, context: category.context || "both", slaHours: category.key === "order" ? 2 : category.key === "payment" ? 12 : 24, sortOrder: index, isActive: true });
+  // The app's “How can we help you?” tiles (My Order, Payments, Offers & Rewards, Account) and Meal Ji Plus.
+  const slaHours = { order: 2, payment: 12, rewards: 24, account: 24, subscription: 12, other: 24 };
+  for (const [index, category] of support.DEFAULT_CATEGORIES.entries()) {
+    await support.saveCategory(category.key, { ...category, slaHours: slaHours[category.key] || 24, sortOrder: index, isActive: true });
   }
+  // Support contacts shown on both Help screens (Live Chat / Call Us / Email Us).
+  {
+    const { resolveSetting, updateSetting } = await import("../src/modules/settings/settings.service.js");
+    const current = (await resolveSetting("support")).values;
+    if (!current.phone || !current.email || !current.whatsapp) {
+      const req = { auth: { userId: null, role: "superadmin", user: { name: "Seed" } }, headers: {}, ip: "127.0.0.1" };
+      await updateSetting("support", { values: { phone: "+91 1800 123 4567", phoneHours: "9 AM – 11 PM", email: "support@mealji.com", emailSla: "Within 24 hours", whatsapp: "8047182100", chatEnabled: true, chatEtaMinutes: 2 }, reason: "Demo: support contacts as in the app" }, { req });
+    }
+  }
+  // The app's six questions first (Help & Support), then the rest; Meal Ji Plus questions on its own screen.
   const faqs = [
+    ["order", "How can I track my order?", "Open Orders and tap your current order. You can follow it live — from the kitchen to your door — and we send an update at every step."],
+    ["order", "Can I cancel or modify my order?", "You can cancel from the order screen until the kitchen accepts it. After that, or to change items, contact us from Help & Support and we'll do our best."],
+    ["payment", "How do I get a refund?", "Refunds for cancelled or wrong orders start automatically. They reach UPI within 1–3 working days and cards within 5–7 working days."],
+    ["payment", "What payment methods are accepted?", "UPI, credit and debit cards, net banking, wallets (Paytm, PhonePe, GPay) and cash on delivery."],
+    ["rewards", "How do Meal Ji Points work?", "You earn 50 points for every delivered order, 100 for rating it, 200 when a friend you invite orders, and 250 on your birthday. Swap points for free dishes on the Rewards tab."],
+    ["subscription", "What is Meal Ji Plus?", "Meal Ji Plus is a monthly meal plan: a fresh meal every day, free delivery and member-only rewards. You can pause or change it any time."],
     ["order", "Where is my order?", "Open Orders and tap your order to track it live. You'll also get updates when it's accepted, picked up and delivered."],
-    ["order", "Can I cancel my order?", "You can cancel before the kitchen accepts it. After that, contact us from the order screen and we'll help."],
-    ["payment", "When will I get my refund?", "Refunds reach UPI within 1-3 working days and cards within 5-7 working days."],
     ["payment", "Is cash on delivery available?", "Yes, for orders up to the limit shown at checkout."],
     ["account", "How do I change my phone number?", "Go to Profile, then Phone number, and verify the new number with an OTP."],
     ["subscription", "How do I pause Meal Ji Plus?", "Open Meal Ji Plus, tap Manage, then Pause. You can pause for 1 to 3 months.", "subscription"],
     ["subscription", "What if I forget to pick my meal?", "If you don't choose by the cutoff, we send the chef's pick for the day, so you never miss a meal.", "subscription"],
+    ["subscription", "How does billing work?", "Your plan renews automatically on the billing date shown in Meal Ji Plus. You get a reminder before every renewal and a GST invoice after.", "subscription"],
   ];
+  // Older wording of two questions (replaced by the app's).
+  await Faq.deleteMany({ question: { $in: ["Can I cancel my order?", "When will I get my refund?"] } });
   for (const [index, [category, question, answer, context]] of faqs.entries()) {
-    if (!(await Faq.exists({ question }))) await support.saveFaq(null, { category, question, answer, context: context || "default", sortOrder: index, isActive: true });
+    const found = await Faq.findOne({ question }).lean();
+    await support.saveFaq(found ? String(found._id) : null, { category, question, answer, context: context || "default", sortOrder: index, isActive: true });
   }
   const canned = [
     ["Apology – late delivery", "We're sorry your order arrived late. We've shared this with the kitchen and our delivery team so it doesn't happen again.", "order"],

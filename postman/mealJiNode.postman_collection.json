@@ -7276,10 +7276,10 @@
 		},
 		{
 			"name": "Step 13 · Help and support",
-			"description": "Release step 13 for the app. Screens: Help & support, Support. Integrate after step 12.",
+			"description": "Release step 13. Screens: Help & Support (Profile → Help & Support, Tracking → Help), Meal Ji Plus → Help & Support, Report an Issue. Integrate after step 12.\n\nBoth Help screens are drawn from the API: contact cards (`/support/config`), category tiles (`/support/categories`) and questions (`/support/faqs`). “Report an Issue” raises a ticket; replies from the support team arrive in the ticket and in Notifications (Account tab). Live Chat opens WhatsApp.",
 			"item": [
 				{
-					"name": "S13.1 · GET /support/config",
+					"name": "S13.1 · Contact cards and hours",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -7288,14 +7288,65 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/config",
-						"description": "GET /api/v1/support/config. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/support/config?context=default",
+						"description": "Authenticated. `context`: default (Help & Support) or subscription (Meal Ji Plus → Help & Support).\n- `contactMethods`: the cards in order, in the app's wording — default: Live Chat / Call Us / Email Us with `buttonLabel` (Start Chat, Call Now, Send Email); subscription: FAQs / Chat with us (`badge` “≈ 2 min”) / Call support / Email support. Each has `key`, `title`, `subtitle` (may contain a line break), `icon`, `action` (tel: / mailto:) and `available`.\n- `hoursLabel`: “Available daily • 9 AM – 11 PM IST”. Raw values (`phone`, `email`, `whatsapp`, `chatEtaMinutes`, `grievanceOfficer`…) are also there. All are edited in the admin console (Settings → Support contacts)."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Help & Support",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/config"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Support config.\",\n  \"data\": {\n    \"phone\": \"+91 1800 123 4567\",\n    \"phoneHours\": \"9 AM – 11 PM\",\n    \"email\": \"support@mealji.com\",\n    \"emailSla\": \"Within 24 hours\",\n    \"whatsapp\": \"8047182100\",\n    \"chatEnabled\": true,\n    \"chatEtaMinutes\": 2,\n    \"grievanceOfficer\": \"\",\n    \"context\": \"default\",\n    \"hoursLabel\": \"Available daily • 9 AM – 11 PM IST\",\n    \"contactMethods\": [\n      {\n        \"key\": \"chat\",\n        \"icon\": \"chat\",\n        \"available\": true,\n        \"badge\": \"≈ 2 min\",\n        \"title\": \"Live Chat\",\n        \"subtitle\": \"Chat with our team\",\n        \"buttonLabel\": \"Start Chat\"\n      },\n      {\n        \"key\": \"call\",\n        \"icon\": \"phone\",\n        \"available\": true,\n        \"action\": \"tel:+9118001234567\",\n        \"title\": \"Call Us\",\n        \"subtitle\": \"+91 1800 123 4567\\n(9 AM – 11 PM)\",\n        \"buttonLabel\": \"Call Now\"\n      },\n      {\n        \"key\": \"email\",\n        \"icon\": \"mail\",\n        \"available\": true,\n        \"action\": \"mailto:support@mealji.com\",\n        \"title\": \"Email Us\",\n        \"subtitle\": \"support@mealji.com\\nWe usually reply within 24 hours\",\n        \"buttonLabel\": \"Send Email\"\n      }\n    ]\n  }\n}"
+						},
+						{
+							"name": "Meal Ji Plus help",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/config?context=subscription"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Support config.\",\n  \"data\": {\n    \"phone\": \"+91 1800 123 4567\",\n    \"phoneHours\": \"9 AM – 11 PM\",\n    \"email\": \"support@mealji.com\",\n    \"emailSla\": \"Within 24 hours\",\n    \"whatsapp\": \"8047182100\",\n    \"chatEnabled\": true,\n    \"chatEtaMinutes\": 2,\n    \"grievanceOfficer\": \"\",\n    \"context\": \"subscription\",\n    \"hoursLabel\": \"Available daily • 9 AM – 11 PM IST\",\n    \"contactMethods\": [\n      {\n        \"key\": \"faqs\",\n        \"icon\": \"help-circle\",\n        \"available\": true,\n        \"title\": \"FAQs\",\n        \"subtitle\": \"Plans, billing, pauses and deliveries\",\n        \"buttonLabel\": null\n      },\n      {\n        \"key\": \"chat\",\n        \"icon\": \"chat\",\n        \"available\": true,\n        \"badge\": \"≈ 2 min\",\n        \"title\": \"Chat with us\",\n        \"subtitle\": \"Fastest help from our subscription team\",\n        \"buttonLabel\": null\n      },\n      {\n        \"key\": \"call\",\n        \"icon\": \"phone\",\n        \"available\": true,\n        \"action\": \"tel:+9118001234567\",\n        \"title\": \"Call support\",\n        \"subtitle\": \"+91 1800 123 4567\",\n        \"buttonLabel\": null\n      },\n      {\n        \"key\": \"email\",\n        \"icon\": \"mail\",\n        \"available\": true,\n        \"action\": \"mailto:support@mealji.com\",\n        \"title\": \"Email support\",\n        \"subtitle\": \"support@mealji.com\",\n        \"buttonLabel\": null\n      }\n    ]\n  }\n}"
+						}
+					],
 					"id": "e8e1bed9-e004-4db1-8500-4ade6c24e6f9"
 				},
 				{
-					"name": "S13.2 · GET /support/categories",
+					"name": "S13.2 · Categories",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -7304,14 +7355,65 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/categories",
-						"description": "GET /api/v1/support/categories. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/support/categories?context=default",
+						"description": "Authenticated. “How can we help you?” tiles: `key`, `name` (My Order, Payments, Offers & Rewards, Account), `subtitle` (two lines, e.g. “Track, modify or\\ncancel”), `icon` (box, card, gift, user) and `issueTypes` (the choices on Report an Issue). `context=subscription` gives the Meal Ji Plus list."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Help & Support",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/categories"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Categories.\",\n  \"data\": [\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d29\",\n      \"key\": \"order\",\n      \"name\": \"My Order\",\n      \"subtitle\": \"Track, modify or\\ncancel\",\n      \"icon\": \"box\",\n      \"issueTypes\": [\n        \"Missing item\",\n        \"Wrong item\",\n        \"Quality\",\n        \"Late delivery\",\n        \"Order not received\",\n        \"Cancel or change\"\n      ],\n      \"context\": \"default\",\n      \"slaHours\": 2,\n      \"sortOrder\": 0,\n      \"isActive\": true\n    },\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d2a\",\n      \"key\": \"payment\",\n      \"name\": \"Payments\",\n      \"subtitle\": \"UPI, cards, wallets,\\nrefunds\",\n      \"icon\": \"card\",\n      \"issueTypes\": [\n        \"Payment failed\",\n        \"Refund status\",\n        \"Charged twice\"\n      ],\n      \"context\": \"both\",\n      \"slaHours\": 12,\n      \"sortOrder\": 1,\n      \"isActive\": true\n    },\n    {\n      \"categoryId\": \"6acf1cff5762a1116757216b\",\n      \"key\": \"rewards\",\n      \"name\": \"Offers & Rewards\",\n      \"subtitle\": \"Coupons, points,\\nMeal Ji Plus\",\n      \"icon\": \"gift\",\n      \"issueTypes\": [\n        \"Coupon not applied\",\n        \"Points missing\",\n        \"Reward code\"\n      ],\n      \"context\": \"default\",\n      \"slaHours\": 24,\n      \"sortOrder\": 2,\n      \"isActive\": true\n    },\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d2c\",\n      \"key\": \"account\",\n      \"name\": \"Account\",\n      \"subtitle\": \"Profile, addresses,\\nsettings\",\n      \"icon\": \"user\",\n      \"issueTypes\": [\n        \"Login\",\n        \"Phone change\",\n        \"Address\",\n        \"Delete account\"\n      ],\n      \"context\": \"both\",\n      \"slaHours\": 24,\n      \"sortOrder\": 3,\n      \"isActive\": true\n    },\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d2d\",\n      \"key\": \"other\",\n      \"name\": \"Something else\",\n      \"subtitle\": \"Anything we missed\",\n      \"icon\": \"help-circle\",\n      \"issueTypes\": [],\n      \"context\": \"both\",\n      \"slaHours\": 24,\n      \"sortOrder\": 5,\n      \"isActive\": true\n    }\n  ]\n}"
+						},
+						{
+							"name": "Meal Ji Plus",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/categories?context=subscription"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Categories.\",\n  \"data\": [\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d2a\",\n      \"key\": \"payment\",\n      \"name\": \"Payments\",\n      \"subtitle\": \"UPI, cards, wallets,\\nrefunds\",\n      \"icon\": \"card\",\n      \"issueTypes\": [\n        \"Payment failed\",\n        \"Refund status\",\n        \"Charged twice\"\n      ],\n      \"context\": \"both\",\n      \"slaHours\": 12,\n      \"sortOrder\": 1,\n      \"isActive\": true\n    },\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d2c\",\n      \"key\": \"account\",\n      \"name\": \"Account\",\n      \"subtitle\": \"Profile, addresses,\\nsettings\",\n      \"icon\": \"user\",\n      \"issueTypes\": [\n        \"Login\",\n        \"Phone change\",\n        \"Address\",\n        \"Delete account\"\n      ],\n      \"context\": \"both\",\n      \"slaHours\": 24,\n      \"sortOrder\": 3,\n      \"isActive\": true\n    },\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d2b\",\n      \"key\": \"subscription\",\n      \"name\": \"Meal Ji Plus\",\n      \"subtitle\": \"Plans, billing, pauses\\nand deliveries\",\n      \"icon\": \"crown\",\n      \"issueTypes\": [\n        \"Meal not delivered\",\n        \"Change plan\",\n        \"Billing\",\n        \"Pause or cancel\"\n      ],\n      \"context\": \"subscription\",\n      \"slaHours\": 12,\n      \"sortOrder\": 4,\n      \"isActive\": true\n    },\n    {\n      \"categoryId\": \"6acc8be194e2889d038e2d2d\",\n      \"key\": \"other\",\n      \"name\": \"Something else\",\n      \"subtitle\": \"Anything we missed\",\n      \"icon\": \"help-circle\",\n      \"issueTypes\": [],\n      \"context\": \"both\",\n      \"slaHours\": 24,\n      \"sortOrder\": 5,\n      \"isActive\": true\n    }\n  ]\n}"
+						}
+					],
 					"id": "1601fb78-2e0a-48e9-8ab7-dfc171a5c9cb"
 				},
 				{
-					"name": "S13.3 · GET /support/faqs",
+					"name": "S13.3 · FAQs (list, search, category)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -7320,43 +7422,157 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/faqs",
-						"description": "GET /api/v1/support/faqs. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/support/faqs?limit=6",
+						"description": "Authenticated. “Frequently Asked Questions”: `limit=6` for the Help screen, no limit for View All (the app's questions come first).\n- `q`: the search box (“order, refund, payment…”, up to 60 characters); `category`: a tile's questions; `context=subscription`: Meal Ji Plus questions.\nEach: `faqId`, `question`, `answer`, `category`. Nothing found is an empty list."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Help screen (6)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/faqs?limit=6"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"FAQs.\",\n  \"data\": [\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde1a\",\n      \"category\": \"order\",\n      \"question\": \"How can I track my order?\",\n      \"answer\": \"Open Orders and tap your current order. You can follow it live — from the kitchen to your door — and we send an update at every step.\",\n      \"context\": \"default\",\n      \"sortOrder\": 0,\n      \"isActive\": true,\n      \"views\": 1\n    },\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde1d\",\n      \"category\": \"order\",\n      \"question\": \"Can I cancel or modify my order?\",\n      \"answer\": \"You can cancel from the order screen until the kitchen accepts it. After that, or to change items, contact us from Help & Support and we'll do our best.\",\n      \"context\": \"default\",\n      \"sortOrder\": 1,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde20\",\n      \"category\": \"payment\",\n      \"question\": \"How do I get a refund?\",\n      \"answer\": \"Refunds for cancelled or wrong orders start automatically. They reach UPI within 1–3 working days and cards within 5–7 working days.\",\n      \"context\": \"default\",\n      \"sortOrder\": 2,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde23\",\n      \"category\": \"payment\",\n      \"question\": \"What payment methods are accepted?\",\n      \"answer\": \"UPI, credit and debit cards, net banking, wallets (Paytm, PhonePe, GPay) and cash on delivery.\",\n      \"context\": \"default\",\n      \"sortOrder\": 3,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde26\",\n      \"category\": \"rewards\",\n      \"question\": \"How do Meal Ji Points work?\",\n      \"answer\": \"You earn 50 points for every delivered order, 100 for rating it, 200 when a friend you invite orders, and 250 on your birthday. Swap points for free dishes on the Rewards tab.\",\n      \"context\": \"default\",\n      \"sortOrder\": 4,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde29\",\n      \"category\": \"subscription\",\n      \"question\": \"What is Meal Ji Plus?\",\n      \"answer\": \"Meal Ji Plus is a monthly meal plan: a fresh meal every day, free delivery and member-only rewards. You can pause or change it any time.\",\n      \"context\": \"default\",\n      \"sortOrder\": 5,\n      \"isActive\": true,\n      \"views\": 0\n    }\n  ]\n}"
+						},
+						{
+							"name": "Search “refund”",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/faqs?q=refund"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"FAQs.\",\n  \"data\": [\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde20\",\n      \"category\": \"payment\",\n      \"question\": \"How do I get a refund?\",\n      \"answer\": \"Refunds for cancelled or wrong orders start automatically. They reach UPI within 1–3 working days and cards within 5–7 working days.\",\n      \"context\": \"default\",\n      \"sortOrder\": 2,\n      \"isActive\": true,\n      \"views\": 0\n    }\n  ]\n}"
+						},
+						{
+							"name": "Payments tile",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/faqs?category=payment"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"FAQs.\",\n  \"data\": [\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde20\",\n      \"category\": \"payment\",\n      \"question\": \"How do I get a refund?\",\n      \"answer\": \"Refunds for cancelled or wrong orders start automatically. They reach UPI within 1–3 working days and cards within 5–7 working days.\",\n      \"context\": \"default\",\n      \"sortOrder\": 2,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde23\",\n      \"category\": \"payment\",\n      \"question\": \"What payment methods are accepted?\",\n      \"answer\": \"UPI, credit and debit cards, net banking, wallets (Paytm, PhonePe, GPay) and cash on delivery.\",\n      \"context\": \"default\",\n      \"sortOrder\": 3,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acc8be1189320566a1fae06\",\n      \"category\": \"payment\",\n      \"question\": \"Is cash on delivery available?\",\n      \"answer\": \"Yes, for orders up to the limit shown at checkout.\",\n      \"context\": \"default\",\n      \"sortOrder\": 7,\n      \"isActive\": true,\n      \"views\": 0\n    }\n  ]\n}"
+						},
+						{
+							"name": "Meal Ji Plus",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/faqs?context=subscription"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"FAQs.\",\n  \"data\": [\n    {\n      \"faqId\": \"6acc8be1189320566a1fae0c\",\n      \"category\": \"subscription\",\n      \"question\": \"How do I pause Meal Ji Plus?\",\n      \"answer\": \"Open Meal Ji Plus, tap Manage, then Pause. You can pause for 1 to 3 months.\",\n      \"context\": \"subscription\",\n      \"sortOrder\": 9,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acc8be1189320566a1fae0f\",\n      \"category\": \"subscription\",\n      \"question\": \"What if I forget to pick my meal?\",\n      \"answer\": \"If you don't choose by the cutoff, we send the chef's pick for the day, so you never miss a meal.\",\n      \"context\": \"subscription\",\n      \"sortOrder\": 10,\n      \"isActive\": true,\n      \"views\": 0\n    },\n    {\n      \"faqId\": \"6acf1cffb87c9d44d1bdde36\",\n      \"category\": \"subscription\",\n      \"question\": \"How does billing work?\",\n      \"answer\": \"Your plan renews automatically on the billing date shown in Meal Ji Plus. You get a reminder before every renewal and a GST invoice after.\",\n      \"context\": \"subscription\",\n      \"sortOrder\": 11,\n      \"isActive\": true,\n      \"views\": 0\n    }\n  ]\n}"
+						}
+					],
 					"id": "680fbf57-3d44-4cd3-acfd-5c8495def008"
 				},
 				{
-					"name": "S13.4 · POST /support/faqs/:id/view",
+					"name": "S13.4 · Question opened",
 					"request": {
 						"method": "POST",
 						"header": [
 							{
 								"key": "x-device-id",
 								"value": "{{deviceId}}"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/faqs/{{id}}/view",
-						"description": "POST /api/v1/support/faqs/:id/view. See the API reference in the backend README for permissions and fields.",
-						"body": {
-							"mode": "raw",
-							"raw": "{}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						}
+						"url": "{{baseUrl}}/api/v1/support/faqs/{{faqId}}/view",
+						"description": "Authenticated. Call when a question is expanded (counts views for the support team). Unknown id → 404."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Counted",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/faqs/{{faqId}}/view"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Tracked.\",\n  \"data\": {\n    \"tracked\": true\n  }\n}"
+						}
+					],
 					"id": "89067c80-09a8-424a-b26f-091cc3dcf9ef"
 				},
 				{
-					"name": "S13.5 · POST /support/tickets",
+					"name": "S13.5 · Report an issue (ticket)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -7370,10 +7586,10 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/support/tickets",
-						"description": "POST /api/v1/support/tickets. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated. “Report an Issue” / contact form: `category` (a tile key), `issueType` (one of the category's `issueTypes`), `orderId` (from the order or Tracking screen) or `subscriptionId` (Meal Ji Plus), `description` (5–2000), optional `subject`, `attachments` (up to 5 file URLs from POST /uploads/presign with purpose “ticket”).\nReturns the ticket: `number` (T-100123), `statusLabel` (Open), `categoryName`, `orderNumber`, `replyByLabel` (“We'll reply within 2 hours”). Sending the same issue again within 2 minutes (double tap) returns the same ticket with 200. Errors: 404 someone else's order / plan, 422 “Choose a category”, “Choose an issue from the list”, “Describe the issue (at least 5 characters)”.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"category\": \"order\",\n  \"issueType\": \"Late delivery\",\n  \"orderId\": \"{{orderId}}\",\n  \"description\": \"My order arrived 40 minutes late.\"\n}",
+							"raw": "{\n  \"category\": \"order\",\n  \"issueType\": \"Missing item\",\n  \"orderId\": \"{{orderId}}\",\n  \"description\": \"The raita was missing from my order.\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -7381,11 +7597,138 @@
 							}
 						}
 					},
-					"response": [],
-					"id": "93cc30d2-62b3-4e89-a9bc-7b0fbbd91538"
+					"response": [
+						{
+							"name": "Created (201)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"category\": \"order\",\n  \"issueType\": \"Missing item\",\n  \"orderId\": \"6acc8bef189320566a1fbb28\",\n  \"description\": \"The raita was missing from my order.\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Ticket created. We'll get back to you soon.\",\n  \"data\": {\n    \"ticketId\": \"6acf1d3e8d3bb16ae3ff6471\",\n    \"number\": \"T-100012\",\n    \"category\": \"order\",\n    \"categoryName\": \"My Order\",\n    \"issueType\": \"Missing item\",\n    \"subject\": null,\n    \"description\": \"The raita was missing from my order.\",\n    \"attachments\": [],\n    \"orderId\": \"6acc8bef189320566a1fbb28\",\n    \"orderNumber\": \"MJ-10037\",\n    \"subscriptionId\": null,\n    \"status\": \"open\",\n    \"statusLabel\": \"Open\",\n    \"timeLabel\": \"Today, 11:42 AM\",\n    \"replyByLabel\": \"We'll reply within 2 hours\",\n    \"canReply\": true,\n    \"canRate\": false,\n    \"slaDueAt\": \"2026-10-14T08:12:14.027Z\",\n    \"csat\": null,\n    \"createdAt\": \"2026-10-14T06:12:14.029Z\",\n    \"lastMessageAt\": \"2026-10-14T06:12:14.028Z\",\n    \"resolvedAt\": null\n  }\n}"
+						},
+						{
+							"name": "Same request again (200)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"category\": \"order\",\n  \"issueType\": \"Missing item\",\n  \"orderId\": \"6acc8bef189320566a1fbb28\",\n  \"description\": \"The raita was missing from my order.\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"We already have this request.\",\n  \"data\": {\n    \"ticketId\": \"6acf1d3e8d3bb16ae3ff6471\",\n    \"number\": \"T-100012\",\n    \"category\": \"order\",\n    \"categoryName\": \"My Order\",\n    \"issueType\": \"Missing item\",\n    \"subject\": null,\n    \"description\": \"The raita was missing from my order.\",\n    \"attachments\": [],\n    \"orderId\": \"6acc8bef189320566a1fbb28\",\n    \"orderNumber\": \"MJ-10037\",\n    \"subscriptionId\": null,\n    \"status\": \"open\",\n    \"statusLabel\": \"Open\",\n    \"timeLabel\": \"Today, 11:42 AM\",\n    \"replyByLabel\": \"We'll reply within 2 hours\",\n    \"canReply\": true,\n    \"canRate\": false,\n    \"slaDueAt\": \"2026-10-14T08:12:14.027Z\",\n    \"csat\": null,\n    \"createdAt\": \"2026-10-14T06:12:14.029Z\",\n    \"lastMessageAt\": \"2026-10-14T06:12:14.028Z\",\n    \"resolvedAt\": null,\n    \"duplicate\": true\n  }\n}"
+						},
+						{
+							"name": "Issue not in the list (422)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"category\": \"order\",\n  \"issueType\": \"Not a real issue\",\n  \"description\": \"Something went wrong here.\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Unprocessable Entity",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Choose an issue from the list\",\n  \"errors\": [\n    {\n      \"field\": \"issueType\",\n      \"message\": \"Choose an issue from the list\"\n    }\n  ]\n}"
+						}
+					],
+					"id": "93cc30d2-62b3-4e89-a9bc-7b0fbbd91538",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const d = pm.response.json().data;",
+									"if (d && d.ticketId) pm.collectionVariables.set('ticketId', d.ticketId);"
+								]
+							}
+						}
+					]
 				},
 				{
-					"name": "S13.6 · GET /support/tickets",
+					"name": "S13.6 · My tickets",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -7394,14 +7737,40 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/tickets",
-						"description": "GET /api/v1/support/tickets. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/support/tickets?page=1&limit=10",
+						"description": "Authenticated. Newest first: `number`, `categoryName`, `issueType`, `statusLabel` (Open / In progress / Waiting for your reply / Resolved / Closed), `timeLabel` (“Today, 3:40 PM”), `orderNumber`, `canReply`, `canRate`; `hasMore` for paging."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Tickets",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets?page=1&limit=10"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Tickets.\",\n  \"data\": {\n    \"items\": [\n      {\n        \"ticketId\": \"6acf1d3e8d3bb16ae3ff6471\",\n        \"number\": \"T-100012\",\n        \"category\": \"order\",\n        \"categoryName\": \"My Order\",\n        \"issueType\": \"Missing item\",\n        \"subject\": null,\n        \"description\": \"The raita was missing from my order.\",\n        \"attachments\": [],\n        \"orderId\": \"6acc8bef189320566a1fbb28\",\n        \"orderNumber\": \"MJ-10037\",\n        \"subscriptionId\": null,\n        \"status\": \"in_progress\",\n        \"statusLabel\": \"In progress\",\n        \"timeLabel\": \"Today, 11:42 AM\",\n        \"replyByLabel\": \"We'll reply within 2 hours\",\n        \"canReply\": true,\n        \"canRate\": false,\n        \"slaDueAt\": \"2026-10-14T08:12:14.027Z\",\n        \"csat\": null,\n        \"createdAt\": \"2026-10-14T06:12:14.029Z\",\n        \"lastMessageAt\": \"2026-10-14T06:12:14.129Z\",\n        \"resolvedAt\": null\n      },\n      {\n        \"ticketId\": \"6acc8bf9189320566a1fc323\",\n        \"number\": \"T-100003\",\n        \"category\": \"payment\",\n        \"categoryName\": \"Payments\",\n        \"issueType\": \"Charged twice\",\n        \"subject\": \"Charged twice for one order\",\n        \"description\": \"I see two debits of the same amount on my UPI app for one order.\",\n        \"attachments\": [],\n        \"orderId\": \"6acc8bef189320566a1fbb28\",\n        \"orderNumber\": \"MJ-10037\",\n        \"subscriptionId\": null,\n        \"status\": \"open\",\n        \"statusLabel\": \"Open\",\n        \"timeLabel\": \"12 Oct\",\n        \"replyByLabel\": \"We'll reply within 12 hours\",\n        \"canReply\": true,\n        \"canRate\": false,\n        \"slaDueAt\": \"2026-10-12T19:27:53.124Z\",\n        \"csat\": null,\n        \"createdAt\": \"2026-10-12T07:27:53.126Z\",\n        \"lastMessageAt\": \"2026-10-12T07:27:53.125Z\",\n        \"resolvedAt\": null\n      }\n    ],\n    \"page\": 1,\n    \"limit\": 10,\n    \"total\": 2,\n    \"hasMore\": false\n  }\n}"
+						}
+					],
 					"id": "6347f3f5-d0de-4b85-8639-e87896b4c707"
 				},
 				{
-					"name": "S13.7 · GET /support/tickets/:id",
+					"name": "S13.7 · One ticket (conversation)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -7410,14 +7779,40 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/tickets/{{id}}",
-						"description": "GET /api/v1/support/tickets/:id. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}",
+						"description": "Authenticated. The ticket plus `messages` [{ `body`, `isMine` (left/right bubble), `author.name` (“Meal Ji Support” for the team), `timeLabel`, `attachments` (1-hour links) }]. Someone else's ticket → 404."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Ticket",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Ticket.\",\n  \"data\": {\n    \"ticketId\": \"6acf1d3e8d3bb16ae3ff6471\",\n    \"number\": \"T-100012\",\n    \"category\": \"order\",\n    \"categoryName\": \"My Order\",\n    \"issueType\": \"Missing item\",\n    \"subject\": null,\n    \"description\": \"The raita was missing from my order.\",\n    \"attachments\": [],\n    \"orderId\": \"6acc8bef189320566a1fbb28\",\n    \"orderNumber\": \"MJ-10037\",\n    \"subscriptionId\": null,\n    \"status\": \"in_progress\",\n    \"statusLabel\": \"In progress\",\n    \"timeLabel\": \"Today, 11:42 AM\",\n    \"replyByLabel\": \"We'll reply within 2 hours\",\n    \"canReply\": true,\n    \"canRate\": false,\n    \"slaDueAt\": \"2026-10-14T08:12:14.027Z\",\n    \"csat\": null,\n    \"createdAt\": \"2026-10-14T06:12:14.029Z\",\n    \"lastMessageAt\": \"2026-10-14T06:12:14.129Z\",\n    \"resolvedAt\": null,\n    \"messages\": [\n      {\n        \"messageId\": \"6acf1d3e8d3bb16ae3ff6473\",\n        \"author\": {\n          \"name\": null,\n          \"role\": \"customer\"\n        },\n        \"isMine\": true,\n        \"body\": \"The raita was missing from my order.\",\n        \"attachments\": [],\n        \"internal\": false,\n        \"timeLabel\": \"Today, 11:42 AM\",\n        \"createdAt\": \"2026-10-14T06:12:14.034Z\"\n      },\n      {\n        \"messageId\": \"6acf1d3e8d3bb16ae3ff6481\",\n        \"author\": {\n          \"name\": \"Meal Ji Support\",\n          \"role\": \"agent\"\n        },\n        \"isMine\": false,\n        \"body\": \"Sorry about that! We've refunded the raita.\",\n        \"attachments\": [],\n        \"internal\": false,\n        \"timeLabel\": \"Today, 11:42 AM\",\n        \"createdAt\": \"2026-10-14T06:12:14.126Z\"\n      }\n    ]\n  }\n}"
+						}
+					],
 					"id": "481f57f5-6354-4ba8-952a-a9922d70e4ad"
 				},
 				{
-					"name": "S13.8 · POST /support/tickets/:id/messages",
+					"name": "S13.8 · Reply",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -7430,11 +7825,11 @@
 								"value": "application/json"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/tickets/{{id}}/messages",
-						"description": "POST /api/v1/support/tickets/:id/messages. See the API reference in the backend README for permissions and fields.",
+						"url": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}/messages",
+						"description": "Authenticated. `body` (1–4000), optional `attachments`. A reply re-opens a resolved ticket; a closed ticket → 409 “This ticket is closed. Open a new one.”",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"body\": \"Any update?\"\n}",
+							"raw": "{\n  \"body\": \"Thank you!\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -7442,11 +7837,50 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Sent (201)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}/messages"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"body\": \"Thank you!\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Message sent.\",\n  \"data\": {\n    \"messageId\": \"6acf1d3e8d3bb16ae3ff6492\",\n    \"author\": {\n      \"name\": \"Rohan Gupta\",\n      \"role\": \"customer\"\n    },\n    \"isMine\": true,\n    \"body\": \"Thank you!\",\n    \"attachments\": [],\n    \"internal\": false,\n    \"timeLabel\": \"Today, 11:42 AM\",\n    \"createdAt\": \"2026-10-14T06:12:14.189Z\"\n  }\n}"
+						}
+					],
 					"id": "497eba01-ae7e-4111-b1eb-d30cf2dd2ec9"
 				},
 				{
-					"name": "S13.9 · POST /support/tickets/:id/csat",
+					"name": "S13.9 · Rate the support",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -7459,11 +7893,11 @@
 								"value": "application/json"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/support/tickets/{{id}}/csat",
-						"description": "POST /api/v1/support/tickets/:id/csat. See the API reference in the backend README for permissions and fields.",
+						"url": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}/csat",
+						"description": "Authenticated. `rating` 1–5, optional `comment`. Only when the ticket is Resolved (`canRate`), once; it then closes. Errors 409: “Rate the ticket once it is resolved”, “You already rated this ticket”.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"rating\": 5\n}",
+							"raw": "{\n  \"rating\": 5,\n  \"comment\": \"Quick help\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -7471,36 +7905,164 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Too early (409)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}/csat"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"rating\": 5\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Rate the ticket once it is resolved\",\n  \"errors\": null\n}"
+						},
+						{
+							"name": "Rated",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}/csat"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"rating\": 5,\n  \"comment\": \"Quick help\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Thanks for the feedback.\",\n  \"data\": {\n    \"ticketId\": \"6acf1d3e8d3bb16ae3ff6471\",\n    \"number\": \"T-100012\",\n    \"category\": \"order\",\n    \"categoryName\": \"My Order\",\n    \"issueType\": \"Missing item\",\n    \"subject\": null,\n    \"description\": \"The raita was missing from my order.\",\n    \"attachments\": [],\n    \"orderId\": \"6acc8bef189320566a1fbb28\",\n    \"orderNumber\": null,\n    \"subscriptionId\": null,\n    \"status\": \"closed\",\n    \"statusLabel\": \"Closed\",\n    \"timeLabel\": \"Today, 11:42 AM\",\n    \"replyByLabel\": null,\n    \"canReply\": false,\n    \"canRate\": false,\n    \"slaDueAt\": \"2026-10-14T08:12:14.027Z\",\n    \"csat\": {\n      \"rating\": 5,\n      \"comment\": \"Quick help\",\n      \"at\": \"2026-10-14T06:12:14.249Z\"\n    },\n    \"createdAt\": \"2026-10-14T06:12:14.029Z\",\n    \"lastMessageAt\": \"2026-10-14T06:12:14.190Z\",\n    \"resolvedAt\": \"2026-10-14T06:12:14.224Z\"\n  }\n}"
+						},
+						{
+							"name": "Rated again (409)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/tickets/{{ticketId}}/csat"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"rating\": 5,\n  \"comment\": \"Quick help\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"You already rated this ticket\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "f00e5273-3c37-4965-9314-2b783bb84820"
 				},
 				{
-					"name": "S13.10 · POST /support/chat/sessions",
+					"name": "S13.10 · Live chat",
 					"request": {
 						"method": "POST",
 						"header": [
 							{
 								"key": "x-device-id",
 								"value": "{{deviceId}}"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/support/chat/sessions",
-						"description": "POST /api/v1/support/chat/sessions. See the API reference in the backend README for permissions and fields.",
-						"body": {
-							"mode": "raw",
-							"raw": "{}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						}
+						"description": "Authenticated. Start Chat / Chat with us: `available`, `url` (open it: WhatsApp with a ready message), `etaLabel` (“≈ 2 min”). When chat is off: `available: false` with a `message` (show Call / Email instead)."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "WhatsApp",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/support/chat/sessions"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Chat session.\",\n  \"data\": {\n    \"available\": true,\n    \"provider\": \"whatsapp\",\n    \"url\": \"https://wa.me/918047182100?text=Hi%20Meal%20Ji%2C%20I%20need%20help.%20My%20account%20phone%20is%209000000035.\",\n    \"etaMinutes\": 2,\n    \"etaLabel\": \"≈ 2 min\"\n  }\n}"
+						}
+					],
 					"id": "753b769c-5885-4578-b140-5099dc76310f"
 				}
 			]

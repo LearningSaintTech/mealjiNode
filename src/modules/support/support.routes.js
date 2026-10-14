@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { body, param, query } from "express-validator";
 import { asyncHandler } from "../../common/asyncHandler.js";
+import { AppError } from "../../common/errors/AppError.js";
 import { authFor, idParam, ok, pageQuery, paging } from "../../common/http.js";
 import { authMiddleware } from "../../common/middleware/auth.middleware.js";
 import { authorize } from "../../common/middleware/authorize.middleware.js";
@@ -13,16 +14,26 @@ import "./reports.support.js";
 
 const customer = Router();
 customer.use(authFor(["/support"], authMiddleware));
-customer.get("/support/config", asyncHandler(async (req, res) => {
+customer.get("/support/config", query("context").optional().isIn(["default", "subscription"]).withMessage("Choose default or subscription"), validate, asyncHandler(async (req, res) => {
   const definition = (await import("../settings/settings.definitions.js")).getDefinition("support");
   const { values } = await resolveSetting("support");
   const publicValues = Object.fromEntries(definition.fields.filter((field) => field.public).map((field) => [field.key, values[field.key]]));
-  return ok(res, { ...publicValues, context: req.query.context || "default" }, "Support config.");
+  const context = req.query.context || "default";
+  return ok(res, { ...publicValues, context, ...support.contactCards(values, context) }, "Support config.");
 }));
 customer.get("/support/categories", query("context").optional().isIn(["default", "subscription"]), validate, asyncHandler(async (req, res) => ok(res, await support.listCategories({ context: req.query.context || "default" }), "Categories.")));
-customer.get("/support/faqs", query("context").optional().isIn(["default", "subscription"]), query("q").optional().isString().isLength({ max: 60 }), validate, asyncHandler(async (req, res) => ok(res, await support.listFaqs({ context: req.query.context || "default", q: req.query.q }), "FAQs.")));
+customer.get(
+  "/support/faqs",
+  query("context").optional().isIn(["default", "subscription"]).withMessage("Choose default or subscription"),
+  query("q").optional().isString().isLength({ max: 60 }).withMessage("Search up to 60 characters"),
+  query("category").optional().isString().isLength({ max: 40 }),
+  query("limit").optional().isInt({ min: 1, max: 50 }).withMessage("Show between 1 and 50 questions").toInt(),
+  validate,
+  asyncHandler(async (req, res) => ok(res, await support.listFaqs({ context: req.query.context || "default", q: req.query.q, category: req.query.category, limit: req.query.limit }), "FAQs.")),
+);
 customer.post("/support/faqs/:id/view", idParam(), validate, asyncHandler(async (req, res) => {
-  await Faq.updateOne({ _id: req.params.id }, { $inc: { views: 1 } });
+  const result = await Faq.updateOne({ _id: req.params.id, isActive: true }, { $inc: { views: 1 } });
+  if (!result.matchedCount) throw new AppError(404, "Question not found");
   return ok(res, { tracked: true }, "Tracked.");
 }));
 customer.post(
@@ -35,7 +46,11 @@ customer.post(
   body("description").isString().trim().isLength({ min: 5, max: 2000 }).withMessage("Describe the issue (at least 5 characters)"),
   body("attachments").optional().isArray({ max: 5 }),
   validate,
-  asyncHandler(async (req, res) => ok(res, await support.createTicket(req.auth.userId, req.body), "Ticket created. We'll get back to you soon.", 201)),
+  asyncHandler(async (req, res) => {
+    const ticket = await support.createTicket(req.auth.userId, req.body);
+    // A repeat of the same request (double tap) answers with the ticket already made.
+    return ticket.duplicate ? ok(res, ticket, "We already have this request.") : ok(res, ticket, "Ticket created. We'll get back to you soon.", 201);
+  }),
 );
 customer.get("/support/tickets", pageQuery, validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
@@ -50,8 +65,9 @@ customer.post("/support/tickets/:id/csat", idParam(), body("rating").isInt({ min
 customer.post("/support/chat/sessions", asyncHandler(async (req, res) => {
   const { values } = await resolveSetting("support");
   if (!values.chatEnabled) return ok(res, { available: false, message: "Chat is not available right now. Raise a ticket or call us." }, "Chat unavailable.");
-  const text = encodeURIComponent(`Hi MealJi, I need help. My account phone is ${req.auth.user?.phoneNumber || ""}.`);
-  return ok(res, { available: true, provider: "whatsapp", url: values.whatsapp ? `https://wa.me/91${String(values.whatsapp).replace(/\D/g, "").slice(-10)}?text=${text}` : null, etaMinutes: values.chatEtaMinutes }, "Chat session.");
+  const text = encodeURIComponent(`Hi Meal Ji, I need help. My account phone is ${req.auth.user?.phoneNumber || ""}.`);
+  if (!values.whatsapp) return ok(res, { available: false, message: "Chat is not available right now. Raise a ticket or call us." }, "Chat unavailable.");
+  return ok(res, { available: true, provider: "whatsapp", url: `https://wa.me/91${String(values.whatsapp).replace(/\D/g, "").slice(-10)}?text=${text}`, etaMinutes: values.chatEtaMinutes, etaLabel: `≈ ${values.chatEtaMinutes} min` }, "Chat session.");
 }));
 
 const admin = Router();

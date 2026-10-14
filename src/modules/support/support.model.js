@@ -21,6 +21,7 @@ const categorySchema = new mongoose.Schema(
   {
     key: { type: String, required: true, unique: true, lowercase: true },
     name: { type: String, required: true, maxlength: 60 },
+    subtitle: { type: String, default: null, maxlength: 80 }, // “Track, modify or cancel”
     icon: { type: String, default: null },
     issueTypes: { type: [String], default: [] },
     context: { type: String, enum: ["default", "subscription", "both"], default: "both" },
