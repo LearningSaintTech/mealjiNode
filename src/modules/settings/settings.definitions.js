@@ -289,7 +289,7 @@ export const SETTING_DEFINITIONS = {
       },
       { key: "allowCancelUndo", label: "Customers can undo a cancellation", type: "boolean", default: true },
       { key: "selectionReminderMinutes", label: "Remind to pick meals before cutoff (minutes)", type: "moneyList", default: [120, 30], maxItems: 4 },
-      { key: "cancelReasons", label: "Cancellation reasons offered", type: "stringList", default: ["Too expensive", "Food quality", "Delivery issues", "Moving to a new place", "Cooking at home", "Other"], maxItems: 10, maxLength: 60, public: true },
+      { key: "cancelReasons", label: "Cancellation reasons offered", type: "stringList", default: ["It’s too expensive", "I’m not using it enough", "I want different meal choices", "Delivery timing doesn’t work", "I’m moving or travelling", "Something else"], maxItems: 10, maxLength: 60, public: true },
       { key: "preDebitNoticeHours", label: "Pre-debit notice before autopay (hours)", type: "integer", default: 24, min: 24, max: 72 },
       { key: "mealDropProvider", label: "Meal drops are delivered by", type: "enum", default: "manual", options: [{ value: "manual", label: "Manual (kitchen riders)" }, { value: "self", label: "Kitchen delivers itself" }] },
     ],

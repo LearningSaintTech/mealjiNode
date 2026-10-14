@@ -4,7 +4,7 @@ import { addIstDays, istDateKey, istDateTime } from "../../common/time.js";
 import { acquireLock, releaseLock } from "../../infrastructure/redisStore.js";
 import { logger } from "../../config/logger.js";
 import { publishEventSafe } from "../../events/eventBus.js";
-import { cancelGatewaySubscription, createGatewayOrder, createGatewaySubscription, createPaymentLink, gatewayName } from "../../infrastructure/payments/gateway.js";
+import { cancelGatewaySubscription, createGatewayOrder, createGatewaySubscription, createPaymentLink, gatewayName, pauseGatewaySubscription, resumeGatewaySubscription, updateGatewaySubscriptionAmount } from "../../infrastructure/payments/gateway.js";
 import { publish } from "../../realtime/hub.js";
 import { Address, addressSnapshot, toAddress } from "../address/address.model.js";
 import { issueInvoice } from "../billing/billing.service.js";
@@ -57,7 +57,7 @@ export function toSubscription(sub) {
   return {
     subscriptionId: String(sub._id),
     status: sub.status,
-    plan: { planId: String(sub.plan), planCode: plan.planCode, name: plan.name, pricePaise: plan.pricePaise, cycleDays: plan.cycleDays, cycleLabel: plan.cycleLabel, slots: plan.slots, mealsPerDay: plan.mealsPerDay, maxItemsPerMeal: plan.maxItemsPerMeal, benefits: plan.benefits || [] },
+    plan: { planId: String(sub.plan), planCode: plan.planCode, name: plan.name, description: plan.description || plan.subtitle || "", pricePaise: plan.pricePaise, cycleDays: plan.cycleDays, cycleLabel: plan.cycleLabel, slots: plan.slots, mealsPerDay: plan.mealsPerDay, maxItemsPerMeal: plan.maxItemsPerMeal, benefits: plan.benefits || [] },
     kitchenId: String(sub.kitchen),
     address: sub.address,
     billingMethod: sub.billingMethod,
@@ -70,8 +70,8 @@ export function toSubscription(sub) {
     renewalPricePaise: sub.renewalPricePaise ?? plan.pricePaise,
     daysLeft: sub.validTill ? Math.max(0, daysBetween(today, sub.validTill) + 1) : null,
     autoRenew: sub.autoRenew,
-    pause: sub.pause?.startsOn ? sub.pause : null,
-    scheduledChange: sub.scheduledChange?.plan ? { planId: String(sub.scheduledChange.plan), planName: sub.scheduledChange.planName, effectiveOn: sub.scheduledChange.effectiveOn } : null,
+    pause: sub.pause?.startsOn ? { ...(sub.pause.toObject?.() || sub.pause), startsOnText: dayMonthYear(sub.pause.startsOn), resumesOnText: dayMonthYear(sub.pause.resumesOn), label: sub.status === "paused" ? `Paused · resumes ${dayMonthYear(sub.pause.resumesOn)}` : `Pauses on ${dayMonthYear(sub.pause.startsOn)} · resumes ${dayMonthYear(sub.pause.resumesOn)}` } : null,
+    scheduledChange: sub.scheduledChange?.plan ? { planId: String(sub.scheduledChange.plan), planName: sub.scheduledChange.planName, pricePaise: sub.scheduledChange.pricePaise ?? null, effectiveOn: sub.scheduledChange.effectiveOn, effectiveOnText: dayMonthYear(sub.scheduledChange.effectiveOn), label: `Changes to ${sub.scheduledChange.planName} on ${dayMonthYear(sub.scheduledChange.effectiveOn)}` } : null,
     cancellation: sub.cancellation?.effectiveOn ? sub.cancellation : null,
     shiftsThisCycle: sub.shiftsThisCycle || 0,
     shiftsLeft: Math.max(0, (plan.maxShiftsPerCycle || 0) - (sub.shiftsThisCycle || 0)),
@@ -79,14 +79,26 @@ export function toSubscription(sub) {
     pastDueSince: sub.pastDueSince,
     createdAt: sub.createdAt,
     // Screen wording: Plan confirmed and My Subscription.
-    statusLabel: STATUS_LABELS[sub.status] || sub.status,
+    statusLabel: sub.status === "cancel_scheduled" && sub.validTill ? `Ends on ${dayMonthYear(sub.validTill)}` : STATUS_LABELS[sub.status] || sub.status,
     planLabel: `${plan.name} (${rupeeText(plan.pricePaise)})`,
     priceLabel: `${rupeeText(sub.renewalPricePaise ?? plan.pricePaise)} / ${cycleUnit(plan).toLowerCase()}`,
     startDateLabel: startLabel(sub.startDate),
     nextBillingDateLabel: monthDayYear(sub.nextBillingDate),
     validTillLabel: dayMonthYear(sub.validTill),
     validTillText: sub.validTill ? `Valid till ${dayMonthYear(sub.validTill)}` : null,
+    // Plan Details, Update Address.
+    nextBillingDateText: dayMonthYear(sub.nextBillingDate),
+    nextChargePaise: nextCyclePricePaise(sub),
+    autoRenewLabel: sub.autoRenew === false ? "Auto-renewal off" : "Auto-renewal on",
+    planChangeNote: "Any plan change starts from your next billing cycle.",
+    addressNote: "Changes apply to your next delivery",
   };
+}
+
+/** What the next cycle costs: a planned plan change applies from it. */
+export function nextCyclePricePaise(sub) {
+  if (sub.scheduledChange?.plan && Number.isInteger(sub.scheduledChange.pricePaise) && (!sub.nextBillingDate || !sub.scheduledChange.effectiveOn || sub.scheduledChange.effectiveOn <= sub.nextBillingDate)) return sub.scheduledChange.pricePaise;
+  return sub.renewalPricePaise ?? sub.planSnapshot?.pricePaise;
 }
 
 function log(sub, event, note = null, by = "system") {
@@ -113,7 +125,7 @@ async function emit(name, sub, extra = {}) {
     kitchenId: String(sub.kitchen),
     planCode: sub.planSnapshot?.planCode,
     planName: sub.planSnapshot?.name,
-    pricePaise: sub.renewalPricePaise ?? sub.planSnapshot?.pricePaise,
+    pricePaise: nextCyclePricePaise(sub),
     ...extra,
   }, { aggregate: { type: "subscription", id: sub._id } });
   publish(`user:${sub.user}`, "subscription:updated", { subscriptionId: String(sub._id), status: sub.status });
@@ -290,6 +302,13 @@ async function applyCapture(payment) {
   }
   const cycle = payment.cycle || sub.cycle + 1;
   if (cycle <= sub.cycle) return; // already applied
+  // A renewal charged while the plan is paused (e.g. autopay that could not be stopped) is given back.
+  if (cycle > 1 && (sub.status === "paused" || (sub.status === "pause_scheduled" && sub.pause?.startsOn && sub.pause.startsOn <= (sub.nextBillingDate || istDateKey())))) {
+    log(sub, "paused_charge_refunded", `cycle ${cycle}`);
+    await sub.save();
+    await refundExtraPayment(payment, sub, "Charged while the plan was paused");
+    return;
+  }
   if (cycle === 1 && sub.status === "pending_payment") {
     const other = await Subscription.exists({ user: sub.user, _id: { $ne: sub._id }, status: { $in: LIVE } });
     if (other) {
@@ -409,7 +428,7 @@ export async function onSubscriptionWebhook(body) {
 /** Creates (or re-sends) the payment link for the next cycle. */
 export async function sendPaymentLink(sub, { reason = "cycle" } = {}) {
   const cycle = sub.cycle + 1;
-  const amountPaise = sub.renewalPricePaise ?? sub.planSnapshot.pricePaise;
+  const amountPaise = nextCyclePricePaise(sub);
   if (!sub.paymentLink?.linkId || sub.paymentLink.cycle !== cycle) {
     const user = await User.findById(sub.user).lean();
     const link = await createPaymentLink({
@@ -437,6 +456,26 @@ async function requireOwn(userId) {
   return sub;
 }
 
+/**
+ * Runs one change to a plan at a time (pause, resume, cancel, plan change,
+ * address, billing): a double tap or two screens at once cannot mix them.
+ * `target` is the customer's id or a subscription (admin). The work gets a
+ * freshly read subscription.
+ */
+async function withSubLock(target, work) {
+  const found = typeof target === "object" && target?._id ? target : await requireOwn(target);
+  const lockKey = `subscription:action:${found._id}`;
+  const token = await acquireLock(lockKey, 30);
+  if (!token) throw new AppError(409, "Another change to your plan is in progress. Try again in a moment.");
+  try {
+    const sub = await Subscription.findById(found._id);
+    if (!sub) throw new AppError(404, "Subscription not found");
+    return await work(sub);
+  } finally {
+    await releaseLock(lockKey, token);
+  }
+}
+
 export async function mySubscription(userId) {
   const sub = await currentSubscription(userId);
   if (!sub) {
@@ -453,14 +492,30 @@ export async function subscriptionCard(userId) {
   return { subscriptionId: view.subscriptionId, status: view.status, statusLabel: view.statusLabel, planName: view.plan.name, planCode: view.plan.planCode, priceLabel: view.priceLabel, validTill: view.validTill, validTillText: view.validTillText, daysLeft: view.daysLeft, slots: view.plan.slots };
 }
 
+function pauseChoices(sub, policy) {
+  const options = [];
+  for (let months = policy.pauseMinMonths; months <= policy.pauseMaxMonths; months += 1) {
+    const dates = pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: sub.currentPeriodEnd, today: istDateKey() });
+    const title = `Pause for ${months} month${months > 1 ? "s" : ""}`;
+    options.push({ months, ...dates, title, subtitle: `Resume automatically on ${dayMonthYear(dates.resumesOn)}`, buttonLabel: title, startsOnText: dayMonthYear(dates.startsOn) });
+  }
+  return options;
+}
+
+/** Pause Subscription screen. */
 export async function pauseOptions(userId) {
   const sub = await requireOwn(userId);
   const policy = await policyFor(sub);
-  const options = [];
-  for (let months = policy.pauseMinMonths; months <= policy.pauseMaxMonths; months += 1) {
-    options.push({ months, ...pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: sub.currentPeriodEnd, today: istDateKey() }) });
-  }
-  return { options, startsAt: policy.pauseStarts, note: policy.pauseStarts === "cycle_end" ? `The pause starts after ${sub.currentPeriodEnd}. You are not charged while paused.` : "The pause starts tomorrow." };
+  const startsLater = policy.pauseStarts === "cycle_end";
+  return {
+    title: "Take a break, not a goodbye",
+    subtitle: "Pause deliveries and billing temporarily. Your preferences stay saved.",
+    options: pauseChoices(sub, policy),
+    startsAt: policy.pauseStarts,
+    whilePaused: "No meals will be delivered and no payment will be taken. You can resume anytime from My Subscription.",
+    note: startsLater ? `The pause starts after your paid days end on ${dayMonthYear(sub.currentPeriodEnd)}. You are not charged while paused.` : "The pause starts tomorrow. Your remaining paid days continue after the pause.",
+    cancelLabel: "Not now",
+  };
 }
 
 /** Pause choices for one subscription (admin acting on behalf). */
@@ -468,44 +523,81 @@ export async function pauseOptionsFor(subscriptionId) {
   const sub = await Subscription.findById(objectId(subscriptionId, "subscription ID"));
   if (!sub) throw new AppError(404, "Subscription not found");
   const policy = await policyFor(sub);
-  const options = [];
-  for (let months = policy.pauseMinMonths; months <= policy.pauseMaxMonths; months += 1) {
-    options.push({ months, ...pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: sub.currentPeriodEnd, today: istDateKey() }) });
+  return { options: pauseChoices(sub, policy), startsAt: policy.pauseStarts };
+}
+
+/** Autopay must not charge while a plan is paused. */
+async function setMandatePaused(sub, paused) {
+  if (sub.billingMethod !== "autopay" || !sub.gatewaySubscriptionId) return;
+  try {
+    const result = paused ? await pauseGatewaySubscription(sub.gatewaySubscriptionId) : await resumeGatewaySubscription(sub.gatewaySubscriptionId);
+    sub.mandateStatus = result?.status || (paused ? "paused" : "active");
+  } catch (err) {
+    // Could not pause the mandate: stop autopay instead, so no charge is taken while paused.
+    if (!paused) throw err;
+    logger.warn({ err: err.message, subscriptionId: String(sub._id) }, "Mandate pause failed; switching to payment links");
+    await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
+    sub.billingMethod = "link";
+    sub.gatewaySubscriptionId = null;
+    sub.mandateStatus = null;
+    log(sub, "billing_switched", "link (autopay could not be paused)");
   }
-  return { options, startsAt: policy.pauseStarts };
 }
 
-export async function pause(userId, { months }, by = "customer") {
-  const sub = typeof userId === "object" ? userId : await requireOwn(userId);
-  if (sub.status !== "active") throw new AppError(409, "Only an active subscription can be paused");
-  const policy = await policyFor(sub);
-  if (!Number.isInteger(months) || months < policy.pauseMinMonths || months > policy.pauseMaxMonths) throw new AppError(422, `Pause for ${policy.pauseMinMonths} to ${policy.pauseMaxMonths} month(s)`);
-  const dates = pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: sub.currentPeriodEnd, today: istDateKey() });
-  sub.pause = { ...dates, months, requestedAt: new Date() };
-  sub.status = "pause_scheduled";
-  if (policy.pauseStarts === "next_day") sub.validTill = addIstDays(dates.startsOn, -1);
-  log(sub, "pause_scheduled", `${dates.startsOn} to ${dates.resumesOn}`, by);
-  await sub.save();
-  await syncUser(sub);
-  await emit("subscription.pause_scheduled", sub, { resumesOn: dates.resumesOn });
-  return toSubscription(sub);
+export function pause(userId, { months }, by = "customer") {
+  return withSubLock(userId, async (sub) => {
+    const policy = await policyFor(sub);
+    if (!Number.isInteger(months) || months < policy.pauseMinMonths || months > policy.pauseMaxMonths) throw new AppError(422, `Pause for ${policy.pauseMinMonths} to ${policy.pauseMaxMonths} month(s)`);
+    if (sub.status !== "active") throw new AppError(409, sub.status === "cancel_scheduled" ? "Undo the cancellation first to pause your plan" : ["pause_scheduled", "paused"].includes(sub.status) ? "Your plan is already paused" : "Only an active subscription can be paused");
+    const dates = pauseDates({ months, startsMode: policy.pauseStarts, currentPeriodEnd: sub.currentPeriodEnd, today: istDateKey() });
+    // A pause from tomorrow keeps the paid days that are left: they run after the pause.
+    const daysLeft = policy.pauseStarts === "next_day" && sub.validTill && sub.validTill >= dates.startsOn ? daysBetween(dates.startsOn, sub.validTill) + 1 : 0;
+    sub.pause = { ...dates, months, daysLeft, requestedAt: new Date() };
+    sub.status = "pause_scheduled";
+    await setMandatePaused(sub, true);
+    log(sub, "pause_scheduled", `${dates.startsOn} to ${dates.resumesOn}`, by);
+    await sub.save();
+    await syncUser(sub);
+    await emit("subscription.pause_scheduled", sub, { resumesOn: dates.resumesOn });
+    return toSubscription(sub);
+  });
 }
 
-export async function resume(userId, by = "customer") {
-  const sub = typeof userId === "object" ? userId : await requireOwn(userId);
-  if (!["pause_scheduled", "paused"].includes(sub.status)) throw new AppError(409, "This subscription is not paused");
+/**
+ * Ends a pause (customer, admin or the daily job). A pause that had not
+ * started yet just goes away. A running pause starts the plan again today:
+ * paid days carried past the pause are served first, otherwise a new cycle is
+ * billed today.
+ */
+export async function applyResume(sub, { by = "customer", event = "resumed" } = {}) {
   const wasPaused = sub.status === "paused";
+  const carried = sub.pause?.daysLeft || 0;
   sub.pause = undefined;
   sub.status = "active";
   if (wasPaused) {
-    // Resume now: bill a new cycle starting today.
-    sub.nextBillingDate = istDateKey();
+    const today = istDateKey();
+    if (carried > 0) {
+      sub.currentPeriodStart = today;
+      sub.currentPeriodEnd = addIstDays(today, carried - 1);
+      sub.validTill = sub.currentPeriodEnd;
+      sub.nextBillingDate = addIstDays(today, carried);
+    } else {
+      sub.nextBillingDate = today;
+    }
   }
-  log(sub, "resumed", null, by);
+  await setMandatePaused(sub, false);
+  log(sub, event, null, by);
   await sub.save();
   await syncUser(sub);
   await emit("subscription.resumed", sub);
   return toSubscription(sub);
+}
+
+export function resume(userId, by = "customer") {
+  return withSubLock(userId, async (sub) => {
+    if (!["pause_scheduled", "paused"].includes(sub.status)) throw new AppError(409, "This subscription is not paused");
+    return applyResume(sub, { by });
+  });
 }
 
 export async function cancelReasons() {
@@ -513,125 +605,260 @@ export async function cancelReasons() {
   return policy.cancelReasons.map((label, index) => ({ reasonId: `r${index + 1}`, label }));
 }
 
-export async function cancel(userId, { reasonId, comment }, by = "customer") {
-  const sub = typeof userId === "object" ? userId : await requireOwn(userId);
-  if (!["active", "pause_scheduled", "paused", "past_due"].includes(sub.status)) throw new AppError(409, "This subscription cannot be cancelled now");
-  const reasons = await cancelReasons();
-  const reason = reasons.find((item) => item.reasonId === reasonId);
-  if (!reason && by === "customer") throw new AppError(422, "Choose a reason");
-  sub.cancellation = { reasonId: reasonId || null, reason: reason?.label || null, comment: comment ? String(comment).slice(0, 500) : null, effectiveOn: sub.validTill || istDateKey(), requestedAt: new Date() };
-  sub.status = "cancel_scheduled";
-  sub.autoRenew = false;
-  sub.pause = undefined;
-  sub.scheduledChange = undefined;
-  log(sub, "cancel_scheduled", reason?.label, by);
-  await sub.save();
-  if (sub.gatewaySubscriptionId) await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
-  await syncUser(sub);
-  await emit("subscription.cancel_scheduled", sub, { reasonId, reason: reason?.label || null, validTill: sub.validTill });
-  return toSubscription(sub);
+/** Cancel Subscription + Confirm Cancellation screens. */
+export async function cancelInfo(userId) {
+  const sub = await requireOwn(userId);
+  const policy = await policyFor(sub);
+  const view = toSubscription(sub);
+  const shortName = shortPlanName(view.plan.name);
+  return {
+    title: "What made you decide to cancel?",
+    subtitle: `Your feedback helps us improve. You can still go back without changing your ${shortName} Plan.`,
+    reasons: await cancelReasons(),
+    pauseOffer: `Pause for up to ${policy.pauseMaxMonths} months.`,
+    canPause: sub.status === "active",
+    confirmTitle: `Cancel your ${shortName} Plan?`,
+    confirmSubtitle: "This is the final step. Nothing changes until you tap “Cancel subscription” below.",
+    planName: view.plan.name,
+    priceLabel: view.priceLabel,
+    statusLabel: view.statusLabel,
+    points: [
+      `You can use your remaining meals until ${view.validTillLabel}.`,
+      `Auto-renewal stops and no payment will be taken on ${dayMonthYear(sub.nextBillingDate || addIstDays(sub.validTill, 1))}.`,
+      "Your billing history stays available. You can subscribe again anytime.",
+    ],
+    keepLabel: "Keep my subscription",
+    cancelLabel: "Cancel subscription",
+  };
 }
 
-export async function undoCancel(userId) {
-  const sub = await requireOwn(userId);
-  if (sub.status !== "cancel_scheduled") throw new AppError(409, "Nothing to undo");
-  if (!(await policyFor(sub)).allowCancelUndo) throw new AppError(403, "Cancellations cannot be undone");
-  sub.status = "active";
-  sub.autoRenew = true;
-  sub.cancellation = undefined;
-  log(sub, "cancel_undone", null, "customer");
-  await sub.save();
-  if (sub.billingMethod === "autopay" && sub.gatewaySubscriptionId) {
-    // The old mandate was cancelled; renewals continue by payment link until a new mandate is set up.
-    sub.billingMethod = "link";
+export function cancel(userId, { reasonId, comment }, by = "customer") {
+  return withSubLock(userId, async (sub) => {
+    if (!["active", "pause_scheduled", "paused", "past_due"].includes(sub.status)) throw new AppError(409, sub.status === "cancel_scheduled" ? "Your plan is already set to end" : "This subscription cannot be cancelled now");
+    const reasons = await cancelReasons();
+    const reason = reasons.find((item) => item.reasonId === reasonId);
+    if (!reason && by === "customer") throw new AppError(422, "Choose a reason");
+    // A paused plan that is cancelled has no autopay left to resume.
+    sub.cancellation = { reasonId: reasonId || null, reason: reason?.label || null, comment: comment ? String(comment).slice(0, 500) : null, effectiveOn: sub.validTill || istDateKey(), requestedAt: new Date() };
+    sub.status = "cancel_scheduled";
+    sub.autoRenew = false;
+    sub.pause = undefined;
+    sub.scheduledChange = undefined;
+    log(sub, "cancel_scheduled", reason?.label, by);
     await sub.save();
-  }
-  await syncUser(sub);
-  await emit("subscription.cancel_undone", sub);
-  return toSubscription(sub);
+    if (sub.gatewaySubscriptionId) await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
+    await syncUser(sub);
+    await emit("subscription.cancel_scheduled", sub, { reasonId, reason: reason?.label || null, validTill: sub.validTill });
+    return toSubscription(sub);
+  });
+}
+
+export function undoCancel(userId) {
+  return withSubLock(userId, async (sub) => {
+    if (sub.status !== "cancel_scheduled") throw new AppError(409, "Nothing to undo");
+    if (!(await policyFor(sub)).allowCancelUndo) throw new AppError(403, "Cancellations cannot be undone");
+    sub.status = "active";
+    sub.autoRenew = true;
+    sub.cancellation = undefined;
+    if (sub.billingMethod === "autopay" && sub.gatewaySubscriptionId) {
+      // The old mandate was cancelled; renewals continue by payment link until a new mandate is set up.
+      sub.billingMethod = "link";
+      sub.gatewaySubscriptionId = null;
+      sub.mandateStatus = null;
+    }
+    log(sub, "cancel_undone", null, "customer");
+    await sub.save();
+    await syncUser(sub);
+    await emit("subscription.cancel_undone", sub);
+    return toSubscription(sub);
+  });
+}
+
+const shortPlanName = (name) => String(name || "").replace(/\s+(Monthly|Weekly|Quarterly|Yearly)$/i, "");
+const perCycleText = (plan) => `${rupeeText(plan.pricePaise)} / ${cycleUnit(plan).toLowerCase()}`;
+const featuresText = (plan) => (plan.benefits || []).slice(0, 3).join(" • ");
+
+async function changeContext(sub) {
+  const policy = await policyFor(sub);
+  const effectiveOn = policy.planChangeTiming === "immediately" ? istDateKey() : sub.nextBillingDate;
+  return { policy, effectiveOn, immediate: policy.planChangeTiming === "immediately" };
+}
+
+/** Change Plan screen: the plans sold at the member's kitchen, current one marked. */
+export async function changePlanOptions(userId) {
+  const sub = await requireOwn(userId);
+  const { effectiveOn, immediate } = await changeContext(sub);
+  const plans = await plansForKitchen(sub.kitchen);
+  const current = sub.planSnapshot.planCode;
+  const scheduled = sub.scheduledChange?.plan ? String(sub.scheduledChange.plan) : null;
+  return {
+    title: "Choose a plan that fits",
+    plans: plans.map((plan) => ({ ...plan, isCurrent: plan.planCode === current, isScheduled: plan.planId === scheduled, priceText: perCycleText(plan), featuresLabel: featuresText(plan), diffPaise: plan.pricePaise - (sub.renewalPricePaise ?? sub.planSnapshot.pricePaise) })),
+    effectiveOn,
+    effectiveOnText: dayMonthYear(effectiveOn),
+    note: immediate ? "Your new plan starts today. The new price applies from your next bill." : `Your new plan begins on ${dayMonthYear(effectiveOn)}. No charge today.`,
+    keepLabel: `Keep ${shortPlanName(sub.planSnapshot.name)} Plan`,
+    canChange: ["active", "pause_scheduled", "paused"].includes(sub.status),
+  };
+}
+
+function assertCanChange(sub) {
+  if (sub.status === "cancel_scheduled") throw new AppError(409, "Undo the cancellation first to change your plan");
+  if (sub.status === "past_due") throw new AppError(409, "Pay the due bill first to change your plan");
 }
 
 export async function changePlanPreview(userId, planCode) {
-  const sub = await requireOwn(userId);
+  const sub = typeof userId === "object" ? userId : await requireOwn(userId);
+  assertCanChange(sub);
   const next = await SubscriptionPlan.findOne({ code: String(planCode).toUpperCase(), status: "active" }).lean();
   if (!next) throw new AppError(404, "Plan not found");
   if (String(next._id) === String(sub.plan)) throw new AppError(409, "You are already on this plan");
   const available = await plansForKitchen(sub.kitchen);
   if (!available.some((plan) => plan.planCode === next.code)) throw new AppError(409, "This plan is not available at your address");
-  const policy = await policyFor(sub);
+  const { effectiveOn, immediate } = await changeContext(sub);
+  const diff = next.pricePaise - (sub.renewalPricePaise ?? sub.planSnapshot.pricePaise);
   return {
     current: toSubscription(sub).plan,
     next: toPlan(next),
-    effectiveOn: policy.planChangeTiming === "immediately" ? istDateKey() : sub.nextBillingDate,
+    effectiveOn,
+    effectiveOnText: dayMonthYear(effectiveOn),
     chargeTodayPaise: 0,
     nextChargePaise: next.pricePaise,
-    note: policy.planChangeTiming === "immediately" ? "Your plan changes today; the new price applies from your next bill." : `Your plan changes on ${sub.nextBillingDate}. No charge today.`,
+    diffPaise: diff,
+    // Footer: “Standard Monthly • ₹4,499 / month”, “+₹1,000”, “Continue with Standard”.
+    summaryLabel: `${next.name} • ${perCycleText(next)}`,
+    diffLabel: `${diff > 0 ? "+" : diff < 0 ? "-" : ""}${rupeeText(Math.abs(diff))}`,
+    continueLabel: `Continue with ${shortPlanName(next.name)}`,
+    note: immediate ? "Your plan changes today; the new price applies from your next bill." : `Your new plan begins on ${dayMonthYear(effectiveOn)}. No charge today.`,
   };
 }
 
-export async function changePlan(userId, planCode) {
-  const preview = await changePlanPreview(userId, planCode);
-  const sub = await requireOwn(userId);
-  const next = await SubscriptionPlan.findById(preview.next.planId).lean();
-  if (preview.effectiveOn === istDateKey()) {
-    sub.plan = next._id;
-    sub.planSnapshot = planSnapshot(next);
-    sub.renewalPricePaise = next.pricePaise;
-    log(sub, "plan_changed", next.name, "customer");
-  } else {
-    sub.scheduledChange = { plan: next._id, planName: next.name, effectiveOn: preview.effectiveOn };
-    log(sub, "plan_change_scheduled", next.name, "customer");
+/** Autopay charges the plan price: follow a plan change (or its undoing) from the next cycle. */
+async function syncMandateAmount(sub, amountPaise, planName) {
+  if (sub.billingMethod !== "autopay" || !sub.gatewaySubscriptionId) return;
+  try {
+    await updateGatewaySubscriptionAmount(sub.gatewaySubscriptionId, { planAmountPaise: amountPaise, intervalDays: sub.planSnapshot.cycleDays, planName });
+  } catch (err) {
+    // The mandate keeps the old amount: bill by payment link instead so the right price is charged.
+    logger.warn({ err: err.message, subscriptionId: String(sub._id) }, "Mandate amount update failed; switching to payment links");
+    await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
+    sub.billingMethod = "link";
+    sub.gatewaySubscriptionId = null;
+    sub.mandateStatus = null;
+    log(sub, "billing_switched", "link (autopay amount could not be changed)");
   }
-  await sub.save();
-  await emit("subscription.plan_change_scheduled", sub, { nextPlanName: next.name, effectiveOn: preview.effectiveOn });
-  return toSubscription(sub);
 }
 
-export async function updateAddress(userId, addressId) {
-  const sub = await requireOwn(userId);
-  const address = await Address.findOne({ _id: objectId(addressId, "address ID"), user: userId, deletedAt: null }).lean();
-  if (!address) throw new AppError(404, "Address not found");
-  const { Kitchen } = await import("../kitchen/kitchen.model.js");
-  const kitchen = await Kitchen.findById(sub.kitchen).select("latitude longitude serviceRadiusKm").lean();
-  if (!kitchenCovers(kitchen, address.latitude, address.longitude)) throw new AppError(409, "Your kitchen does not deliver to this address. Contact support to move kitchens.");
-  sub.address = addressSnapshot(address);
-  sub.addressId = address._id;
-  log(sub, "address_changed", null, "customer");
-  await sub.save();
-  // Future meals not yet locked go to the new address.
-  const { MealSelection } = await import("./subscription.model.js");
-  await MealSelection.updateMany({ subscription: sub._id, status: { $in: ["open", "selected"] } }, { $set: { address: sub.address } });
-  return toSubscription(sub);
-}
-
-export async function switchBillingMethod(userId, billingMethod, by = "customer") {
-  const sub = typeof userId === "object" ? userId : await requireOwn(userId);
-  if (!sub.planSnapshot.billingMethods?.includes(billingMethod)) throw new AppError(422, "This plan does not offer that billing method");
-  if (sub.billingMethod === billingMethod) return toSubscription(sub);
-  if (billingMethod === "autopay") {
-    const user = await User.findById(sub.user).lean();
-    const mandate = await createGatewaySubscription({ planAmountPaise: sub.renewalPricePaise, intervalDays: sub.planSnapshot.cycleDays, notes: { subscriptionId: String(sub._id), planName: sub.planSnapshot.name }, customer: { phone: user?.phoneNumber } });
-    sub.gatewaySubscriptionId = mandate.gatewaySubscriptionId;
-    sub.mandateStatus = mandate.status;
-    sub.billingMethod = "autopay";
-    log(sub, "billing_switched", "autopay", by);
+export function changePlan(userId, planCode) {
+  return withSubLock(userId, async (sub) => {
+    assertCanChange(sub);
+    const code = String(planCode).toUpperCase();
+    // Keep … Plan: picking the current plan again drops a planned change.
+    if (code === sub.planSnapshot.planCode) {
+      if (!sub.scheduledChange?.plan) throw new AppError(409, "You are already on this plan");
+      sub.scheduledChange = undefined;
+      await syncMandateAmount(sub, sub.renewalPricePaise ?? sub.planSnapshot.pricePaise, sub.planSnapshot.name);
+      log(sub, "plan_change_cancelled", null, "customer");
+      await sub.save();
+      return toSubscription(sub);
+    }
+    const preview = await changePlanPreview(sub, code);
+    const next = await SubscriptionPlan.findById(preview.next.planId).lean();
+    if (preview.effectiveOn === istDateKey()) {
+      sub.plan = next._id;
+      sub.planSnapshot = planSnapshot(next);
+      sub.renewalPricePaise = next.pricePaise;
+      sub.scheduledChange = undefined;
+      log(sub, "plan_changed", next.name, "customer");
+    } else {
+      sub.scheduledChange = { plan: next._id, planName: next.name, pricePaise: next.pricePaise, effectiveOn: preview.effectiveOn };
+      log(sub, "plan_change_scheduled", next.name, "customer");
+    }
+    await syncMandateAmount(sub, next.pricePaise, next.name);
     await sub.save();
-    return { ...toSubscription(sub), mandateUrl: mandate.shortUrl };
-  }
-  if (sub.gatewaySubscriptionId) await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
-  sub.billingMethod = "link";
-  sub.gatewaySubscriptionId = null;
-  log(sub, "billing_switched", "link", by);
-  await sub.save();
-  return toSubscription(sub);
+    await emit("subscription.plan_change_scheduled", sub, { nextPlanName: next.name, effectiveOn: preview.effectiveOn });
+    return toSubscription(sub);
+  });
 }
 
+export function updateAddress(userId, addressId) {
+  return withSubLock(userId, async (sub) => {
+    const address = await Address.findOne({ _id: objectId(addressId, "address ID"), user: sub.user, deletedAt: null }).lean();
+    if (!address) throw new AppError(404, "Address not found");
+    const { Kitchen } = await import("../kitchen/kitchen.model.js");
+    const kitchen = await Kitchen.findById(sub.kitchen).select("latitude longitude serviceRadiusKm").lean();
+    if (!kitchenCovers(kitchen, address.latitude, address.longitude)) throw new AppError(409, "Your kitchen does not deliver to this address. Contact support to move kitchens.");
+    sub.address = addressSnapshot(address);
+    sub.addressId = address._id;
+    log(sub, "address_changed", null, "customer");
+    await sub.save();
+    // Future meals not yet locked go to the new address.
+    const { MealSelection } = await import("./subscription.model.js");
+    await MealSelection.updateMany({ subscription: sub._id, status: { $in: ["open", "selected"] } }, { $set: { address: sub.address } });
+    return toSubscription(sub);
+  });
+}
+
+export function switchBillingMethod(userId, billingMethod, by = "customer") {
+  return withSubLock(userId, async (sub) => {
+    if (!sub.planSnapshot.billingMethods?.includes(billingMethod)) throw new AppError(422, "This plan does not offer that billing method");
+    if (sub.billingMethod === billingMethod) return toSubscription(sub);
+    if (billingMethod === "autopay") {
+      const user = await User.findById(sub.user).lean();
+      const mandate = await createGatewaySubscription({ planAmountPaise: nextCyclePricePaise(sub), intervalDays: sub.planSnapshot.cycleDays, notes: { subscriptionId: String(sub._id), planName: sub.scheduledChange?.planName || sub.planSnapshot.name }, customer: { phone: user?.phoneNumber } });
+      sub.gatewaySubscriptionId = mandate.gatewaySubscriptionId;
+      sub.mandateStatus = mandate.status;
+      sub.billingMethod = "autopay";
+      // A paused plan: the new mandate waits too.
+      if (["pause_scheduled", "paused"].includes(sub.status)) await setMandatePaused(sub, true);
+      log(sub, "billing_switched", "autopay", by);
+      await sub.save();
+      return { ...toSubscription(sub), mandateUrl: mandate.shortUrl };
+    }
+    if (sub.gatewaySubscriptionId) await cancelGatewaySubscription(sub.gatewaySubscriptionId).catch(() => {});
+    sub.billingMethod = "link";
+    sub.gatewaySubscriptionId = null;
+    sub.mandateStatus = null;
+    log(sub, "billing_switched", "link", by);
+    await sub.save();
+    return toSubscription(sub);
+  });
+}
+
+const BILLING_LABELS = { autopay: "Autopay (UPI / card mandate)", link: "Payment link each month" };
+const INVOICE_STATUS = { issued: "PAID", paid: "PAID", cancelled: "CANCELLED", credited: "REFUNDED" };
+
+/** Billing History screen: totals, next payment, how the plan is billed, invoices. */
 export async function myInvoices(userId) {
-  const subs = await Subscription.find({ user: userId }).select("_id").lean();
-  const payments = await Payment.find({ refType: "subscription", refId: { $in: subs.map((sub) => sub._id) } }).select("_id").lean();
+  const subs = await Subscription.find({ user: userId }).select("_id status nextBillingDate billingMethod renewalPricePaise planSnapshot scheduledChange").sort({ createdAt: -1 }).lean();
+  const payments = await Payment.find({ refType: "subscription", refId: { $in: subs.map((sub) => sub._id) } }).select("_id status amountPaise refundedPaise method").lean();
   const invoices = await Invoice.find({ refType: "subscription", refId: { $in: payments.map((payment) => payment._id) } }).sort({ issuedAt: -1 }).lean();
   const { toInvoice } = await import("../billing/billing.service.js");
-  return invoices.map(toInvoice);
+  const live = subs.find((sub) => LIVE.includes(sub.status)) || null;
+  const totalPaid = payments.filter((payment) => ["captured", "partially_refunded"].includes(payment.status)).reduce((sum, payment) => sum + payment.amountPaise - (payment.refundedPaise || 0), 0);
+  const billed = live && ["active", "pause_scheduled", "past_due"].includes(live.status) && live.nextBillingDate;
+  return {
+    totalPaidPaise: totalPaid,
+    totalPaidLabel: rupeeText(totalPaid),
+    nextPaymentDate: billed ? live.nextBillingDate : null,
+    nextPaymentLabel: billed ? dayMonthYear(live.nextBillingDate).replace(/ \d{4}$/, "") : null,
+    nextPaymentPaise: billed ? nextCyclePricePaise(live) : null,
+    billingMethod: live?.billingMethod || null,
+    paymentMethodLabel: live ? BILLING_LABELS[live.billingMethod] || live.billingMethod : null,
+    hint: "Tap the download icon to save a GST invoice.",
+    items: invoices.map((invoice) => {
+      const view = toInvoice(invoice);
+      const [year, month] = view.date.split("-").map(Number);
+      return {
+        ...view,
+        monthLabel: `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][month - 1]} ${year}`,
+        dateLabel: `${dayMonthYear(view.date)} • ${view.invoiceNumber}`,
+        amountLabel: rupeeText(view.totalPaise),
+        statusLabel: INVOICE_STATUS[view.status] || String(view.status || "").toUpperCase(),
+        pdfPath: `/subscriptions/me/invoices/${view.invoiceId}/pdf`,
+      };
+    }),
+  };
 }
 
 // ------------------------------------------------------------------ admin
@@ -673,8 +900,10 @@ export async function adminAction(subscriptionId, { action, months, reasonId, co
   if (action === "cancel") return cancel(sub, { reasonId, comment: comment || "Cancelled by MealJi" }, by);
   if (action === "switch_billing") return switchBillingMethod(sub, billingMethod, by);
   if (action === "resend_link") {
-    await sendPaymentLink(sub, { reason: "resent_by_admin" });
-    return toSubscription(sub);
+    return withSubLock(sub, async (fresh) => {
+      await sendPaymentLink(fresh, { reason: "resent_by_admin" });
+      return toSubscription(fresh);
+    });
   }
   if (action === "extend") {
     if (!Number.isInteger(days) || days < 1 || days > 60) throw new AppError(422, "Extend by 1 to 60 days");

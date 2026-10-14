@@ -115,8 +115,8 @@ const subscriptionSchema = new mongoose.Schema(
     nextBillingDate: { type: String, default: null },
     renewalPricePaise: { type: Number, default: null },
     autoRenew: { type: Boolean, default: true },
-    pause: { startsOn: String, resumesOn: String, months: Number, requestedAt: Date },
-    scheduledChange: { plan: { type: ObjectId, ref: "SubscriptionPlan", default: null }, planName: String, effectiveOn: String },
+    pause: { startsOn: String, resumesOn: String, months: Number, requestedAt: Date, daysLeft: { type: Number, default: 0 } }, // daysLeft: paid days carried past a pause that starts mid-cycle
+    scheduledChange: { plan: { type: ObjectId, ref: "SubscriptionPlan", default: null }, planName: String, pricePaise: Number, effectiveOn: String },
     cancellation: { reasonId: String, reason: String, comment: String, effectiveOn: String, requestedAt: Date },
     gatewaySubscriptionId: { type: String, default: null },
     mandateStatus: { type: String, default: null },

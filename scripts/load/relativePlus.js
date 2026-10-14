@@ -34,7 +34,7 @@ const median = (list) => [...list].sort((a, b) => a - b)[Math.floor(list.length 
 const runs = [
   [`normal customer`, normal._id, ["/app/config", "/users/me", "/subscription-plans", "/subscription-plans/STANDARD_MONTHLY", "/subscriptions/me", `/subscriptions/checkout/summary?planCode=STANDARD_MONTHLY&addressId=${address?._id}`, "/support/config", "/support/categories", "/support/faqs?limit=6", "/support/faqs?q=refund", "/support/tickets?page=1&limit=10"]],
   [`heaviest tickets (${heavy.count})`, heavy._id, ["/support/tickets?page=1&limit=10", "/support/tickets?page=3&limit=10", `/support/tickets/${ticket._id}`]],
-  ["Plus member", member.user, ["/subscriptions/me", "/home", "/subscriptions/me/week", `/subscriptions/me/days/${tomorrow}`, `/subscriptions/me/menu?date=${tomorrow}&slot=lunch`, `/subscriptions/me/days/${tomorrow}/slots/lunch/selection`, `/subscriptions/me/shift-preview?date=${tomorrow}&slot=lunch`]],
+  ["Plus member", member.user, ["/subscriptions/me", "/home", "/subscriptions/me/week", `/subscriptions/me/days/${tomorrow}`, `/subscriptions/me/menu?date=${tomorrow}&slot=lunch`, `/subscriptions/me/days/${tomorrow}/slots/lunch/selection`, `/subscriptions/me/shift-preview?date=${tomorrow}&slot=lunch`, "/subscriptions/me/change-plan", "/subscriptions/me/change-plan/preview?planCode=PREMIUM_MONTHLY", "/subscriptions/me/pause-options", "/subscriptions/me/cancel-reasons", "/subscriptions/me/invoices"]],
 ];
 for (const [label, id, paths] of runs) {
   const headers = { Authorization: `Bearer ${signAccessToken({ userId: id, role: "user" }).token}`, "x-device-id": `relative-plus-${label.split(" ")[0]}` };

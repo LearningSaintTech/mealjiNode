@@ -145,6 +145,28 @@ export async function cancelGatewaySubscription(gatewaySubscriptionId) {
   return { id: gatewaySubscriptionId, status: "cancelled" };
 }
 
+/** Stops autopay charges while a plan is paused (the paid cycle is not affected). */
+export async function pauseGatewaySubscription(gatewaySubscriptionId) {
+  if (gatewayName() === "razorpay") return rzp("post", `/subscriptions/${gatewaySubscriptionId}/pause`, { pause_at: "now" });
+  return { id: gatewaySubscriptionId, status: "paused" };
+}
+
+export async function resumeGatewaySubscription(gatewaySubscriptionId) {
+  if (gatewayName() === "razorpay") return rzp("post", `/subscriptions/${gatewaySubscriptionId}/resume`, { resume_at: "now" });
+  return { id: gatewaySubscriptionId, status: "active" };
+}
+
+/** Changes the autopay amount from the next cycle (plan change). */
+export async function updateGatewaySubscriptionAmount(gatewaySubscriptionId, { planAmountPaise, intervalDays, planName }) {
+  if (gatewayName() === "razorpay") {
+    const period = intervalDays % 30 === 0 ? "monthly" : intervalDays % 7 === 0 ? "weekly" : "daily";
+    const interval = period === "monthly" ? intervalDays / 30 : period === "weekly" ? intervalDays / 7 : intervalDays;
+    const plan = await rzp("post", "/plans", { period, interval, item: { name: planName || "MealJi Plus", amount: planAmountPaise, currency: "INR" } });
+    return rzp("patch", `/subscriptions/${gatewaySubscriptionId}`, { plan_id: plan.id, schedule_change_at: "cycle_end" });
+  }
+  return { id: gatewaySubscriptionId, status: "active", amountPaise: planAmountPaise };
+}
+
 /** Verifies a webhook body (raw bytes) against the provider signature. */
 export function verifyWebhookSignature(rawBody, signature) {
   if (gatewayName() === "razorpay") {

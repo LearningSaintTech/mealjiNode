@@ -9157,10 +9157,10 @@
 		},
 		{
 			"name": "Step 16 · MealJi Plus: manage",
-			"description": "Release step 16 for the app. Screens: Active plan details, Change plan, Pause subscription, Cancel subscription, Confirm cancellation, Update address, Billing history. Integrate after step 15.",
+			"description": "Release step 16. Screens: My Subscription menu → Plan Details, Change Plan, Billing History, Pause Subscription, Update Address, Cancel Subscription → Confirm Cancellation. Integrate after step 15.\n\nEvery change returns the subscription (same shape as GET /subscriptions/me) so My Subscription can be redrawn from the response. One change runs at a time: a second tap while one runs gets 409 “Another change to your plan is in progress”. Rules (pause months, when a pause starts, when a plan change applies, undoing a cancel, cancel reasons) come from the admin console (Settings → Subscription rules).",
 			"item": [
 				{
-					"name": "S16.1 · GET /subscriptions/me/change-plan/preview",
+					"name": "S16.0 · Plan Details",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -9169,14 +9169,124 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/subscriptions/me/change-plan/preview",
-						"description": "GET /api/v1/subscriptions/me/change-plan/preview. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/subscriptions/me",
+						"description": "Authenticated member. Plan Details screen from the subscription: `nextBillingDateText` (“12 Nov 2026”), `autoRenewLabel` (Auto-renewal on / off), `plan.description`, `plan.benefits` (What's included), `planChangeNote`, `nextChargePaise` (what the next cycle costs, including a planned plan change), `scheduledChange.label`, `pause.label`, `statusLabel` (“Ends on 11 Nov 2026” once cancelled), `addressNote`."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Plan details",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Subscription fetched.\",\n  \"data\": {\n    \"subscription\": {\n      \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n      \"status\": \"active\",\n      \"plan\": {\n        \"planId\": \"6acc8be1189320566a1fad89\",\n        \"planCode\": \"BASIC_MONTHLY\",\n        \"name\": \"Basic Monthly\",\n        \"description\": \"Simple and light meals\",\n        \"pricePaise\": 349900,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"mealsPerDay\": 3,\n        \"maxItemsPerMeal\": 1,\n        \"benefits\": [\n          \"3+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"2 vegetable dishes\",\n          \"Fresh salad\",\n          \"4 chapatis\",\n          \"1 sweet\"\n        ]\n      },\n      \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n      \"address\": {\n        \"addressId\": \"6acc8be2189320566a1fae4c\",\n        \"label\": \"home\",\n        \"customLabel\": null,\n        \"displayLabel\": \"Home\",\n        \"recipientName\": \"Aditya Verma\",\n        \"phone\": \"9000000033\",\n        \"houseFlat\": \"A-501, Prestige Acropolis\",\n        \"street\": \"Hosur Road\",\n        \"locality\": \"Adugodi\",\n        \"landmark\": null,\n        \"city\": \"Bengaluru\",\n        \"state\": \"Karnataka\",\n        \"pincode\": \"560029\",\n        \"latitude\": 12.9442,\n        \"longitude\": 77.6275,\n        \"fullAddress\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\"\n      },\n      \"billingMethod\": \"autopay\",\n      \"startDate\": \"2026-10-13\",\n      \"cycle\": 1,\n      \"currentPeriodStart\": \"2026-10-13\",\n      \"currentPeriodEnd\": \"2026-11-11\",\n      \"validTill\": \"2026-11-11\",\n      \"nextBillingDate\": \"2026-11-12\",\n      \"renewalPricePaise\": 349900,\n      \"daysLeft\": 29,\n      \"autoRenew\": true,\n      \"pause\": null,\n      \"scheduledChange\": null,\n      \"cancellation\": null,\n      \"shiftsThisCycle\": 0,\n      \"shiftsLeft\": 4,\n      \"paymentLink\": null,\n      \"pastDueSince\": null,\n      \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n      \"statusLabel\": \"Active\",\n      \"planLabel\": \"Basic Monthly (₹3,499)\",\n      \"priceLabel\": \"₹3,499 / month\",\n      \"startDateLabel\": \"Tue, Oct 13\",\n      \"nextBillingDateLabel\": \"Nov 12, 2026\",\n      \"validTillLabel\": \"11 Nov 2026\",\n      \"validTillText\": \"Valid till 11 Nov 2026\",\n      \"nextBillingDateText\": \"12 Nov 2026\",\n      \"nextChargePaise\": 349900,\n      \"autoRenewLabel\": \"Auto-renewal on\",\n      \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n      \"addressNote\": \"Changes apply to your next delivery\"\n    }\n  }\n}"
+						}
+					],
+					"id": "088da9ac-4e20-4571-8a19-b9b72b316db1"
+				},
+				{
+					"name": "S16.1 · Change Plan (list)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-device-id",
+								"value": "{{deviceId}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/v1/subscriptions/me/change-plan",
+						"description": "Authenticated member. Change Plan screen: `title` (“Choose a plan that fits”), `plans` (each with `isCurrent` for CURRENT, `isScheduled`, `badge`, `priceText` “₹4,499 / month”, `featuresLabel`, `diffPaise`), `note` (“Your new plan begins on 12 Nov 2026. No charge today.”), `keepLabel` (“Keep Basic Plan”), `canChange` (false while a cancellation or an unpaid bill is pending)."
+					},
+					"response": [
+						{
+							"name": "Plans",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/change-plan"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Plans to change to.\",\n  \"data\": {\n    \"title\": \"Choose a plan that fits\",\n    \"plans\": [\n      {\n        \"planId\": \"6acc8be1189320566a1fad89\",\n        \"planCode\": \"BASIC_MONTHLY\",\n        \"name\": \"Basic Monthly\",\n        \"subtitle\": \"Simple and light meals\",\n        \"badge\": null,\n        \"description\": \"\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/meals-hero-kitchen.jpg\",\n        \"pricePaise\": 349900,\n        \"originalPricePaise\": null,\n        \"mrpPaise\": null,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"mealsPerDay\": 3,\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"maxItemsPerMeal\": 1,\n        \"minItemsPerMeal\": 1,\n        \"deliveryIncluded\": true,\n        \"deliveryFeePaise\": 0,\n        \"benefits\": [\n          \"3+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"2 vegetable dishes\",\n          \"Fresh salad\",\n          \"4 chapatis\",\n          \"1 sweet\"\n        ],\n        \"perks\": {\n          \"freeDeliveryOnOrders\": true,\n          \"orderDiscountPercent\": 0\n        },\n        \"billingMethods\": [\n          \"autopay\",\n          \"link\"\n        ],\n        \"activeDays\": [\n          1,\n          2,\n          3,\n          4,\n          5,\n          6\n        ],\n        \"maxShiftsPerCycle\": 4,\n        \"isPopular\": false,\n        \"sortOrder\": 1,\n        \"priceLabel\": \"₹3,499/Month\",\n        \"priceRupees\": \"3499\",\n        \"ctaLabel\": \"Select Basic Plan\",\n        \"isCurrent\": true,\n        \"isScheduled\": false,\n        \"priceText\": \"₹3,499 / month\",\n        \"featuresLabel\": \"3+ Food Categories • 3 meals / Day • Free doorstep delivery\",\n        \"diffPaise\": 0\n      },\n      {\n        \"planId\": \"6acc8be1189320566a1fad8d\",\n        \"planCode\": \"STANDARD_MONTHLY\",\n        \"name\": \"Standard Monthly\",\n        \"subtitle\": \"Everyday healthy home meals\",\n        \"badge\": \"Most popular\",\n        \"description\": \"\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\",\n        \"pricePaise\": 449900,\n        \"originalPricePaise\": null,\n        \"mrpPaise\": null,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"mealsPerDay\": 3,\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"maxItemsPerMeal\": 2,\n        \"minItemsPerMeal\": 1,\n        \"deliveryIncluded\": true,\n        \"deliveryFeePaise\": 0,\n        \"benefits\": [\n          \"5+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"2 vegetable dishes\",\n          \"Fresh salad\",\n          \"4 chapatis\",\n          \"1 sweet\"\n        ],\n        \"perks\": {\n          \"freeDeliveryOnOrders\": true,\n          \"orderDiscountPercent\": 10\n        },\n        \"billingMethods\": [\n          \"autopay\",\n          \"link\"\n        ],\n        \"activeDays\": [\n          1,\n          2,\n          3,\n          4,\n          5,\n          6\n        ],\n        \"maxShiftsPerCycle\": 4,\n        \"isPopular\": true,\n        \"sortOrder\": 2,\n        \"priceLabel\": \"₹4,499/Month\",\n        \"priceRupees\": \"4499\",\n        \"ctaLabel\": \"Select Standard Plan\",\n        \"isCurrent\": false,\n        \"isScheduled\": false,\n        \"priceText\": \"₹4,499 / month\",\n        \"featuresLabel\": \"5+ Food Categories • 3 meals / Day • Free doorstep delivery\",\n        \"diffPaise\": 100000\n      },\n      {\n        \"planId\": \"6acc8be1189320566a1fad91\",\n        \"planCode\": \"PREMIUM_MONTHLY\",\n        \"name\": \"Premium Monthly\",\n        \"subtitle\": \"Gourmet meals, extra variety\",\n        \"badge\": null,\n        \"description\": \"\",\n        \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/combo-spread.jpg\",\n        \"pricePaise\": 549900,\n        \"originalPricePaise\": null,\n        \"mrpPaise\": null,\n        \"cycleDays\": 30,\n        \"cycleLabel\": \"Monthly\",\n        \"mealsPerDay\": 3,\n        \"slots\": [\n          \"breakfast\",\n          \"lunch\",\n          \"dinner\"\n        ],\n        \"maxItemsPerMeal\": 3,\n        \"minItemsPerMeal\": 1,\n        \"deliveryIncluded\": true,\n        \"deliveryFeePaise\": 0,\n        \"benefits\": [\n          \"7+ Food Categories\",\n          \"3 meals / Day\",\n          \"Free doorstep delivery\",\n          \"3 vegetable dishes\",\n          \"Fresh salad\",\n          \"5 chapatis\",\n          \"2 sweets\"\n        ],\n        \"perks\": {\n          \"freeDeliveryOnOrders\": true,\n          \"orderDiscountPercent\": 15\n        },\n        \"billingMethods\": [\n          \"autopay\",\n          \"link\"\n        ],\n        \"activeDays\": [\n          1,\n          2,\n          3,\n          4,\n          5,\n          6\n        ],\n        \"maxShiftsPerCycle\": 4,\n        \"isPopular\": false,\n        \"sortOrder\": 3,\n        \"priceLabel\": \"₹5,499/Month\",\n        \"priceRupees\": \"5499\",\n        \"ctaLabel\": \"Select Premium Plan\",\n        \"isCurrent\": false,\n        \"isScheduled\": false,\n        \"priceText\": \"₹5,499 / month\",\n        \"featuresLabel\": \"7+ Food Categories • 3 meals / Day • Free doorstep delivery\",\n        \"diffPaise\": 200000\n      }\n    ],\n    \"effectiveOn\": \"2026-11-12\",\n    \"effectiveOnText\": \"12 Nov 2026\",\n    \"note\": \"Your new plan begins on 12 Nov 2026. No charge today.\",\n    \"keepLabel\": \"Keep Basic Plan\",\n    \"canChange\": true\n  }\n}"
+						}
+					],
+					"id": "0142f684-26c6-412a-be07-14c6a96a18d2"
+				},
+				{
+					"name": "S16.2 · Change preview (footer)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-device-id",
+								"value": "{{deviceId}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/v1/subscriptions/me/change-plan/preview?planCode={{planCode}}",
+						"description": "Authenticated member. Selected plan footer: `summaryLabel` (“Standard Monthly • ₹4,499 / month”), `diffLabel` (“+₹1,000” / “-₹1,000”), `continueLabel` (“Continue with Standard”), `effectiveOnText`, `chargeTodayPaise` (0), `note`. Errors: 409 already on this plan / not sold at your address / “Undo the cancellation first to change your plan”; 404 unknown plan."
+					},
+					"response": [
+						{
+							"name": "Standard",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/change-plan/preview?planCode={{planCode}}"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Plan change preview.\",\n  \"data\": {\n    \"current\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"next\": {\n      \"planId\": \"6acc8be1189320566a1fad8d\",\n      \"planCode\": \"STANDARD_MONTHLY\",\n      \"name\": \"Standard Monthly\",\n      \"subtitle\": \"Everyday healthy home meals\",\n      \"badge\": \"Most popular\",\n      \"description\": \"\",\n      \"imageUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/complete-meal.jpg\",\n      \"pricePaise\": 449900,\n      \"originalPricePaise\": null,\n      \"mrpPaise\": null,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"mealsPerDay\": 3,\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"maxItemsPerMeal\": 2,\n      \"minItemsPerMeal\": 1,\n      \"deliveryIncluded\": true,\n      \"deliveryFeePaise\": 0,\n      \"benefits\": [\n        \"5+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ],\n      \"perks\": {\n        \"freeDeliveryOnOrders\": true,\n        \"orderDiscountPercent\": 10\n      },\n      \"billingMethods\": [\n        \"autopay\",\n        \"link\"\n      ],\n      \"activeDays\": [\n        1,\n        2,\n        3,\n        4,\n        5,\n        6\n      ],\n      \"maxShiftsPerCycle\": 4,\n      \"isPopular\": true,\n      \"sortOrder\": 2,\n      \"priceLabel\": \"₹4,499/Month\",\n      \"priceRupees\": \"4499\",\n      \"ctaLabel\": \"Select Standard Plan\"\n    },\n    \"effectiveOn\": \"2026-11-12\",\n    \"effectiveOnText\": \"12 Nov 2026\",\n    \"chargeTodayPaise\": 0,\n    \"nextChargePaise\": 449900,\n    \"diffPaise\": 100000,\n    \"summaryLabel\": \"Standard Monthly • ₹4,499 / month\",\n    \"diffLabel\": \"+₹1,000\",\n    \"continueLabel\": \"Continue with Standard\",\n    \"note\": \"Your new plan begins on 12 Nov 2026. No charge today.\"\n  }\n}"
+						}
+					],
 					"id": "b2eea18e-4c75-4b88-a3f0-f7618a8137db"
 				},
 				{
-					"name": "S16.2 · POST /subscriptions/me/change-plan",
+					"name": "S16.3 · Change plan",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -9190,10 +9300,10 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/change-plan",
-						"description": "POST /api/v1/subscriptions/me/change-plan. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated member. Continue with …: `planCode`. By default the change waits for the next billing date (no charge today) and shows as `scheduledChange`; the next bill (payment link or autopay) is for the new price.\nKeep … Plan: send the current `planCode` to drop a planned change (200). With nothing planned that is 409 “You are already on this plan”.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"planCode\": \"PLUS30\"\n}",
+							"raw": "{\n  \"planCode\": \"{{planCode}}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -9201,11 +9311,126 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Change planned",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/change-plan"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"planCode\": \"STANDARD_MONTHLY\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Plan change scheduled.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"active\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acc8be2189320566a1fae4c\",\n      \"label\": \"home\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Home\",\n      \"recipientName\": \"Aditya Verma\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"A-501, Prestige Acropolis\",\n      \"street\": \"Hosur Road\",\n      \"locality\": \"Adugodi\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560029\",\n      \"latitude\": 12.9442,\n      \"longitude\": 77.6275,\n      \"fullAddress\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\"\n    },\n    \"billingMethod\": \"autopay\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": null,\n    \"scheduledChange\": {\n      \"planId\": \"6acc8be1189320566a1fad8d\",\n      \"planName\": \"Standard Monthly\",\n      \"pricePaise\": 449900,\n      \"effectiveOn\": \"2026-11-12\",\n      \"effectiveOnText\": \"12 Nov 2026\",\n      \"label\": \"Changes to Standard Monthly on 12 Nov 2026\"\n    },\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 449900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						},
+						{
+							"name": "Keep current plan (drops the change)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/change-plan"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"planCode\": \"BASIC_MONTHLY\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Plan change scheduled.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"active\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acc8be2189320566a1fae4c\",\n      \"label\": \"home\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Home\",\n      \"recipientName\": \"Aditya Verma\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"A-501, Prestige Acropolis\",\n      \"street\": \"Hosur Road\",\n      \"locality\": \"Adugodi\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560029\",\n      \"latitude\": 12.9442,\n      \"longitude\": 77.6275,\n      \"fullAddress\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\"\n    },\n    \"billingMethod\": \"autopay\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": null,\n    \"scheduledChange\": null,\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						},
+						{
+							"name": "While cancelling (409)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/change-plan"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"planCode\": \"PREMIUM_MONTHLY\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Undo the cancellation first to change your plan\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "320fb6eb-54e4-4352-8def-12d22f28cfbd"
 				},
 				{
-					"name": "S16.3 · GET /subscriptions/me/pause-options",
+					"name": "S16.4 · Pause options",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -9215,13 +9440,39 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/pause-options",
-						"description": "GET /api/v1/subscriptions/me/pause-options. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated member. Pause Subscription screen: `title` (“Take a break, not a goodbye”), `subtitle`, `options` [{ `months`, `title` “Pause for 1 month”, `subtitle` “Resume automatically on 12 Dec 2026”, `buttonLabel`, `startsOn`, `resumesOn` }], `whilePaused` (What happens while paused?), `note`, `cancelLabel` (“Not now”)."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Options",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/pause-options"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Pause options.\",\n  \"data\": {\n    \"title\": \"Take a break, not a goodbye\",\n    \"subtitle\": \"Pause deliveries and billing temporarily. Your preferences stay saved.\",\n    \"options\": [\n      {\n        \"months\": 1,\n        \"startsOn\": \"2026-11-12\",\n        \"resumesOn\": \"2026-12-12\",\n        \"title\": \"Pause for 1 month\",\n        \"subtitle\": \"Resume automatically on 12 Dec 2026\",\n        \"buttonLabel\": \"Pause for 1 month\",\n        \"startsOnText\": \"12 Nov 2026\"\n      },\n      {\n        \"months\": 2,\n        \"startsOn\": \"2026-11-12\",\n        \"resumesOn\": \"2027-01-11\",\n        \"title\": \"Pause for 2 months\",\n        \"subtitle\": \"Resume automatically on 11 Jan 2027\",\n        \"buttonLabel\": \"Pause for 2 months\",\n        \"startsOnText\": \"12 Nov 2026\"\n      },\n      {\n        \"months\": 3,\n        \"startsOn\": \"2026-11-12\",\n        \"resumesOn\": \"2027-02-10\",\n        \"title\": \"Pause for 3 months\",\n        \"subtitle\": \"Resume automatically on 10 Feb 2027\",\n        \"buttonLabel\": \"Pause for 3 months\",\n        \"startsOnText\": \"12 Nov 2026\"\n      }\n    ],\n    \"startsAt\": \"cycle_end\",\n    \"whilePaused\": \"No meals will be delivered and no payment will be taken. You can resume anytime from My Subscription.\",\n    \"note\": \"The pause starts after your paid days end on 11 Nov 2026. You are not charged while paused.\",\n    \"cancelLabel\": \"Not now\"\n  }\n}"
+						}
+					],
 					"id": "0aece9be-54f1-48dd-aefd-fc84530a1c66"
 				},
 				{
-					"name": "S16.4 · POST /subscriptions/me/pause",
+					"name": "S16.5 · Pause",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -9235,7 +9486,7 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/pause",
-						"description": "POST /api/v1/subscriptions/me/pause. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated member. Pause for N month(s): `months` (1–3 by default). The plan shows `status` pause_scheduled with `pause.label` (“Pauses on 12 Nov 2026 · resumes 12 Dec 2026”). No meals and no charges while paused; autopay is paused with it. When the admin sets pauses to start the next day, the paid days left are served after the pause.\nErrors: 422 “Pause for 1 to 3 month(s)”; 409 “Your plan is already paused”, “Undo the cancellation first to pause your plan”.",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"months\": 1\n}",
@@ -9246,40 +9497,130 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Pause scheduled",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/pause"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"months\": 1\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Pause scheduled.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"pause_scheduled\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acc8be2189320566a1fae4c\",\n      \"label\": \"home\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Home\",\n      \"recipientName\": \"Aditya Verma\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"A-501, Prestige Acropolis\",\n      \"street\": \"Hosur Road\",\n      \"locality\": \"Adugodi\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560029\",\n      \"latitude\": 12.9442,\n      \"longitude\": 77.6275,\n      \"fullAddress\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\"\n    },\n    \"billingMethod\": \"autopay\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": {\n      \"startsOn\": \"2026-11-12\",\n      \"resumesOn\": \"2026-12-12\",\n      \"months\": 1,\n      \"requestedAt\": \"2026-10-14T08:09:20.886Z\",\n      \"daysLeft\": 0,\n      \"startsOnText\": \"12 Nov 2026\",\n      \"resumesOnText\": \"12 Dec 2026\",\n      \"label\": \"Pauses on 12 Nov 2026 · resumes 12 Dec 2026\"\n    },\n    \"scheduledChange\": null,\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						},
+						{
+							"name": "Already paused (409)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/pause"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"months\": 1\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Your plan is already paused\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "65058f06-4c37-4784-aeac-d4ba4f7fab71"
 				},
 				{
-					"name": "S16.5 · POST /subscriptions/me/resume",
+					"name": "S16.6 · Resume",
 					"request": {
 						"method": "POST",
 						"header": [
 							{
 								"key": "x-device-id",
 								"value": "{{deviceId}}"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/resume",
-						"description": "POST /api/v1/subscriptions/me/resume. See the API reference in the backend README for permissions and fields.",
-						"body": {
-							"mode": "raw",
-							"raw": "{}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						}
+						"description": "Authenticated member. Resume from My Subscription. A pause that has not started is dropped; a running pause ends today (paid days left are served first, otherwise the next cycle is billed today). Not paused → 409."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Resumed",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/resume"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Subscription resumed.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"active\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acc8be2189320566a1fae4c\",\n      \"label\": \"home\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Home\",\n      \"recipientName\": \"Aditya Verma\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"A-501, Prestige Acropolis\",\n      \"street\": \"Hosur Road\",\n      \"locality\": \"Adugodi\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560029\",\n      \"latitude\": 12.9442,\n      \"longitude\": 77.6275,\n      \"fullAddress\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\"\n    },\n    \"billingMethod\": \"autopay\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": null,\n    \"scheduledChange\": null,\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						}
+					],
 					"id": "18b7b9ce-88b6-4dc2-b369-a93f4c987c55"
 				},
 				{
-					"name": "S16.6 · GET /subscriptions/me/cancel-reasons",
+					"name": "S16.7 · Cancel reasons and confirm text",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -9289,13 +9630,39 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/cancel-reasons",
-						"description": "GET /api/v1/subscriptions/me/cancel-reasons. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated member. Cancel Subscription + Confirm Cancellation: `title`, `subtitle`, `reasons` [{ `reasonId`, `label` }] (the app's six by default), `pauseOffer` (“Pause for up to 3 months.”) with `canPause`, `confirmTitle` (“Cancel your Basic Plan?”), `confirmSubtitle`, `planName`, `priceLabel`, `points` (If you cancel now: the three lines with dates), `keepLabel`, `cancelLabel`."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Reasons",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/cancel-reasons"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Reasons.\",\n  \"data\": {\n    \"title\": \"What made you decide to cancel?\",\n    \"subtitle\": \"Your feedback helps us improve. You can still go back without changing your Basic Plan.\",\n    \"reasons\": [\n      {\n        \"reasonId\": \"r1\",\n        \"label\": \"It’s too expensive\"\n      },\n      {\n        \"reasonId\": \"r2\",\n        \"label\": \"I’m not using it enough\"\n      },\n      {\n        \"reasonId\": \"r3\",\n        \"label\": \"I want different meal choices\"\n      },\n      {\n        \"reasonId\": \"r4\",\n        \"label\": \"Delivery timing doesn’t work\"\n      },\n      {\n        \"reasonId\": \"r5\",\n        \"label\": \"I’m moving or travelling\"\n      },\n      {\n        \"reasonId\": \"r6\",\n        \"label\": \"Something else\"\n      }\n    ],\n    \"pauseOffer\": \"Pause for up to 3 months.\",\n    \"canPause\": true,\n    \"confirmTitle\": \"Cancel your Basic Plan?\",\n    \"confirmSubtitle\": \"This is the final step. Nothing changes until you tap “Cancel subscription” below.\",\n    \"planName\": \"Basic Monthly\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"statusLabel\": \"Active\",\n    \"points\": [\n      \"You can use your remaining meals until 11 Nov 2026.\",\n      \"Auto-renewal stops and no payment will be taken on 12 Nov 2026.\",\n      \"Your billing history stays available. You can subscribe again anytime.\"\n    ],\n    \"keepLabel\": \"Keep my subscription\",\n    \"cancelLabel\": \"Cancel subscription\"\n  }\n}"
+						}
+					],
 					"id": "fc651733-7ce9-40b5-923c-80855e7a36e6"
 				},
 				{
-					"name": "S16.7 · POST /subscriptions/me/cancel",
+					"name": "S16.8 · Cancel",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -9309,10 +9676,10 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/cancel",
-						"description": "POST /api/v1/subscriptions/me/cancel. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated member. Cancel subscription: `reasonId`, optional `comment` (500). The plan runs until its paid-till day (`statusLabel` “Ends on 11 Nov 2026”, `autoRenewLabel` “Auto-renewal off”), autopay stops, a planned plan change or pause is dropped. Errors: 422 “Choose a reason”; 409 already ending.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"reasonId\": \"r1\",\n  \"comment\": \"Travelling\"\n}",
+							"raw": "{\n  \"reasonId\": \"r2\",\n  \"comment\": \"Travelling for a month\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -9320,40 +9687,130 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Cancellation scheduled",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/cancel"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"reasonId\": \"r2\",\n  \"comment\": \"Travelling for a month\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Cancellation scheduled.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"cancel_scheduled\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acc8be2189320566a1fae4c\",\n      \"label\": \"home\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Home\",\n      \"recipientName\": \"Aditya Verma\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"A-501, Prestige Acropolis\",\n      \"street\": \"Hosur Road\",\n      \"locality\": \"Adugodi\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560029\",\n      \"latitude\": 12.9442,\n      \"longitude\": 77.6275,\n      \"fullAddress\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\"\n    },\n    \"billingMethod\": \"autopay\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": false,\n    \"pause\": null,\n    \"scheduledChange\": null,\n    \"cancellation\": {\n      \"reasonId\": \"r2\",\n      \"reason\": \"I’m not using it enough\",\n      \"comment\": \"Travelling for a month\",\n      \"effectiveOn\": \"2026-11-11\",\n      \"requestedAt\": \"2026-10-14T08:09:21.101Z\"\n    },\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Ends on 11 Nov 2026\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal off\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						},
+						{
+							"name": "No reason (422)",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/cancel"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Unprocessable Entity",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Choose a reason\",\n  \"errors\": [\n    {\n      \"field\": \"reasonId\",\n      \"message\": \"Choose a reason\"\n    }\n  ]\n}"
+						}
+					],
 					"id": "50c14b45-80c7-46be-872b-d08ecdbe8a75"
 				},
 				{
-					"name": "S16.8 · POST /subscriptions/me/cancel/undo",
+					"name": "S16.9 · Undo cancel",
 					"request": {
 						"method": "POST",
 						"header": [
 							{
 								"key": "x-device-id",
 								"value": "{{deviceId}}"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/cancel/undo",
-						"description": "POST /api/v1/subscriptions/me/cancel/undo. See the API reference in the backend README for permissions and fields.",
-						"body": {
-							"mode": "raw",
-							"raw": "{}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						}
+						"description": "Authenticated member. Keep my subscription after cancelling: back to active with auto-renewal on (an autopay mandate that was stopped continues as payment links; switch back in S16.11). Nothing to undo → 409; undo turned off by the admin → 403."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Kept",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/cancel/undo"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Cancellation undone.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"active\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acc8be2189320566a1fae4c\",\n      \"label\": \"home\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Home\",\n      \"recipientName\": \"Aditya Verma\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"A-501, Prestige Acropolis\",\n      \"street\": \"Hosur Road\",\n      \"locality\": \"Adugodi\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560029\",\n      \"latitude\": 12.9442,\n      \"longitude\": 77.6275,\n      \"fullAddress\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\"\n    },\n    \"billingMethod\": \"link\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": null,\n    \"scheduledChange\": null,\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						}
+					],
 					"id": "1f55ef10-a125-4256-b932-dee99cf1159c"
 				},
 				{
-					"name": "S16.9 · PATCH /subscriptions/me/address",
+					"name": "S16.10 · Update address",
 					"request": {
 						"method": "PATCH",
 						"header": [
@@ -9367,10 +9824,10 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/address",
-						"description": "PATCH /api/v1/subscriptions/me/address. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated member. Update Address: save or edit the address with the address APIs (step 03), then send its `addressId`. Meals not yet locked go to the new address (`addressNote` “Changes apply to your next delivery”). Errors: 404 not your address; 409 “Your kitchen does not deliver to this address…”.",
 						"body": {
 							"mode": "raw",
-							"raw": "{}",
+							"raw": "{\n  \"addressId\": \"{{addressId}}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -9378,11 +9835,88 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Updated",
+							"originalRequest": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/address"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"addressId\": \"{{addressId}}\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Address updated.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"active\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acf38b1b7a3aea4e6b34ae9\",\n      \"label\": \"work\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Office\",\n      \"recipientName\": \"Ananya\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"2nd Floor, Prestige Atrium\",\n      \"street\": \"80 Feet Road\",\n      \"locality\": \"Koramangala\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560034\",\n      \"latitude\": 12.9472,\n      \"longitude\": 77.6305,\n      \"fullAddress\": \"2nd Floor, Prestige Atrium, 80 Feet Road, Koramangala, Bengaluru, Karnataka, 560034\"\n    },\n    \"billingMethod\": \"link\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": null,\n    \"scheduledChange\": null,\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						},
+						{
+							"name": "Too far (409)",
+							"originalRequest": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/address"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"addressId\": \"{{addressId}}\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "Conflict",
+							"code": 409,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Your kitchen does not deliver to this address. Contact support to move kitchens.\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "7fe98398-bcd9-4d6e-a139-427eaf36dcd6"
 				},
 				{
-					"name": "S16.10 · PATCH /subscriptions/me/payment-method",
+					"name": "S16.11 · Billing method",
 					"request": {
 						"method": "PATCH",
 						"header": [
@@ -9396,7 +9930,7 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/payment-method",
-						"description": "PATCH /api/v1/subscriptions/me/payment-method. See the API reference in the backend README for permissions and fields.",
+						"description": "Authenticated member. Billing History → Edit: `billingMethod` “autopay” (returns `mandateUrl`: open it to approve the UPI / card mandate) or “link” (a payment link each cycle). Only methods the plan offers (422 otherwise). A paused plan's new mandate waits paused.",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"billingMethod\": \"autopay\"\n}",
@@ -9407,11 +9941,88 @@
 							}
 						}
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Payment links",
+							"originalRequest": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/payment-method"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"billingMethod\": \"link\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Billing method updated.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"active\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acf38b1b7a3aea4e6b34ae9\",\n      \"label\": \"work\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Office\",\n      \"recipientName\": \"Ananya\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"2nd Floor, Prestige Atrium\",\n      \"street\": \"80 Feet Road\",\n      \"locality\": \"Koramangala\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560034\",\n      \"latitude\": 12.9472,\n      \"longitude\": 77.6305,\n      \"fullAddress\": \"2nd Floor, Prestige Atrium, 80 Feet Road, Koramangala, Bengaluru, Karnataka, 560034\"\n    },\n    \"billingMethod\": \"link\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": null,\n    \"scheduledChange\": null,\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\"\n  }\n}"
+						},
+						{
+							"name": "Autopay (mandate link)",
+							"originalRequest": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/payment-method"
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"billingMethod\": \"autopay\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Billing method updated.\",\n  \"data\": {\n    \"subscriptionId\": \"6acc8bf8189320566a1fc2b8\",\n    \"status\": \"active\",\n    \"plan\": {\n      \"planId\": \"6acc8be1189320566a1fad89\",\n      \"planCode\": \"BASIC_MONTHLY\",\n      \"name\": \"Basic Monthly\",\n      \"description\": \"Simple and light meals\",\n      \"pricePaise\": 349900,\n      \"cycleDays\": 30,\n      \"cycleLabel\": \"Monthly\",\n      \"slots\": [\n        \"breakfast\",\n        \"lunch\",\n        \"dinner\"\n      ],\n      \"mealsPerDay\": 3,\n      \"maxItemsPerMeal\": 1,\n      \"benefits\": [\n        \"3+ Food Categories\",\n        \"3 meals / Day\",\n        \"Free doorstep delivery\",\n        \"2 vegetable dishes\",\n        \"Fresh salad\",\n        \"4 chapatis\",\n        \"1 sweet\"\n      ]\n    },\n    \"kitchenId\": \"6acc8bd3189320566a1fa96c\",\n    \"address\": {\n      \"addressId\": \"6acf38b1b7a3aea4e6b34ae9\",\n      \"label\": \"work\",\n      \"customLabel\": null,\n      \"displayLabel\": \"Office\",\n      \"recipientName\": \"Ananya\",\n      \"phone\": \"9000000033\",\n      \"houseFlat\": \"2nd Floor, Prestige Atrium\",\n      \"street\": \"80 Feet Road\",\n      \"locality\": \"Koramangala\",\n      \"landmark\": null,\n      \"city\": \"Bengaluru\",\n      \"state\": \"Karnataka\",\n      \"pincode\": \"560034\",\n      \"latitude\": 12.9472,\n      \"longitude\": 77.6305,\n      \"fullAddress\": \"2nd Floor, Prestige Atrium, 80 Feet Road, Koramangala, Bengaluru, Karnataka, 560034\"\n    },\n    \"billingMethod\": \"autopay\",\n    \"startDate\": \"2026-10-13\",\n    \"cycle\": 1,\n    \"currentPeriodStart\": \"2026-10-13\",\n    \"currentPeriodEnd\": \"2026-11-11\",\n    \"validTill\": \"2026-11-11\",\n    \"nextBillingDate\": \"2026-11-12\",\n    \"renewalPricePaise\": 349900,\n    \"daysLeft\": 29,\n    \"autoRenew\": true,\n    \"pause\": null,\n    \"scheduledChange\": null,\n    \"cancellation\": null,\n    \"shiftsThisCycle\": 0,\n    \"shiftsLeft\": 4,\n    \"paymentLink\": null,\n    \"pastDueSince\": null,\n    \"createdAt\": \"2026-10-12T07:27:52.745Z\",\n    \"statusLabel\": \"Active\",\n    \"planLabel\": \"Basic Monthly (₹3,499)\",\n    \"priceLabel\": \"₹3,499 / month\",\n    \"startDateLabel\": \"Tue, Oct 13\",\n    \"nextBillingDateLabel\": \"Nov 12, 2026\",\n    \"validTillLabel\": \"11 Nov 2026\",\n    \"validTillText\": \"Valid till 11 Nov 2026\",\n    \"nextBillingDateText\": \"12 Nov 2026\",\n    \"nextChargePaise\": 349900,\n    \"autoRenewLabel\": \"Auto-renewal on\",\n    \"planChangeNote\": \"Any plan change starts from your next billing cycle.\",\n    \"addressNote\": \"Changes apply to your next delivery\",\n    \"mandateUrl\": \"http://localhost:4000/api/v1/payments/test/subscriptions/sub_test_faf90410cb860a\"\n  }\n}"
+						}
+					],
 					"id": "c2d42ab3-235a-42f0-a1f0-c99704f7b583"
 				},
 				{
-					"name": "S16.11 · GET /subscriptions/me/invoices",
+					"name": "S16.12 · Billing History",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -9421,13 +10032,39 @@
 							}
 						],
 						"url": "{{baseUrl}}/api/v1/subscriptions/me/invoices",
-						"description": "GET /api/v1/subscriptions/me/invoices. See the API reference in the backend README for permissions and fields."
+						"description": "Authenticated member (also after the plan ended). `totalPaidLabel` (TOTAL PAID), `nextPaymentLabel` (“12 Nov”, NEXT PAYMENT; null while paused or ending), `nextPaymentPaise`, `paymentMethodLabel`, `hint`, `items` (Recent invoices: `monthLabel` “October 2026”, `dateLabel` “12 Oct 2026 • MJ/2026-27/000058”, `amountLabel`, `statusLabel` PAID, `pdfPath`)."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "Billing history",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/invoices"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": true,\n  \"message\": \"Invoices fetched.\",\n  \"data\": {\n    \"totalPaidPaise\": 349900,\n    \"totalPaidLabel\": \"₹3,499\",\n    \"nextPaymentDate\": \"2026-11-12\",\n    \"nextPaymentLabel\": \"12 Nov\",\n    \"nextPaymentPaise\": 349900,\n    \"billingMethod\": \"autopay\",\n    \"paymentMethodLabel\": \"Autopay (UPI / card mandate)\",\n    \"hint\": \"Tap the download icon to save a GST invoice.\",\n    \"items\": [\n      {\n        \"invoiceId\": \"6acc8bf8189320566a1fc2c8\",\n        \"invoiceNumber\": \"MJ/2026-27/000058\",\n        \"financialYear\": \"2026-27\",\n        \"refType\": \"subscription\",\n        \"refId\": \"6acc8bf8189320566a1fc2bb\",\n        \"periodLabel\": \"2026-10-13 to 2026-11-11\",\n        \"date\": \"2026-10-12\",\n        \"issuedAt\": \"2026-10-12T07:27:52.805Z\",\n        \"entity\": {\n          \"entityId\": \"6acc8be1189320566a1fadeb\",\n          \"legalName\": \"MealJi Foods Private Limited\",\n          \"tradeName\": \"Meal Ji\",\n          \"gstin\": \"29AAQCM4821K1Z7\",\n          \"fssai\": \"11225999000123\",\n          \"pan\": \"AAQCM4821K\",\n          \"addressLine\": \"3rd Floor, 80 Feet Road, 4th Block, Koramangala\",\n          \"city\": \"Bengaluru\",\n          \"state\": \"Karnataka\",\n          \"stateCode\": \"29\",\n          \"pincode\": \"560034\",\n          \"email\": \"billing@mealji.example\",\n          \"phone\": \"08040001234\",\n          \"invoicePrefix\": \"MJ\",\n          \"logoUrl\": \"https://d3bi5d5em13bi2.cloudfront.net/mealji/seed/logo-full.png\",\n          \"signatory\": \"Authorised signatory\",\n          \"bank\": {\n            \"accountName\": null,\n            \"accountNumber\": null,\n            \"ifsc\": null\n          },\n          \"isDefault\": true,\n          \"isActive\": true,\n          \"updatedAt\": \"2026-10-12T07:27:29.760Z\"\n        },\n        \"customer\": {\n          \"name\": \"Aditya Verma\",\n          \"phone\": \"9000000033\",\n          \"email\": null,\n          \"address\": \"A-501, Prestige Acropolis, Hosur Road, Adugodi, Bengaluru, Karnataka, 560029\",\n          \"state\": \"Karnataka\"\n        },\n        \"lines\": [\n          {\n            \"description\": \"MealJi Plus Basic Monthly (cycle 1)\",\n            \"sac\": \"996331\",\n            \"qty\": 1,\n            \"unitPaise\": 333238,\n            \"taxablePaise\": 333238,\n            \"ratePercent\": 5,\n            \"cgstPaise\": 8331,\n            \"sgstPaise\": 8331,\n            \"igstPaise\": 0,\n            \"totalPaise\": 349900\n          }\n        ],\n        \"taxablePaise\": 333238,\n        \"gst\": {\n          \"cgstPaise\": 8331,\n          \"sgstPaise\": 8331,\n          \"igstPaise\": 0\n        },\n        \"totalPaise\": 349900,\n        \"status\": \"issued\",\n        \"pdfPath\": \"/subscriptions/me/invoices/6acc8bf8189320566a1fc2c8/pdf\",\n        \"monthLabel\": \"October 2026\",\n        \"dateLabel\": \"12 Oct 2026 • MJ/2026-27/000058\",\n        \"amountLabel\": \"₹3,499\",\n        \"statusLabel\": \"PAID\"\n      }\n    ]\n  }\n}"
+						}
+					],
 					"id": "a21ad38a-cbef-42d2-9f7f-aa1a75a44703"
 				},
 				{
-					"name": "S16.12 · GET /subscriptions/me/invoices/:id/pdf",
+					"name": "S16.13 · Invoice PDF",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -9436,10 +10073,65 @@
 								"value": "{{deviceId}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/v1/subscriptions/me/invoices/{{id}}/pdf",
-						"description": "GET /api/v1/subscriptions/me/invoices/:id/pdf. See the API reference in the backend README for permissions and fields."
+						"url": "{{baseUrl}}/api/v1/subscriptions/me/invoices/{{invoiceId}}/pdf",
+						"description": "Authenticated. The GST invoice as a PDF (download icon). Someone else's invoice → 404."
 					},
-					"response": [],
+					"response": [
+						{
+							"name": "GST invoice (PDF)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/invoices/{{invoiceId}}/pdf"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "text",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/pdf"
+								},
+								{
+									"key": "Content-Disposition",
+									"value": "inline; filename=\"MJ-2026-27-000058.pdf\""
+								}
+							],
+							"body": "%PDF-1.4 … (binary PDF)"
+						},
+						{
+							"name": "Someone else's (404)",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-device-id",
+										"value": "{{deviceId}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/subscriptions/me/invoices/{{invoiceId}}/pdf"
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								}
+							],
+							"body": "{\n  \"success\": false,\n  \"message\": \"Invoice not found\",\n  \"errors\": null\n}"
+						}
+					],
 					"id": "a3e6d386-902e-42d8-9b9f-9b923e7d5909"
 				}
 			]

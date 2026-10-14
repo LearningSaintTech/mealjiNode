@@ -81,13 +81,14 @@ customer.put(
 );
 customer.get("/subscriptions/me/shift-preview", query("date").isISO8601({ strict: true }), query("slot").optional().isIn(SLOT_KEYS), validate, asyncHandler(async (req, res) => ok(res, await meals.shiftPreview(req.auth.userId, req.query), "Shift preview.")));
 customer.post("/subscriptions/me/shift", body("date").isISO8601({ strict: true }), body("slot").optional({ values: "null" }).isIn(SLOT_KEYS), validate, idempotent(), asyncHandler(async (req, res) => ok(res, await meals.shift(req.auth.userId, req.body), "Meal shifted.")));
+customer.get("/subscriptions/me/change-plan", asyncHandler(async (req, res) => ok(res, await subs.changePlanOptions(req.auth.userId), "Plans to change to.")));
 customer.get("/subscriptions/me/change-plan/preview", query("planCode").isString().trim().toUpperCase(), validate, asyncHandler(async (req, res) => ok(res, await subs.changePlanPreview(req.auth.userId, req.query.planCode), "Plan change preview.")));
 customer.post("/subscriptions/me/change-plan", body("planCode").isString().trim().toUpperCase(), validate, asyncHandler(async (req, res) => ok(res, await subs.changePlan(req.auth.userId, req.body.planCode), "Plan change scheduled.")));
 customer.get("/subscriptions/me/pause-options", asyncHandler(async (req, res) => ok(res, await subs.pauseOptions(req.auth.userId), "Pause options.")));
 customer.post("/subscriptions/me/pause", body("months").isInt({ min: 1, max: 12 }).toInt(), validate, asyncHandler(async (req, res) => ok(res, await subs.pause(req.auth.userId, req.body), "Pause scheduled.")));
 customer.post("/subscriptions/me/resume", asyncHandler(async (req, res) => ok(res, await subs.resume(req.auth.userId), "Subscription resumed.")));
-customer.get("/subscriptions/me/cancel-reasons", asyncHandler(async (req, res) => ok(res, await subs.cancelReasons(), "Reasons.")));
-customer.post("/subscriptions/me/cancel", body("reasonId").isString().isLength({ max: 10 }), body("comment").optional().isString().isLength({ max: 500 }), validate, asyncHandler(async (req, res) => ok(res, await subs.cancel(req.auth.userId, req.body), "Cancellation scheduled.")));
+customer.get("/subscriptions/me/cancel-reasons", asyncHandler(async (req, res) => ok(res, await subs.cancelInfo(req.auth.userId), "Reasons.")));
+customer.post("/subscriptions/me/cancel", body("reasonId").isString().withMessage("Choose a reason").bail().isLength({ min: 1, max: 10 }).withMessage("Choose a reason"), body("comment").optional().isString().isLength({ max: 500 }), validate, asyncHandler(async (req, res) => ok(res, await subs.cancel(req.auth.userId, req.body), "Cancellation scheduled.")));
 customer.post("/subscriptions/me/cancel/undo", asyncHandler(async (req, res) => ok(res, await subs.undoCancel(req.auth.userId), "Cancellation undone.")));
 customer.patch("/subscriptions/me/address", body("addressId").isMongoId(), validate, asyncHandler(async (req, res) => ok(res, await subs.updateAddress(req.auth.userId, req.body.addressId), "Address updated.")));
 customer.patch("/subscriptions/me/payment-method", body("billingMethod").isIn(["autopay", "link"]), validate, asyncHandler(async (req, res) => ok(res, await subs.switchBillingMethod(req.auth.userId, req.body.billingMethod), "Billing method updated.")));

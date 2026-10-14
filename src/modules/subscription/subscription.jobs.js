@@ -4,7 +4,7 @@ import { gatewayName } from "../../infrastructure/payments/gateway.js";
 import { Payment } from "../payment/payment.model.js";
 import { Subscription } from "./subscription.model.js";
 import { daysBetween } from "./subscription.rules.js";
-import { emit, log, policyFor, sendPaymentLink, syncUser } from "./subscription.service.js";
+import { applyResume, emit, log, nextCyclePricePaise, policyFor, sendPaymentLink, syncUser } from "./subscription.service.js";
 
 /**
  * Daily at 00:05 IST: pauses start, pauses end, scheduled cancellations finish,
@@ -23,14 +23,8 @@ export async function dailySubscriptionRun() {
     changed += 1;
   }
   for (const sub of await Subscription.find({ status: "paused", "pause.resumesOn": { $lte: today } })) {
-    // Billing for the new cycle starts on the resume date.
-    sub.status = "active";
-    sub.nextBillingDate = today;
-    sub.pause = undefined;
-    log(sub, "auto_resumed");
-    await sub.save();
-    await syncUser(sub);
-    await emit("subscription.resumed", sub);
+    // Billing for the new cycle starts on the resume date (after any carried paid days).
+    await applyResume(sub, { by: "system", event: "auto_resumed" });
     changed += 1;
   }
   for (const sub of await Subscription.find({ status: "cancel_scheduled", validTill: { $lt: today } })) {
@@ -70,7 +64,7 @@ export async function billingRun() {
       const policy = await policyFor(sub);
       const daysLeft = daysBetween(today, sub.nextBillingDate);
       if (sub.status === "pause_scheduled" && sub.pause?.startsOn && sub.pause.startsOn <= sub.nextBillingDate) continue; // no billing while paused
-      const amountPaise = sub.renewalPricePaise ?? sub.planSnapshot.pricePaise;
+      const amountPaise = nextCyclePricePaise(sub);
 
       // Renewal reminders.
       for (const days of policy.reminderDaysBefore || []) {
