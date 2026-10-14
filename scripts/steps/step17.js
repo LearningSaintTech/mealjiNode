@@ -180,5 +180,23 @@ export default async function step17(ctx) {
       detail: `purged ${purged} · user “${user.name}”, ${user.phoneNumber} · addresses ${addresses} · ticket “${t?.description}” · order address “${order.address.fullAddress}” keeps ${order.address.city}, ${order.address.state} ${order.address.pincode} · the number signs in as a new account: ${Boolean(isNew)}`,
     };
   });
+  await s.run("17-12", "Admin console: a closed account shows as Closed, not Suspended, and cannot be suspended or reactivated there", "Admin → People", async () => {
+    const shut = new Client("step17-device-012");
+    await shut.signIn("9000000095");
+    await shut.call("DELETE", "/users/me", {});
+    const admin = new Client("step17-admin-device-2");
+    await admin.signIn(DEMO.admin, { staff: true });
+    const id = shut.session.user.userId;
+    const person = (await admin.call("GET", `/admin/users/${id}`)).data;
+    const closedList = (await admin.call("GET", "/admin/users?status=closed&limit=100")).data;
+    const suspendedList = (await admin.call("GET", "/admin/users?status=suspended&limit=100")).data;
+    const ids = (list) => (list?.items || list?.users || list || []).map((u) => u.userId);
+    const toggle = await admin.call("PATCH", `/admin/users/${id}/status`, { isActive: false });
+    const stats = (await admin.call("GET", "/admin/stats")).data;
+    return {
+      ok: person?.isClosed === true && person.isSuspended === false && Boolean(person.closedAt) && ids(closedList).includes(id) && !ids(suspendedList).includes(id) && toggle.status === 409 && (stats?.users?.user?.closed ?? 0) >= 1,
+      detail: `closed ${person?.isClosed}, suspended ${person?.isSuspended} · in Closed filter ${ids(closedList).includes(id)}, in Suspended filter ${ids(suspendedList).includes(id)} · suspend ${toggle.status} “${toggle.message}” · closed customers on the dashboard ${stats?.users?.user?.closed}`,
+    };
+  });
   return s;
 }

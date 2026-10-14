@@ -223,6 +223,7 @@ export function toRefund(refund) {
     orderId: refund.order ? String(refund.order._id || refund.order) : null,
     orderNumber: refund.order?.orderNumber || null,
     subscriptionId: refund.subscription ? String(refund.subscription) : null,
+    paymentId: refund.payment ? String(refund.payment._id || refund.payment) : null,
     userId: String(refund.user),
     kitchenId: refund.kitchen ? String(refund.kitchen) : null,
     amountPaise: refund.amountPaise,
@@ -496,6 +497,10 @@ export async function listPayments({ status, refType, gateway, from, to, q, page
       feePaise: payment.feePaise || 0,
       refundedPaise: payment.refundedPaise || 0,
       settlementId: payment.settlementId,
+      // pending = captured but its order / plan not updated yet (retried automatically).
+      applyState: payment.applyState || null,
+      // A charge from an autopay mandate no longer linked to the plan (refunded, never applied).
+      orphanCharge: Boolean(payment.orphanCharge),
       capturedAt: payment.capturedAt,
       createdAt: payment.createdAt,
     })),

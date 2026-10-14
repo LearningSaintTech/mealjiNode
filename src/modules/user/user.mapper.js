@@ -31,6 +31,10 @@ export function toPublicUser(user) {
     isNumberVerified: user.isNumberVerified,
     isSuspended: isSuspended(user),
     suspendedAt: user.suspendedAt ?? null,
+    // Closed by the customer (sign-in within 30 days restores it); purged = anonymised for good.
+    isClosed: Boolean(user.deletedAt),
+    closedAt: user.deletedAt ?? null,
+    purgedAt: user.purgedAt ?? null,
     subscription: {
       planCode: subscription.planCode ?? null,
       status: subscription.status ?? "none",

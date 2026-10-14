@@ -57,7 +57,7 @@ export function toSubscription(sub) {
   return {
     subscriptionId: String(sub._id),
     status: sub.status,
-    plan: { planId: String(sub.plan), planCode: plan.planCode, name: plan.name, description: plan.description || plan.subtitle || "", pricePaise: plan.pricePaise, cycleDays: plan.cycleDays, cycleLabel: plan.cycleLabel, slots: plan.slots, mealsPerDay: plan.mealsPerDay, maxItemsPerMeal: plan.maxItemsPerMeal, benefits: plan.benefits || [] },
+    plan: { planId: String(sub.plan), planCode: plan.planCode, name: plan.name, description: plan.description || plan.subtitle || "", billingMethods: plan.billingMethods || [], pricePaise: plan.pricePaise, cycleDays: plan.cycleDays, cycleLabel: plan.cycleLabel, slots: plan.slots, mealsPerDay: plan.mealsPerDay, maxItemsPerMeal: plan.maxItemsPerMeal, benefits: plan.benefits || [] },
     kitchenId: String(sub.kitchen),
     address: sub.address,
     billingMethod: sub.billingMethod,
@@ -982,7 +982,7 @@ export async function getSubscriptionAdmin(subscriptionId) {
     ...toSubscription(sub),
     customer: sub.user ? { userId: String(sub.user._id), name: sub.user.name, phone: sub.user.phoneNumber, email: sub.user.email } : null,
     history: sub.history || [],
-    payments: payments.map((payment) => ({ paymentId: String(payment._id), cycle: payment.cycle, amountPaise: payment.amountPaise, method: payment.method, status: payment.status, gateway: payment.gateway, createdAt: payment.createdAt, capturedAt: payment.capturedAt })),
+    payments: payments.map((payment) => ({ paymentId: String(payment._id), cycle: payment.cycle, amountPaise: payment.amountPaise, method: payment.method, status: payment.status, gateway: payment.gateway, applyState: payment.applyState || null, orphanCharge: Boolean(payment.orphanCharge), createdAt: payment.createdAt, capturedAt: payment.capturedAt })),
   };
 }
 

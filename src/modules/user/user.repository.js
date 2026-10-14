@@ -51,10 +51,12 @@ export const userRepository = {
     if (roleId) filter.role = roleId;
     if (kitchenId) filter.kitchen = kitchenId;
     // Same rules as user.status.js: suspension is its own flag; older records
-    // that are verified but inactive also count as suspended.
-    if (status === "active") Object.assign(filter, { isNumberVerified: true, isActive: true, suspendedAt: null });
-    if (status === "suspended") filter.$or = [{ suspendedAt: { $ne: null } }, { isNumberVerified: true, isActive: false }];
-    if (status === "invited") Object.assign(filter, { isNumberVerified: false, suspendedAt: null });
+    // that are verified but inactive also count as suspended — unless the
+    // customer closed the account (that is "closed", not "suspended").
+    if (status === "active") Object.assign(filter, { isNumberVerified: true, isActive: true, suspendedAt: null, deletedAt: null });
+    if (status === "suspended") filter.$or = [{ suspendedAt: { $ne: null } }, { isNumberVerified: true, isActive: false, deletedAt: null }];
+    if (status === "invited") Object.assign(filter, { isNumberVerified: false, suspendedAt: null, deletedAt: null });
+    if (status === "closed") Object.assign(filter, { deletedAt: { $ne: null }, suspendedAt: null });
     if (phone) filter.phoneNumber = { $regex: phone };
     if (q) filter.name = { $regex: q, $options: "i" };
     const skip = (page - 1) * limit;
@@ -84,8 +86,9 @@ export const userRepository = {
           _id: "$role",
           total: { $sum: 1 },
           active: { $sum: { $cond: [{ $and: ["$isNumberVerified", "$isActive", { $not: [{ $ifNull: ["$suspendedAt", false] }] }] }, 1, 0] } },
-          suspended: { $sum: { $cond: [{ $or: [{ $ifNull: ["$suspendedAt", false] }, { $and: ["$isNumberVerified", { $not: ["$isActive"] }] }] }, 1, 0] } },
-          invited: { $sum: { $cond: [{ $or: ["$isNumberVerified", { $ifNull: ["$suspendedAt", false] }] }, 0, 1] } },
+          suspended: { $sum: { $cond: [{ $or: [{ $ifNull: ["$suspendedAt", false] }, { $and: ["$isNumberVerified", { $not: ["$isActive"] }, { $not: [{ $ifNull: ["$deletedAt", false] }] }] }] }, 1, 0] } },
+          invited: { $sum: { $cond: [{ $or: ["$isNumberVerified", { $ifNull: ["$suspendedAt", false] }, { $ifNull: ["$deletedAt", false] }] }, 0, 1] } },
+          closed: { $sum: { $cond: [{ $and: [{ $ifNull: ["$deletedAt", false] }, { $not: [{ $ifNull: ["$suspendedAt", false] }] }] }, 1, 0] } },
         },
       },
     ]);

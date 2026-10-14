@@ -84,7 +84,8 @@ async function main() {
   if (catId) cleanups.push(() => admin.call("DELETE", `/admin/kitchens/${kitchenId}/menu/categories/${catId}`));
   const slotDish = await admin.call("POST", `/admin/kitchens/${kitchenId}/menu/dishes`, { name: `SMOKE ${otherSlot.toUpperCase()} ONLY`, pricePaise: 9900, isVeg: true, categoryId: catId, availableSlots: [otherSlot] });
   const slotDishId = slotDish.data?.dish?.dishId;
-  if (slotDishId) cleanups.unshift(() => admin.call("DELETE", `/admin/kitchens/${kitchenId}/menu/dishes/${slotDishId}`));
+  // Cleanups run in reverse: pushed after the category, so the dish goes first and the (then empty) category can be deleted.
+  if (slotDishId) cleanups.push(() => admin.call("DELETE", `/admin/kitchens/${kitchenId}/menu/dishes/${slotDishId}`));
   const slotView = await app.call("GET", `/menu/items/${slotDishId}?${kq}`);
   check(slotView.data && slotView.data.isAvailable === false, `a ${otherSlot}-only dish is not orderable now (${hour}:xx IST)`, `isAvailable ${slotView.data?.isAvailable}`, "2");
   check(slotView.data && "unavailableReason" in slotView.data, "unavailable dishes say why (unavailableReason)", String(slotView.data?.unavailableReason), "13");

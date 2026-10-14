@@ -104,6 +104,8 @@ export async function updateUserStatus({ actor, userId, isActive }) {
   // Suspension is its own flag, so an invited account can be suspended too and
   // its first OTP sign-in will not undo it.
   const suspend = isActive === false;
+  // A closed account is not suspended; reinstating it here would bypass the customer's own restore.
+  if (user.deletedAt && !user.suspendedAt) throw new AppError(409, user.purgedAt ? "This account was closed and anonymised" : "This account was closed by the customer. They can restore it by signing in within 30 days.");
   if (isSuspended(user) === suspend) {
     return toPublicUser(user);
   }
@@ -158,7 +160,7 @@ export async function updateUserRole({ actor, userId, roleSlug }) {
 export async function getStats(actor) {
   const roles = await roleRepository.list();
   const slugById = new Map(roles.map((role) => [String(role._id), role.slug]));
-  const empty = () => ({ total: 0, active: 0, suspended: 0, invited: 0 });
+  const empty = () => ({ total: 0, active: 0, suspended: 0, invited: 0, closed: 0 });
   const users = Object.fromEntries(roles.filter((role) => !role.kitchen).map((role) => [role.slug, empty()]));
 
   for (const row of await userRepository.countByRoleAndState()) {
@@ -169,6 +171,7 @@ export async function getStats(actor) {
       active: row.active,
       suspended: row.suspended,
       invited: row.invited,
+      closed: row.closed || 0,
     };
   }
 

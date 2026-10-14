@@ -27,7 +27,7 @@ export const listUsersValidation = [
   query("page").optional().isInt({ min: 1 }).withMessage("page must be a positive integer").toInt(),
   query("limit").optional().isInt({ min: 1, max: 100 }).withMessage("limit must be between 1 and 100").toInt(),
   query("role").optional({ values: "falsy" }).matches(SLUG).withMessage("Invalid role"),
-  query("status").optional({ values: "falsy" }).isIn(["active", "suspended", "invited"]).withMessage("Invalid status"),
+  query("status").optional({ values: "falsy" }).isIn(["active", "suspended", "invited", "closed"]).withMessage("Invalid status"),
   query("kitchenId").optional({ values: "falsy" }).isMongoId().withMessage("Invalid kitchen ID"),
   query("phone").optional().trim().matches(/^\d{1,15}$/).withMessage("Invalid phone search"),
   query("q").optional().trim().isLength({ max: 40 }).withMessage("Search is too long"),

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { body, param, query } from "express-validator";
 import { asyncHandler } from "../../common/asyncHandler.js";
 import { AppError } from "../../common/errors/AppError.js";
-import { authFor, idParam, ok, pageQuery, paging } from "../../common/http.js";
+import { authFor, has, idParam, ok, pageQuery, paging } from "../../common/http.js";
 import { authMiddleware } from "../../common/middleware/auth.middleware.js";
 import { authorize } from "../../common/middleware/authorize.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
@@ -105,7 +105,9 @@ admin.delete("/support/faqs/:id", manager, idParam(), validate, asyncHandler(asy
 }));
 admin.get("/support/categories", (req, res, next) => (req.auth.permissions.includes("tickets.handle") || req.auth.permissions.includes("support.manage") ? next() : agent(req, res, next)), asyncHandler(async (req, res) => ok(res, await support.listCategories({ all: true }), "Categories.")));
 admin.put("/support/categories/:key", manager, param("key").matches(/^[a-z_]{2,30}$/), body("name").isString().isLength({ min: 2, max: 60 }), validate, asyncHandler(async (req, res) => ok(res, await support.saveCategory(req.params.key, req.body), "Category saved.")));
-admin.get("/support/canned-replies", agent, asyncHandler(async (req, res) => ok(res, await support.listCanned(), "Canned replies.")));
+// Agents use them in replies; support managers edit them (Support setup): either may read the list.
+const agentOrManager = (req, res, next) => (has(req, "tickets.handle") || has(req, "support.manage") ? next() : next(new AppError(403, "You do not have permission to perform this action")));
+admin.get("/support/canned-replies", agentOrManager, asyncHandler(async (req, res) => ok(res, await support.listCanned(), "Canned replies.")));
 admin.post("/support/canned-replies", manager, asyncHandler(async (req, res) => ok(res, await support.saveCanned(null, req.body), "Saved.", 201)));
 admin.patch("/support/canned-replies/:id", manager, idParam(), validate, asyncHandler(async (req, res) => ok(res, await support.saveCanned(req.params.id, req.body), "Saved.")));
 admin.delete("/support/canned-replies/:id", manager, idParam(), validate, asyncHandler(async (req, res) => ok(res, await support.deleteCanned(req.params.id), "Deleted.")));
