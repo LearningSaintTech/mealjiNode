@@ -20,6 +20,8 @@ const kitchenSchema = new mongoose.Schema(
     serviceRadiusKm: { type: Number, required: true, min: 0.5, max: 25 },
     opensAt: { type: String, required: true, trim: true },
     closesAt: { type: String, required: true, trim: true },
+    // Takes orders round the clock (closure days and weekdays marked closed still apply).
+    open24Hours: { type: Boolean, default: false },
     serviceNote: { type: String, default: "", trim: true, maxlength: 280 },
     status: {
       type: String,

@@ -102,6 +102,7 @@ export async function serviceabilityAt({ latitude, longitude, userId = null, sou
       serviceRadiusKm: kitchen.serviceRadiusKm,
       acceptingOrders: Boolean(kitchen.acceptingOrders),
       opensAt: kitchen.opensAt,
+      open24Hours: Boolean(kitchen.open24Hours),
       closesAt: kitchen.closesAt,
       area: kitchen.area ?? null,
       city: kitchen.city,

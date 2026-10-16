@@ -17,6 +17,7 @@ export function toKitchen(kitchen) {
     serviceRadiusKm: kitchen.serviceRadiusKm,
     opensAt: kitchen.opensAt,
     closesAt: kitchen.closesAt,
+    open24Hours: Boolean(kitchen.open24Hours),
     serviceNote: kitchen.serviceNote || "",
     status: kitchen.status,
     acceptingOrders: Boolean(kitchen.acceptingOrders),

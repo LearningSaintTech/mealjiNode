@@ -15,9 +15,11 @@ const pinPair = body("longitude").custom((value, { req }) => {
 });
 
 const distinctHours = body("closesAt").custom((value, { req }) => {
-  if (value && value === req.body.opensAt) throw new Error("Closing time must differ from opening time");
+  // Equal times are only meaningful with "Open 24 hours" (the times are then ignored).
+  if (value && value === req.body.opensAt && req.body.open24Hours !== true) throw new Error("Closing time must differ from opening time");
   return true;
 });
+const open24 = body("open24Hours").optional().isBoolean().withMessage("Open 24 hours must be true or false").toBoolean();
 
 const kitchenFields = [
   body("name").trim().notEmpty().withMessage("Kitchen name is required").isLength({ max: 80 }).withMessage("Kitchen name is too long"),
@@ -36,6 +38,7 @@ const kitchenFields = [
   time("opensAt"),
   time("closesAt"),
   distinctHours,
+  open24,
   body("serviceNote").optional({ values: "falsy" }).trim().isLength({ max: 280 }).withMessage("Service note is too long"),
 ];
 
@@ -76,6 +79,7 @@ export const configureKitchenValidation = [
   time("opensAt"),
   time("closesAt"),
   distinctHours,
+  open24,
   body("serviceNote").optional({ values: "falsy" }).trim().isLength({ max: 280 }).withMessage("Service note is too long"),
 ];
 

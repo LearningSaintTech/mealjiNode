@@ -29,6 +29,7 @@ function kitchenPatch(input, { acceptingOrders }) {
     serviceRadiusKm: Number(input.serviceRadiusKm),
     opensAt: input.opensAt,
     closesAt: input.closesAt,
+    ...(input.open24Hours !== undefined ? { open24Hours: Boolean(input.open24Hours) } : {}),
     serviceNote: typeof input.serviceNote === "string" ? input.serviceNote.trim() : "",
     status: input.status || "onboarding",
     acceptingOrders: input.status === "active" ? acceptingOrders : false,
@@ -217,6 +218,7 @@ export async function configureOwnKitchen(userId, input) {
     longitude: point.longitude,
     opensAt: input.opensAt,
     closesAt: input.closesAt,
+    ...(input.open24Hours !== undefined ? { open24Hours: Boolean(input.open24Hours) } : {}),
     serviceNote: typeof input.serviceNote === "string" ? input.serviceNote.trim() : "",
   });
   // The contact is the kitchen admin's account, whoever is editing.

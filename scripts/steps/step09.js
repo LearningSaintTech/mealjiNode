@@ -19,7 +19,8 @@ export default async function step09(ctx) {
   });
   const dishes = (await me.call("GET", "/dishes?limit=100")).data?.items || [];
   const papad = dishes.find((d) => d.name === "Masala Papad");
-  const fries = dishes.find((d) => d.name === "Masala Gunpowder Fries");
+  // Always-orderable dishes only (the seed limits some dishes to time slots on purpose).
+  const fries = dishes.find((d) => d.name === "Cold Coffee");
   const fill = async (qty = 4) => {
     await me.call("DELETE", "/cart");
     await me.call("POST", "/cart/items", { dishId: papad.dishId, qty });

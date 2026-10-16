@@ -23,8 +23,8 @@ export default async function step06() {
     detail: `${allDishes.filter((d) => d.isFavorite).length} hearts on, ${allDishes.filter((d) => d.isBestseller).length} bestsellers`,
   }));
   await s.run("06-04", "Menu says whether the kitchen can take orders now", "Closed / paused state", () => ({
-    ok: typeof menu.kitchen?.isOpenNow === "boolean" && "closedMessage" in menu.kitchen && menu.kitchen.opensAt,
-    detail: `${menu.kitchen?.name} open ${menu.kitchen?.isOpenNow} (${menu.kitchen?.opensAt}–${menu.kitchen?.closesAt})`,
+    ok: typeof menu.kitchen?.isOpenNow === "boolean" && "closedMessage" in menu.kitchen && typeof menu.kitchen.open24Hours === "boolean" && (menu.kitchen.open24Hours || menu.kitchen.opensAt),
+    detail: `${menu.kitchen?.name} open ${menu.kitchen?.isOpenNow} (${menu.kitchen?.open24Hours ? "24 hours" : `${menu.kitchen?.opensAt}–${menu.kitchen?.closesAt}`})`,
   }));
   await s.run("06-05", "The app's own menu path works", "menuApi.ts: GET /kitchens/{id}/menu", async () => {
     const res = await me.call("GET", `/kitchens/${menu.kitchen?.kitchenId}/menu`);

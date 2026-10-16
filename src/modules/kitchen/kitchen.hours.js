@@ -13,6 +13,7 @@ export function hoursOn(kitchen, dateKey) {
   const weekday = istParts(istDateTime(dateKey, "12:00")).weekday;
   const day = (kitchen.weeklyHours || []).find((item) => item.weekday === weekday);
   if (day?.closed) return { closed: true, reason: "Closed on this day" };
+  if (kitchen.open24Hours) return { closed: false, opensAt: "00:00", closesAt: "23:59", allDay: true };
   const opensAt = day?.opensAt && HHMM.test(day.opensAt) ? day.opensAt : kitchen.opensAt;
   const closesAt = day?.closesAt && HHMM.test(day.closesAt) ? day.closesAt : kitchen.closesAt;
   if (!HHMM.test(opensAt || "") || !HHMM.test(closesAt || "")) return { closed: true, reason: "Hours not set" };
@@ -27,6 +28,7 @@ export function isOpenAt(kitchen, date = new Date()) {
   const now = istParts(date);
   const minutes = now.hour * 60 + now.minute;
   const today = hoursOn(kitchen, now.dateKey);
+  if (today.allDay) return true;
   if (!today.closed) {
     const open = parseHhmm(today.opensAt);
     const close = parseHhmm(today.closesAt);

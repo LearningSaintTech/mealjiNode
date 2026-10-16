@@ -247,6 +247,54 @@ const DISH_DETAILS = {
   "Paneer Bao (3 pcs)": { highlights: ["Fresh Ingredients", "Handmade"] },
 };
 
+// A mix of availability rules so the app can be tested on every case (same for
+// both kitchens). Slot hours: breakfast 7–11 am, lunch 11 am–4 pm, snacks 4–7 pm,
+// dinner 7–11:30 pm. Days: 0 = Sunday … 6 = Saturday. Dishes not listed: always.
+const DISH_AVAILABILITY = {
+  // Always available (no slot, every day)
+  "Masala Papad": {}, "Butter Naan": {}, "Garlic Naan": {}, "Chilled Soft Drink": {}, "Cold Coffee": {}, "Gulab Jamun (2 pcs)": {}, "Chocolate Truffle Cake": {}, "Royal Kulfi Shake": {},
+  // One slot
+  "Paneer Bao (3 pcs)": { slots: ["breakfast"] },
+  "Jeera Rice": { slots: ["lunch"] },
+  "Dal Ramen": { slots: ["lunch"] },
+  "Mutton Biryani": { slots: ["dinner"] },
+  "Masala Gunpowder Fries": { slots: ["snacks"] },
+  "Biryani Arancini (4 pcs)": { slots: ["snacks"] },
+  // Two slots
+  "Chicken Tikka Wrap": { slots: ["breakfast", "snacks"] },
+  "Butter Chicken": { slots: ["lunch", "dinner"] },
+  "Paneer Tikka Masala": { slots: ["lunch", "dinner"] },
+  "Chicken Biryani": { slots: ["lunch", "dinner"] },
+  "Paneer Biryani": { slots: ["lunch", "dinner"] },
+  "Butter Chicken Bowl": { slots: ["lunch", "dinner"] },
+  "The Meal Ji Meal (Signature)": { slots: ["lunch", "dinner"] },
+  // Weekends only (“not_today” on weekdays)
+  "Egg Biryani": { slots: ["lunch", "dinner"], days: [0, 6] },
+  // Limited stock: “Only N left”, then “Sold out for today”
+  "Gulab Cheesecake": { dailyStockLimit: 5 },
+  // Switched off by the kitchen: “Currently unavailable”
+  "Tandoori Cauliflower Bowl": { off: true },
+};
+
+/** Applies DISH_AVAILABILITY to the demo kitchens' dishes (last seed step). */
+async function seedDishAvailability(kitchens) {
+  let changed = 0;
+  for (const kitchen of Object.values(kitchens)) {
+    for (const [name, rule] of Object.entries(DISH_AVAILABILITY)) {
+      const result = await KitchenDish.updateMany({ kitchen: kitchen._id, name }, { $set: {
+        availableSlots: rule.slots || [],
+        availableDays: rule.days || [],
+        dailyStockLimit: rule.dailyStockLimit || 0,
+        stock: { date: null, sold: 0 },
+        isAvailable: !rule.off,
+      } });
+      changed += result.modifiedCount;
+    }
+    await catalog.invalidateMenu(String(kitchen._id), "dish");
+  }
+  return changed;
+}
+
 const BESTSELLERS = ["Butter Chicken Bowl", "Paneer Bao (3 pcs)", "The Meal Ji Meal (Signature)", "Chicken Biryani", "Gulab Cheesecake"];
 
 const KITCHEN_SETUP = {
@@ -272,7 +320,7 @@ const KITCHEN_SETUP = {
       ctaLabel: "Taste the Menu", ctaDeepLink: "mealji://menu",
       image: "mealsHeroKitchen", gallery: ["heroKitchenChef", "kitchenFlame", "kitchenPrep", "kitchenFresh"],
     },
-    hours: { opensAt: "08:00", closesAt: "23:00" },
+    hours: { opensAt: "08:00", closesAt: "23:00", open24Hours: true }, // takes orders round the clock (test any time)
   },
   Indiranagar: {
     skip: ["Mutton Biryani", "Egg Biryani"],
@@ -293,7 +341,7 @@ const KITCHEN_SETUP = {
       ctaLabel: "Taste the Menu", ctaDeepLink: "mealji://menu",
       image: "liveKitchenChef", gallery: ["kitchenPrep", "kitchenFresh"],
     },
-    hours: { opensAt: "08:00", closesAt: "23:00" },
+    hours: { opensAt: "08:00", closesAt: "23:00", open24Hours: false }, // normal hours: closed 11 pm–8 am (test "kitchen closed")
   },
 };
 
@@ -412,7 +460,11 @@ async function seedCatalog(kitchens, img) {
     for (const dish of dishes) {
       const extra = extras.get(dish.name) || {};
       await KitchenDish.updateOne({ _id: dish._id }, { $set: {
-        availableSlots: ["lunch", "dinner", "snacks"],
+        // All-day while the demo orders are placed; the test mix (DISH_AVAILABILITY) is applied at the end.
+        availableSlots: [],
+        availableDays: [],
+        dailyStockLimit: 0,
+        isAvailable: true,
         isBestseller: BESTSELLERS.includes(dish.name),
         originalPricePaise: extra.originalPricePaise ?? null,
         badge: extra.badge ?? null,
@@ -813,7 +865,8 @@ async function backdateOrder(orderId, placedAt, random) {
 const RATING_COMMENTS = ["Tasted just like home!", "Hot and fresh, loved the dal.", "Portion could be bigger.", "Perfect lunch, will order again.", "A little too spicy for me.", null, null];
 
 async function placeDemoOrder({ user, addressId, kitchen }, plan, random) {
-  const dishes = await KitchenDish.find({ kitchen: kitchen._id, isActive: true, approvalStatus: "live", availableSlots: plan.slot }).lean();
+  // A dish with no slots is available in every slot.
+  const dishes = await KitchenDish.find({ kitchen: kitchen._id, isActive: true, approvalStatus: "live", $or: [{ availableSlots: plan.slot }, { availableSlots: { $size: 0 } }] }).lean();
   const combos = await KitchenCombo.find({ kitchen: kitchen._id, isActive: true, approvalStatus: "live" }).lean();
   await cart.clearCart(user._id);
   if (combos.length && random() < 0.2) {
@@ -1106,6 +1159,8 @@ export async function seedDemoData({ fresh = false } = {}) {
   await seedInbox(customers);
   await seedAppSettings(actor);
   await segments.refreshSegmentSizes();
+  // Last: the availability mix (after demo orders, which need every dish orderable).
+  const availabilityRules = await seedDishAvailability(await demoKitchens());
 
   logger.info({
     staff: DEMO_STAFF.map((item) => `${item.role}: ${item.phone}`),
@@ -1114,5 +1169,6 @@ export async function seedDemoData({ fresh = false } = {}) {
     subscriptions: subscriptionCount,
     tickets: ticketCount,
     mealPicks,
+    availabilityRules,
   }, "Demo data is ready");
 }

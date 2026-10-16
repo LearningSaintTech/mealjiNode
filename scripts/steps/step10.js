@@ -106,7 +106,8 @@ export default async function step10(ctx) {
     const { db } = await import("./harness.js");
     const database = await db();
     const otherKitchen = await database.collection("kitchens").findOne({ _id: { $ne: new (await import("mongoose")).default.Types.ObjectId(order.kitchen.kitchenId) }, status: "active" });
-    const otherDish = await database.collection("kitchendishes").findOne({ kitchen: otherKitchen._id, approvalStatus: "live", isActive: true, "customizationGroups.minSelect": { $not: { $gt: 0 } } });
+    // An always-orderable dish (no time slot, every day, switched on, no stock limit): the seed mixes rules on purpose.
+    const otherDish = await database.collection("kitchendishes").findOne({ kitchen: otherKitchen._id, approvalStatus: "live", isActive: true, isAvailable: true, availableSlots: { $size: 0 }, availableDays: { $size: 0 }, dailyStockLimit: { $in: [0, null] }, "customizationGroups.minSelect": { $not: { $gt: 0 } } });
     await me.call("POST", "/cart/items", { dishId: String(otherDish._id), replaceCart: true });
     const ask = await me.call("POST", `/orders/${order.orderId}/reorder`);
     const replaced = await me.call("POST", `/orders/${order.orderId}/reorder`, { replaceCart: true });

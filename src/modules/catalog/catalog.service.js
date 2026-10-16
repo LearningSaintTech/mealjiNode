@@ -777,6 +777,8 @@ async function kitchenState(kitchenId) {
     acceptingOrders: Boolean(kitchen.acceptingOrders),
     opensAt: kitchen.opensAt ?? null,
     closesAt: kitchen.closesAt ?? null,
+    // When true the hours above are not used: show “Open 24 hours”.
+    open24Hours: Boolean(kitchen.open24Hours),
   };
 }
 

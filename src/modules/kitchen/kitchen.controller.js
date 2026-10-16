@@ -4,7 +4,7 @@ import { toPublicUser } from "../user/user.mapper.js";
 import { userRepository } from "../user/user.repository.js";
 import * as kitchenService from "./kitchen.service.js";
 
-const KITCHEN_FIELDS = ["name", "contactName", "phoneNumber", "addressLine", "area", "city", "state", "postalCode", "latitude", "longitude", "serviceRadiusKm", "opensAt", "closesAt", "serviceNote", "status", "acceptingOrders"];
+const KITCHEN_FIELDS = ["name", "contactName", "phoneNumber", "addressLine", "area", "city", "state", "postalCode", "latitude", "longitude", "serviceRadiusKm", "opensAt", "closesAt", "open24Hours", "serviceNote", "status", "acceptingOrders"];
 
 function kitchenSnapshot(kitchen) {
   return kitchen ? Object.fromEntries(KITCHEN_FIELDS.map((key) => [key, kitchen[key] ?? null])) : null;

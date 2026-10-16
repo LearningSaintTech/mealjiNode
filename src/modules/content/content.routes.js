@@ -48,7 +48,7 @@ customerContentRouter.get(
 customerContentRouter.get("/kitchen-about", query("kitchenId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => {
   const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId, user: req.auth.user });
   const view = toKitchen(kitchen);
-  return ok(res, { kitchenId: view.kitchenId, name: view.name, area: view.area, city: view.city, ...view.about, ratingAvg: Math.round((view.ratingAvg || 0) * 10) / 10, ratingCount: view.ratingCount, opensAt: view.opensAt, closesAt: view.closesAt }, "About fetched.");
+  return ok(res, { kitchenId: view.kitchenId, name: view.name, area: view.area, city: view.city, ...view.about, ratingAvg: Math.round((view.ratingAvg || 0) * 10) / 10, ratingCount: view.ratingCount, opensAt: view.opensAt, closesAt: view.closesAt, open24Hours: Boolean(view.open24Hours) }, "About fetched.");
 }));
 customerContentRouter.post("/banners/:id/:event", idParam(), param("event").isIn(["impression", "click"]), validate, accountLimiter("banner_track", { limit: 240, windowSec: 60 }), asyncHandler(async (req, res) => (
   ok(res, await content.trackBanner(req.params.id, req.params.event === "click" ? "click" : "impression", req.auth.userId), "Tracked.")
