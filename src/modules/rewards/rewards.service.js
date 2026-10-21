@@ -63,9 +63,18 @@ export async function summary(userId, preloaded = null) {
     { $match: { user: new mongoose.Types.ObjectId(String(userId)), remaining: { $gt: 0 }, expiresAt: { $ne: null, $lte: new Date(Date.now() + 30 * 86_400_000) } } },
     { $group: { _id: null, points: { $sum: "$remaining" }, first: { $min: "$expiresAt" } } },
   ]);
+  const activeOrders = await Order.find({
+    user: new mongoose.Types.ObjectId(String(userId)),
+    status: { $in: ["payment_pending", "placed", "accepted", "preparing", "ready", "dispatched"] },
+    pointsUsed: { $gt: 0 },
+    pointsDeductedAt: null,
+  }).select("pointsUsed orderNumber").lean();
+  const pendingDeductionPoints = (activeOrders || []).reduce((sum, o) => sum + (o.pointsUsed || 0), 0);
+
   return {
     enabled: settings.enabled,
     points: user?.pointsBalance || 0,
+    pendingDeductionPoints,
     valuePaise: (user?.pointsBalance || 0) * settings.pointValuePaise,
     pointValuePaise: settings.pointValuePaise,
     lifetimePoints: lifetime,
@@ -112,8 +121,13 @@ function rewardsMessage(rewards) {
 /** Rewards tab in one call: points card, Redeem Rewards and Earn More Points. */
 export async function overview(userId) {
   const user = await User.findById(userId).select("pointsBalance lifetimePoints tier").lean();
-  const [card, rewards, earn] = await Promise.all([summary(userId, user), catalog(userId, user), earnMethods()]);
-  return { ...card, ...rewardsMessage(rewards), rewards, earn };
+  const [card, rewards, earn, redemptions] = await Promise.all([
+    summary(userId, user),
+    catalog(userId, user),
+    earnMethods(),
+    myRedemptions(userId),
+  ]);
+  return { ...card, ...rewardsMessage(rewards), rewards, earn, myRedemptions: redemptions.filter((r) => r.status === "issued") };
 }
 
 // Points history rows: the app's icon names and labels.
@@ -181,7 +195,14 @@ export async function pointsCard(userId) {
     RewardTransaction.findOne({ user: new mongoose.Types.ObjectId(String(userId)) }).sort({ createdAt: -1 }).select("createdAt").lean(),
     catalog(userId, user),
   ]);
-  return { points: user?.pointsBalance || 0, tier: user?.tier || null, updatedLabel: updatedLabel(latest?.createdAt), ...rewardsMessage(rewards) };
+  const activeOrders = await Order.find({
+    user: new mongoose.Types.ObjectId(String(userId)),
+    status: { $in: ["payment_pending", "placed", "accepted", "preparing", "ready", "dispatched"] },
+    pointsUsed: { $gt: 0 },
+    pointsDeductedAt: null,
+  }).select("pointsUsed").lean();
+  const pendingDeductionPoints = (activeOrders || []).reduce((sum, o) => sum + (o.pointsUsed || 0), 0);
+  return { points: user?.pointsBalance || 0, pendingDeductionPoints, tier: user?.tier || null, updatedLabel: updatedLabel(latest?.createdAt), ...rewardsMessage(rewards) };
 }
 
 /** Meal Ji points screen: balance card + Recent Activity (This Month / Last Month / All time). */
@@ -196,9 +217,17 @@ export async function history(userId, { page = 1, limit = 20, period = "all" }) 
     RewardTransaction.findOne({ user: filter.user }).sort({ createdAt: -1 }).select("createdAt").lean(),
     catalog(userId, user),
   ]);
+  const activeOrders = await Order.find({
+    user: new mongoose.Types.ObjectId(String(userId)),
+    status: { $in: ["payment_pending", "placed", "accepted", "preparing", "ready", "dispatched"] },
+    pointsUsed: { $gt: 0 },
+    pointsDeductedAt: null,
+  }).select("pointsUsed").lean();
+  const pendingDeductionPoints = (activeOrders || []).reduce((sum, o) => sum + (o.pointsUsed || 0), 0);
   const now = new Date();
   return {
     points: user?.pointsBalance || 0,
+    pendingDeductionPoints,
     updatedLabel: updatedLabel(latest?.createdAt, now),
     ...rewardsMessage(rewards),
     period,
@@ -282,13 +311,27 @@ async function redeemLocked(userId, reward) {
     throw new AppError(503, "Could not issue your reward right now. Your points are back — please try again.");
   }
   const left = (await User.findById(userId).select("pointsBalance").lean())?.pointsBalance || 0;
+
+  // Auto-apply free dish reward to customer's cart so they see it immediately in their cart!
+  let addedToCart = false;
+  try {
+    const { applyPromo: applyToCart } = await import("../cart/cart.service.js");
+    await applyToCart(userId, code);
+    addedToCart = true;
+  } catch (cartErr) {
+    logger.info({ err: cartErr.message, userId, code }, "Could not auto-apply redeemed reward to cart");
+  }
+
   return {
     redemptionId: String(redemption._id),
     reward: toReward(reward),
     couponCode: code,
     expiresAt,
     pointsLeft: left,
-    howToUse: dish ? `Apply ${code} at checkout — we add ${dish.name}${dishQty > 1 ? ` x ${dishQty}` : ""} to your cart for free.` : `Apply ${code} at checkout.`,
+    addedToCart,
+    howToUse: dish
+      ? (addedToCart ? `${dish.name} has been added to your cart for free!` : `Apply ${code} at checkout — we add ${dish.name}${dishQty > 1 ? ` x ${dishQty}` : ""} to your cart for free.`)
+      : (addedToCart ? "Reward applied to your cart!" : `Apply ${code} at checkout.`),
   };
 }
 

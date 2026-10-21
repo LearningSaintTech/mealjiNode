@@ -6,6 +6,7 @@ import { nextSequence } from "../../common/sequence.js";
 import { escapeRegex } from "../../common/text.util.js";
 import { istDateKey, istDateTime, addIstDays } from "../../common/time.js";
 import { withTransaction } from "../../config/database.js";
+import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { publishEvent, publishEventSafe } from "../../events/eventBus.js";
 import { createGatewayOrder } from "../../infrastructure/payments/gateway.js";
@@ -377,9 +378,8 @@ async function placeOrderLocked(userId, input, { platform = null, user: signedIn
       const coupon = await Coupon.findOne({ code: created.couponCode }).session(session || null).lean();
       if (coupon) await reserveRedemption({ coupon, userId, orderId: created._id, discountPaise: bill.discountPaise, session });
     }
-    if (created.pointsUsed > 0) {
-      await spendPoints({ userId, points: created.pointsUsed, source: "checkout", title: `Used on order ${created.orderNumber}`, referenceType: "order", referenceId: String(created._id), dedupeKey: `order:${created._id}:spend`, session });
-    }
+    // Points are reserved on the order and will only be reduced from the user's
+    // reward account once the order is completely delivered.
     if (cod) {
       await publishEvent("order.placed", { orderId: String(created._id), userId: String(userId), kitchenId: String(kitchen._id), totalPaise: bill.grandTotalPaise, paymentMethod, isFirstOrder: created.isFirstOrder }, { session, aggregate: { type: "order", id: created._id } });
     } else {
@@ -435,11 +435,10 @@ export async function startPayment(order, user, { saveMethod = false } = {}) {
     currency: "INR",
     prefill: { name: user?.name || null, contact: user?.phoneNumber || null, email: user?.email || null },
     description: `Meal Ji order ${order.orderNumber}`,
-    // Pass to Razorpay checkout: `customer_id` always (shows saved methods), plus `save: 1`
-    // when the customer ticked “Save this payment method” (sent as savePaymentMethod).
-    customerId,
+   customerId,
     checkoutOptions: customerId ? { customer_id: customerId, ...(saveMethod ? { save: 1 } : {}) } : {},
     canSaveMethod: Boolean(customerId),
+    checkoutUrl: `${env.publicBaseUrl}/api/v1/payments/checkout/${order._id}`,
   };
 }
 
@@ -559,7 +558,7 @@ async function applyTransition(orderId, to, { actor, by = null, note = null, rea
 }
 
 /** Runs once the change is saved: give back stock, offer and points; tell the screens. */
-async function afterTransition(order, previous, to) {
+export async function afterTransition(order, previous, to) {
   // A failed payment keeps the offer and points for a retry; cancelling gives them back.
   if ((to === "cancelled" || to === "payment_failed") && previous !== "payment_failed") {
     // Released for the day it was taken (a cancel after midnight must not free today's stock).
@@ -567,7 +566,46 @@ async function afterTransition(order, previous, to) {
   }
   if (to === "cancelled") {
     await releaseRedemption(order._id).catch(() => {});
-    if (order.pointsUsed > 0) await refundSpentPoints({ userId: order.user, referenceId: String(order._id), title: `Points back from order ${order.orderNumber}` }).catch(() => {});
+    if (order.pointsDeductedAt && order.pointsUsed > 0) {
+      await refundSpentPoints({ userId: order.user, referenceId: String(order._id), title: `Points back from order ${order.orderNumber}` }).catch(() => {});
+    }
+  }
+  if (to === "delivered") {
+    // Until order is completely delivered, points are not reduced from user reward account.
+    // Deduct points used on this order now that delivery is complete.
+    if (order.pointsUsed > 0 && !order.pointsDeductedAt) {
+      try {
+        await spendPoints({
+          userId: order.user,
+          points: order.pointsUsed,
+          source: "checkout",
+          title: `Used on order ${order.orderNumber}`,
+          referenceType: "order",
+          referenceId: String(order._id),
+          dedupeKey: `order:${order._id}:spend`,
+        });
+        await Order.updateOne({ _id: order._id }, { $set: { pointsDeductedAt: new Date() } });
+      } catch (err) {
+        logger.warn({ err: err.message, orderId: order._id }, "Could not spend points on delivery");
+      }
+    }
+    // Also if this order used a reward redemption coupon, finalize points deduction if needed
+    if (order.couponCode) {
+      try {
+        const { RewardRedemption } = await import("../rewards/rewards.model.js");
+        const redemption = await RewardRedemption.findOne({
+          couponCode: order.couponCode,
+          user: order.user,
+          status: { $in: ["issued", "reserved"] },
+        });
+        if (redemption) {
+          redemption.status = "used";
+          await redemption.save();
+        }
+      } catch (rErr) {
+        logger.warn({ err: rErr.message, orderId: order._id }, "Could not update reward redemption status on delivery");
+      }
+    }
   }
   broadcast(order, previous === "payment_pending" && to === "placed" ? null : previous);
 }
@@ -673,6 +711,8 @@ export async function liveView(userId, orderId) {
     rider: riderView(order),
     canCancel: customerCanCancel(order, (await resolveSetting("order_policy", { kitchenId: order.kitchen })).values),
     cancelReasons: CANCEL_REASONS,
+    canRate: order.status === "delivered" && !order.rating?.at,
+    rating: order.rating?.at ? order.rating : null,
   };
 }
 

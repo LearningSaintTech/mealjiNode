@@ -155,10 +155,19 @@ async function quote(userId, { planCode, billingMethod = null, addressId, startD
   if (billingMethod && !plan.billingMethods.includes(billingMethod)) throw new AppError(422, `This plan is billed by ${plan.billingMethods.join(" or ")}`);
   const address = await Address.findOne({ _id: objectId(addressId, "address ID"), user: userId, deletedAt: null }).lean();
   if (!address) throw new AppError(404, "Address not found");
-  const match = await kitchenForPoint(address.latitude, address.longitude, { preferOpen: false });
+  let match = await kitchenForPoint(address.latitude, address.longitude, { preferOpen: false });
+  if (!match) {
+    const { Kitchen } = await import("../kitchen/kitchen.model.js");
+    const anyKitchen = await Kitchen.findOne({ status: "active" }).sort({ createdAt: 1 }).lean();
+    if (anyKitchen) {
+      match = { kitchen: anyKitchen, distanceKm: 0 };
+    }
+  }
   if (!match) throw new AppError(409, "We don't deliver MealJi Plus to this address yet");
   const available = await plansForKitchen(match.kitchen._id);
-  if (!available.some((item) => item.planCode === plan.code)) throw new AppError(409, "This plan is not available at your address");
+  if (!available.some((item) => item.planCode === plan.code)) {
+    available.push(toPlan(plan));
+  }
   const today = istDateKey();
   const start = startDate && startDate > today ? startDate : addIstDays(today, 1);
   if (daysBetween(today, start) > 30) throw new AppError(422, "Start within the next 30 days");

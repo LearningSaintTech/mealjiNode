@@ -14,9 +14,13 @@ router.put(
   "/local/*",
   express.raw({ type: () => true, limit: "10mb" }),
   asyncHandler(async (req, res) => {
+    let reqContentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (reqContentType === "image/jpg" || reqContentType === "image/pjpeg") {
+      reqContentType = "image/jpeg";
+    }
     const data = await storeLocalUpload({
       key: req.params[0],
-      contentType: String(req.headers["content-type"] || ""),
+      contentType: reqContentType,
       expires: req.query.expires,
       providedToken: String(req.query.token || ""),
       body: req.body,

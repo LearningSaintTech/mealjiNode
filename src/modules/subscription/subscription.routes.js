@@ -26,8 +26,8 @@ const customer = Router();
 customer.use(authFor(["/subscription-plans", "/subscriptions"], authMiddleware));
 
 customer.get("/subscription-plans", query("kitchenId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => {
-  const { kitchen } = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId, user: req.auth.user });
-  return ok(res, await plans.plansForKitchen(kitchen._id), "Plans fetched.");
+  const resolved = await resolveCustomerKitchen({ kitchenId: req.query.kitchenId || null, userId: req.auth.userId, user: req.auth.user }).catch(() => null);
+  return ok(res, await plans.plansForKitchen(resolved?.kitchen?._id || null), "Plans fetched.");
 }));
 customer.get("/subscription-plans/:code", param("code").isString().isLength({ max: 30 }), query("kitchenId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => {
   const { SubscriptionPlan } = await import("./subscription.model.js");
@@ -61,7 +61,11 @@ customer.post("/subscriptions/:id/verify-payment", idParam(), body("gatewayOrder
   const { verifyFromApp } = await import("../payment/payment.service.js");
   const result = await verifyFromApp(req.auth.userId, req.body);
   if (result.refId !== req.params.id) throw new AppError(409, "Payment belongs to another subscription");
-  return ok(res, (await subs.mySubscription(req.auth.userId)).subscription, "Subscription active.");
+  const mySub = (await subs.mySubscription(req.auth.userId)).subscription;
+  if (mySub) return ok(res, mySub, "Subscription active.");
+  const { Subscription } = await import("./subscription.model.js");
+  const found = await Subscription.findById(req.params.id).lean();
+  return ok(res, found ? subs.toSubscription(found) : null, "Subscription active.");
 }));
 customer.get("/subscriptions/me", asyncHandler(async (req, res) => ok(res, await subs.mySubscription(req.auth.userId), "Subscription fetched.")));
 customer.get("/subscriptions/me/week", asyncHandler(async (req, res) => ok(res, await meals.weekView(req.auth.userId), "Upcoming meals.")));
@@ -205,6 +209,7 @@ admin.get("/meal-plan/pdf", authorize("subscriptions.read"), adminSheetQuery, va
 
 export function mount(app, recordMountPath) {
   app.use("/api/v1", recordMountPath, customer);
+  app.use("/", recordMountPath, customer);
   app.use("/api/v1/kitchen", recordMountPath, kitchen);
   app.use("/api/v1/admin", recordMountPath, admin);
 }

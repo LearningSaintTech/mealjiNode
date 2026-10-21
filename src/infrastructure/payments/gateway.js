@@ -41,7 +41,7 @@ async function rzp(method, url, data) {
 
 const testId = (prefix) => `${prefix}_test_${crypto.randomBytes(7).toString("hex")}`;
 
-export const gatewayName = () => (env.razorpayKeyId && env.razorpayKeySecret ? "razorpay" : "test");
+export const gatewayName = () => (env.paymentGateway || (env.razorpayKeyId && env.razorpayKeySecret ? "razorpay" : "test"));
 
 export function assertGatewayAllowed() {
   if (gatewayName() === "test" && env.isProd) throw new AppError(503, "Payments are not configured");

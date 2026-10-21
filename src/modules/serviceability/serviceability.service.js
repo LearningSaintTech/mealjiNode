@@ -26,9 +26,19 @@ export async function kitchensForPoint(latitude, longitude) {
  */
 export async function kitchenForPoint(latitude, longitude, { preferOpen = true } = {}) {
   const matches = await kitchensForPoint(latitude, longitude);
-  if (!matches.length) return null;
-  const pick = (preferOpen && matches.find((match) => match.canOrder)) || matches[0];
-  return { kitchen: pick.kitchen, distanceKm: pick.distanceKm };
+  if (matches.length) {
+    const pick = (preferOpen && matches.find((match) => match.canOrder)) || matches[0];
+    return { kitchen: pick.kitchen, distanceKm: pick.distanceKm };
+  }
+  const allActive = await kitchenRepository.listActiveLocated();
+  if (allActive.length) {
+    const pick = (preferOpen && allActive.find((k) => orderingState(k).canOrder)) || allActive[0];
+    const km = Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))
+      ? roundKm(distanceKm(Number(latitude), Number(longitude), pick.latitude, pick.longitude))
+      : 0;
+    return { kitchen: pick, distanceKm: km };
+  }
+  return null;
 }
 
 /** Records unmet demand once per user, place (~100 m) and day, so repeated checks don't flood the log. */

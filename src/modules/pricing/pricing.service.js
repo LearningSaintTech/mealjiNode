@@ -35,13 +35,25 @@ export async function priceLines({ kitchen, lines, address = null, deliveryMode 
     bill = computeBill({ lines, pricing: { ...pricing.values, deliveryFeeMode: "flat", deliveryFeePaise: 0 }, tax: tax.values, deliveryMode, distanceKm: km, discountPaise, tipPaise, isPlusMember, interState, at });
     bill = { ...bill, deliveryFeeFullPaise: draft.deliveryFeePaise, deliveryFeeWaived: true, savingsPaise: bill.savingsPaise + draft.deliveryFeePaise, amountToFreeDeliveryPaise: 0 };
   }
-  let points = { available: 0, usable: 0, usedPoints: 0, valuePaise: loyalty.values.pointValuePaise };
+  let points = { available: 0, usable: 0, usedPoints: 0, valuePaise: loyalty.values.pointValuePaise, lockedPoints: 0 };
   if (user && loyalty.values.enabled) {
-    const balance = Math.max(0, user.pointsBalance || 0);
+    const rawBalance = Math.max(0, user.pointsBalance || 0);
+    let lockedPoints = 0;
+    try {
+      const { Order } = await import("../order/order.model.js");
+      const activeOrders = await Order.find({
+        user: user._id || user.id,
+        status: { $in: ["payment_pending", "placed", "accepted", "preparing", "ready", "dispatched"] },
+        pointsUsed: { $gt: 0 },
+        pointsDeductedAt: null,
+      }).select("pointsUsed").lean();
+      lockedPoints = (activeOrders || []).reduce((sum, o) => sum + (o.pointsUsed || 0), 0);
+    } catch {}
+    const balance = Math.max(0, rawBalance - lockedPoints);
     const value = loyalty.values.pointValuePaise || 0;
     const capPaise = Math.floor((bill.grandTotalPaise * (loyalty.values.maxRedeemPercent || 0)) / 100);
     const usablePoints = value > 0 ? Math.min(balance, Math.floor(capPaise / value)) : 0;
-    points = { available: balance, usable: usablePoints, usedPoints: 0, valuePaise: value };
+    points = { available: rawBalance, usable: usablePoints, usedPoints: 0, valuePaise: value, lockedPoints };
     if (usePoints && usablePoints > 0) {
       bill = { ...bill, pointsPaise: usablePoints * value, grandTotalPaise: bill.grandTotalPaise - usablePoints * value };
       points.usedPoints = usablePoints;
