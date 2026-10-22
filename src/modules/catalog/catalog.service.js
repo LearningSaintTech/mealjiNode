@@ -817,8 +817,16 @@ export async function customerDish(kitchenId, dishId, { userId = null } = {}) {
   view.kitchen = await kitchenState(kitchenId);
   // “From the chef” card: the dish story signed by the kitchen's chef.
   const { kitchenRepository } = await import("../kitchen/kitchen.repository.js");
-  const about = (await kitchenRepository.findActiveById(kitchenId))?.about || {};
-  view.chef = { name: about.chefName || null, imageUrl: about.imageUrl || null, note: view.story || null };
+  const kitchen = kitchenId ? await kitchenRepository.findActiveById(kitchenId) : null;
+  const about = kitchen?.about || {};
+  const chefNote = view.story || null;
+  view.chef = chefNote
+    ? {
+        name: about.chefName || "Head Chef",
+        imageUrl: about.imageUrl || null,
+        note: chefNote,
+      }
+    : null;
   return view;
 }
 

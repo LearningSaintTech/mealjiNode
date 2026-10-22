@@ -58,6 +58,7 @@ const orderSchema = new mongoose.Schema(
     bill: { type: mongoose.Schema.Types.Mixed, required: true },
     couponCode: { type: String, default: null },
     pointsUsed: { type: Number, default: 0 },
+    pointsDeductedAt: { type: Date, default: null },
     paymentMethod: { type: String, required: true },
     paymentStatus: {
       type: String,

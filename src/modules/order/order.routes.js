@@ -32,7 +32,18 @@ customerOrderRouter.post(
   body("savePaymentMethod").optional().isBoolean().toBoolean(true),
   validate,
   idempotent(),
-  asyncHandler(async (req, res) => ok(res, await orders.placeOrder(req.auth.userId, req.body, { user: req.auth.user }), "Order created.", 201)),
+  asyncHandler(async (req, res) => {
+    const result = await orders.placeOrder(req.auth.userId, req.body, { user: req.auth.user });
+    console.log("\n================== 📦 [POST /api/v1/orders] ORDER PLACED (BACKEND) 📦 ==================");
+    console.log("User ID      :", req.auth.userId);
+    console.log("Order ID     :", result.order?.orderId);
+    console.log("Order Number :", result.order?.orderNumber);
+    console.log("Status       :", result.order?.status);
+    console.log("Grand Total  : ₹", (result.order?.bill?.grandTotalPaise || 0) / 100);
+    console.log("Response JSON:\n", JSON.stringify(result, null, 2));
+    console.log("========================================================================================\n");
+    return ok(res, result, "Order created.", 201);
+  }),
 );
 customerOrderRouter.get("/", pageQuery, query("status").optional().isIn(["active", "past"]), validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
@@ -45,6 +56,50 @@ customerOrderRouter.patch("/:id/cancel", idParam(), body("reason").optional().is
   ok(res, await orders.cancelMyOrder(req.auth.userId, req.params.id, req.body), "Order cancelled.")
 )));
 customerOrderRouter.post("/:id/retry-payment", idParam(), validate, idempotent(), asyncHandler(async (req, res) => ok(res, await orders.retryPayment(req.auth.userId, req.params.id), "Payment restarted.")));
+customerOrderRouter.post(
+  "/:id/dev-deliver",
+  idParam(),
+  validate,
+  asyncHandler(async (req, res) => {
+    const order = await orders.getMyOrder(req.auth.userId, req.params.id);
+    const previous = order.status;
+    const now = new Date();
+    order.status = "delivered";
+    order.paymentStatus = "paid";
+    order.deliveredAt = now;
+    if (!order.placedAt) order.placedAt = new Date(now.getTime() - 30 * 60000);
+    if (!order.acceptedAt) order.acceptedAt = new Date(now.getTime() - 25 * 60000);
+    if (!order.readyAt) order.readyAt = new Date(now.getTime() - 15 * 60000);
+    if (!order.dispatchedAt) order.dispatchedAt = new Date(now.getTime() - 10 * 60000);
+    if (!order.rider?.name) {
+      order.rider = {
+        name: "Rahul Verma",
+        photoUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb",
+        phone: "9876543210",
+        rating: 4.9,
+        vehicleNumber: "KA 01 EK 4920",
+        deliveriesCount: 1240,
+      };
+    }
+    order.statusHistory.push({ status: "delivered", at: now, by: { role: "system" }, note: "Marked delivered for testing" });
+    if (order.kitchenSteps) {
+      order.kitchenSteps.forEach((s) => {
+        s.state = "done";
+        s.at = s.at || now;
+      });
+    }
+    await order.save();
+    await orders.afterTransition(order, previous, "delivered").catch(() => {});
+    const { publishEventSafe } = await import("../../events/eventBus.js");
+    await publishEventSafe("order.delivered", {
+      orderId: String(order._id),
+      userId: String(order.user),
+      kitchenId: String(order.kitchen),
+      paymentMethod: order.paymentMethod,
+    });
+    return ok(res, orders.toOrder(order), "Order delivered for testing.");
+  }),
+);
 customerOrderRouter.post(
   "/:id/rating",
   idParam(),

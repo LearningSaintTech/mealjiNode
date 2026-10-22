@@ -18,7 +18,7 @@ export const UPLOAD_PURPOSES = {
   import: { types: ["text/csv"], maxBytes: 10 * 1024 * 1024 },
 };
 
-const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/svg+xml": "svg", "application/pdf": "pdf", "text/csv": "csv" };
+const EXT = { "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/svg+xml": "svg", "application/pdf": "pdf", "text/csv": "csv" };
 export const LOCAL_DIR = path.join(rootDir, "uploads");
 
 function token(key, contentType, expiresAt) {
@@ -129,7 +129,11 @@ export async function putFile(key, body, contentType, { overwrite = false } = {}
   return publicUrl(key);
 }
 
-export function presignUpload({ purpose, contentType, size, ownerId }) {
+export function presignUpload({ purpose, contentType: rawContentType, size, ownerId }) {
+  let contentType = String(rawContentType || "").toLowerCase().trim();
+  if (contentType === "image/jpg" || contentType === "image/pjpeg") {
+    contentType = "image/jpeg";
+  }
   const rule = UPLOAD_PURPOSES[purpose];
   if (!rule) throw new AppError(422, "Unknown upload purpose");
   if (!rule.types.includes(contentType)) throw new AppError(422, `Allowed file types: ${rule.types.join(", ")}`);

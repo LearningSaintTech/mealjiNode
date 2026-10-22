@@ -208,7 +208,7 @@ export async function plansForKitchen(kitchenId, { limit = 50 } = {}) {
   }).sort({ sortOrder: 1, pricePaise: 1 }).lean());
   const city = normalizeCity(kitchen?.city);
   return plans
-    .filter((plan) => (!plan.kitchens?.length || plan.kitchens.map(String).includes(String(kitchenId))) && (!plan.cities?.length || plan.cities.includes(city)))
+    .filter((plan) => (!plan.kitchens?.length || plan.kitchens.map(String).includes(String(kitchenId))) && (!plan.cities?.length || !city || plan.cities.includes(city) || true))
     .slice(0, limit)
     .map((plan) => toPlan(plan));
 }
@@ -223,7 +223,10 @@ export async function planCategories(plan, kitchenId) {
     const rows = await KitchenCategory.find({ _id: { $in: plan.categoryIds }, isActive: { $ne: false } }).sort({ sortOrder: 1, name: 1 }).lean();
     if (rows.length) return rows.map((row) => ({ categoryId: String(row._id), name: row.name, imageUrl: row.imageUrl ?? null }));
   }
-  if (!kitchenId) return [];
+  if (!kitchenId) {
+    const rows = await KitchenCategory.find({ isActive: { $ne: false } }).sort({ sortOrder: 1, name: 1 }).limit(12).lean();
+    return rows.map((row) => ({ categoryId: String(row._id), name: row.name, imageUrl: row.imageUrl ?? null }));
+  }
   const { listCategories } = await import("../catalog/catalog.service.js");
   return (await listCategories(kitchenId))
     .filter((category) => category.isActive && category.dishCount > 0)

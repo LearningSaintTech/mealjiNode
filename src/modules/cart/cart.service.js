@@ -547,27 +547,55 @@ export async function updateCart(userId, input, { user = null } = {}) {
 }
 
 export async function applyPromo(userId, code) {
+  const cleanCode = String(code).trim().toUpperCase();
   const cart = await getCart(userId);
-  if (!cart.items.length) throw new AppError(409, "Add items before applying an offer");
-  const kitchen = await Kitchen.findById(cart.kitchen).lean();
+  const { Coupon } = await import("../coupon/coupon.model.js");
+  const foundCoupon = await Coupon.findOne({ code: cleanCode, isActive: true, approvalStatus: "live" }).lean();
+
+  if (!cart.items.length && (!foundCoupon || !foundCoupon.dish)) {
+    throw new AppError(409, "Add items before applying an offer");
+  }
+
+  // If cart is empty and this coupon is a free-dish reward, add the dish to the cart first
+  if (!cart.items.length && foundCoupon?.dish) {
+    let targetDishId = null;
+    if (cart.kitchen) {
+      const here = await KitchenDish.findOne({ kitchen: cart.kitchen, name: foundCoupon.dishName, isActive: true, approvalStatus: "live" }).select("_id").lean();
+      if (here) targetDishId = String(here._id);
+    }
+    if (!targetDishId) {
+      const origDish = await KitchenDish.findById(foundCoupon.dish).select("kitchen name isActive approvalStatus").lean();
+      if (origDish && origDish.isActive && origDish.approvalStatus === "live") {
+        targetDishId = String(origDish._id);
+      } else {
+        const anyDish = await KitchenDish.findOne({ name: foundCoupon.dishName, isActive: true, approvalStatus: "live" }).select("_id").lean();
+        if (anyDish) targetDishId = String(anyDish._id);
+      }
+    }
+    if (targetDishId) {
+      await addItem(userId, { dishId: targetDishId, qty: foundCoupon.dishQty || 1, replaceCart: true });
+    }
+  }
+
+  const currentCart = await getCart(userId);
+  const kitchen = currentCart.kitchen ? await Kitchen.findById(currentCart.kitchen).lean() : null;
   const check = async () => {
     const lines = await cartPricedLines(await Cart.findOne({ user: userId }).lean());
     const itemTotalPaise = lines.reduce((sum, line) => sum + line.totalPaise, 0);
-    return checkCode(code, { userId, kitchenId: cart.kitchen, city: kitchen?.city, itemTotalPaise, lines });
+    return checkCode(cleanCode, { userId, kitchenId: currentCart.kitchen, city: kitchen?.city, itemTotalPaise, lines });
   };
   let { coupon, result } = await check();
   // A free-dish reward puts its dish (this kitchen's one) in the cart ("added to your next order").
   if (result.reason === "dish_missing" && coupon?.dish) {
-    const here = await KitchenDish.findOne({ kitchen: cart.kitchen, name: coupon.dishName, isActive: true, approvalStatus: "live" }).select("_id").lean();
+    const here = await KitchenDish.findOne({ kitchen: currentCart.kitchen, name: coupon.dishName, isActive: true, approvalStatus: "live" }).select("_id").lean();
     if (!here) throw new AppError(422, `${coupon.dishName || "This dish"} is not on this kitchen's menu`, [{ field: "code", message: "dish_unavailable" }]);
     await addItem(userId, { dishId: String(here._id), qty: coupon.dishQty || 1 });
     ({ coupon, result } = await check());
   }
   if (!result.valid) throw new AppError(422, result.message, [{ field: "code", message: result.reason }]);
-  const couponCode = String(code).trim().toUpperCase();
-  await publishEventSafe("coupon.applied", { userId: String(userId), code: couponCode });
+  await publishEventSafe("coupon.applied", { userId: String(userId), code: cleanCode });
   return mutateCart(userId, (fresh) => {
-    fresh.couponCode = couponCode;
+    fresh.couponCode = cleanCode;
   }, { event: false });
 }
 

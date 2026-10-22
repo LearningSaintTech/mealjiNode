@@ -116,6 +116,7 @@ export const env = {
   linkHostsExtra: String(process.env.LINK_HOSTS || "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean),
 
   // Payments. Without Razorpay keys the "test" gateway is used (development only).
+  paymentGateway: String(process.env.PAYMENT_GATEWAY || "").trim().toLowerCase(),
   razorpayKeyId: String(process.env.RAZORPAY_KEY_ID || "").trim(),
   razorpayKeySecret: String(process.env.RAZORPAY_KEY_SECRET || "").trim(),
   razorpayWebhookSecret: String(process.env.RAZORPAY_WEBHOOK_SECRET || "").trim(),
