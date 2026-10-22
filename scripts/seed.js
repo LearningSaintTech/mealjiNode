@@ -259,6 +259,10 @@ try {
 
 try {
   await connectDatabase();
+  // The seed clears and rebuilds collections: only ever on a MealJi database
+  // (shared clusters hold other apps' databases).
+  const dbName = mongoose.connection.db.databaseName;
+  if (!/^mealji/i.test(dbName)) throw new Error(`Refusing to seed database "${dbName}": its name must start with "mealji"`);
   await seedIdentity();
   await seedDemo();
   if (DEMO_DATA && !env.isProd) await seedDemoData({ fresh: FRESH });
