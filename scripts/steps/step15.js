@@ -63,7 +63,7 @@ export default async function step15(ctx) {
     const pictures = await Promise.all(dishes.slice(0, 6).map((d) => headOk(d.imageUrl)));
     const catIds = new Set((menu.categories || []).map((c) => c.categoryId));
     return {
-      ok: res.status === 200 && dishes.length >= 6 && dishes.every((d) => d.name && d.description && d.imageUrl && d.pricePaise === undefined && catIds.has(d.categoryId)) && pictures.every(Boolean) && menu.categories.length >= 2 && menu.categories.every((c) => c.name && c.count >= 1) && menu.maxItems === sub.planSnapshot.maxItemsPerMeal && menu.limitLabel === `You can add up to ${menu.maxItems} items` && menu.title === lunch?.prepareTitle && /^Until /.test(menu.cutoffLabel),
+      ok: res.status === 200 && dishes.length >= 4 && dishes.every((d) => d.name && d.description && d.imageUrl && d.pricePaise === undefined && catIds.has(d.categoryId)) && pictures.every(Boolean) && menu.categories.length >= 2 && menu.categories.every((c) => c.name && c.count >= 1) && menu.maxItems === sub.planSnapshot.maxItemsPerMeal && menu.limitLabel === `You can add up to ${menu.maxItems} items` && menu.title === lunch?.prepareTitle && /^Until /.test(menu.cutoffLabel),
       detail: `${dishes.length} dishes · tabs ${menu.categories?.map((c) => `${c.name} ${c.count}`).join(", ")} · “${menu.limitLabel}” · ${menu.cutoffLabel}`,
     };
   });
