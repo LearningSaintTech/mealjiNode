@@ -82,10 +82,12 @@ export async function bookForOrder(orderId, { by = "system", provider = null } =
   try {
     const quote = await adapter.quote({ pickup: job.pickup, drop: job.drop });
     if (quote) job.quotePaise = quote.pricePaise;
-    const created = await adapter.create(job);
+    const created = await adapter.create(job, { order, kitchen });
     job.providerJobId = created.providerJobId;
     job.status = created.status || "booked";
     job.trackingUrl = created.trackingUrl || null;
+    if (created.costPaise != null) job.costPaise = created.costPaise;
+    job.deliveryOtp = created.deliveryOtp || null;
     job.bookedAt = new Date();
     job.history.push({ status: job.status, at: new Date(), by });
   } catch (err) {
@@ -103,11 +105,12 @@ export async function bookForOrder(orderId, { by = "system", provider = null } =
 /**
  * Applies a delivery status change (from the kitchen for manual/self jobs, or a
  * provider webhook) and moves the order with it: picked_up → dispatched,
- * delivered → delivered.
+ * delivered → delivered. The job is saved first and everything else follows,
+ * so a save refused by a condition (a newer provider event, see
+ * handleProviderWebhook) leaves no trace.
  */
-export async function updateJob(job, { status, rider = null, costPaise = null, location = null, note = null, by = "system" }) {
+export async function updateJob(job, { status, rider = null, costPaise = null, location = null, note = null, pickedUp = false, by = "system" }) {
   const { transition } = await import("../order/order.service.js");
-  const order = job.order ? await Order.findById(job.order) : null;
   if (rider?.name) {
     const rating = Number(rider.rating);
     const deliveries = Number(rider.deliveriesCount);
@@ -119,27 +122,29 @@ export async function updateJob(job, { status, rider = null, costPaise = null, l
       rating: Number.isFinite(rating) && rating > 0 ? Math.min(5, Math.round(rating * 10) / 10) : null,
       deliveriesCount: Number.isInteger(deliveries) && deliveries >= 0 ? deliveries : null,
     };
-    if (order) {
+    if (status == null && job.status === "booked") status = "assigned";
+  }
+  if (costPaise != null) job.costPaise = costPaise;
+  if (location) job.lastLocation = { ...location, at: new Date() };
+  if (pickedUp && !job.pickedUpAt) job.pickedUpAt = new Date();
+  const statusChanged = Boolean(status && status !== job.status);
+  if (statusChanged) {
+    job.status = status;
+    job.history.push({ status, at: new Date(), note, by });
+    if (status === "picked_up" && !job.pickedUpAt) job.pickedUpAt = new Date();
+    if (status === "delivered") job.deliveredAt = new Date();
+    if (status === "failed" && note) job.failureReason = note;
+  }
+  await job.save();
+  const order = job.order ? await Order.findById(job.order) : null;
+  if (statusChanged) await publishEventSafe(`delivery.${status}`, { jobId: String(job._id), orderId: order ? String(order._id) : null });
+  if (order) {
+    if (rider?.name) {
       order.rider = job.rider;
       await order.save();
       publish(`order:${order._id}`, "order:rider_assigned", { orderId: String(order._id), rider: { name: rider.name, phoneMasked: rider.phone ? maskPhone(rider.phone) : null, vehicleNumber: rider.vehicleNumber || null } });
     }
-    if (status == null && job.status === "booked") status = "assigned";
-  }
-  if (costPaise != null) job.costPaise = costPaise;
-  if (location) {
-    job.lastLocation = { ...location, at: new Date() };
-    if (order) publish(`order:${order._id}`, "track:location", { orderId: String(order._id), lat: location.lat, lng: location.lng, heading: location.heading ?? null, speed: location.speed ?? null, updatedAt: new Date().toISOString() });
-  }
-  if (status && status !== job.status) {
-    job.status = status;
-    job.history.push({ status, at: new Date(), note, by });
-    if (status === "picked_up") job.pickedUpAt = new Date();
-    if (status === "delivered") job.deliveredAt = new Date();
-    await publishEventSafe(`delivery.${status}`, { jobId: String(job._id), orderId: order ? String(order._id) : null });
-  }
-  await job.save();
-  if (order) {
+    if (location) publish(`order:${order._id}`, "track:location", { orderId: String(order._id), lat: location.lat, lng: location.lng, heading: location.heading ?? null, speed: location.speed ?? null, updatedAt: new Date().toISOString() });
     const actor = by === "kitchen" ? "kitchen" : by === "admin" ? "admin" : "system";
     if (status === "picked_up" && order.status === "ready") await transition(order._id, "dispatched", { actor, note: "Rider picked up" });
     if (status === "delivered" && ["ready", "dispatched"].includes(order.status)) {
@@ -253,7 +258,8 @@ export async function deliveryWatchdog() {
     const job = await bookForOrder(order._id).catch(() => null);
     if (job && job.status !== "failed") booked += 1;
   }
-  const failed = await DeliveryJob.find({ status: "failed", order: { $ne: null }, updatedAt: { $lte: new Date(Date.now() - 2 * 60_000) } }).limit(100);
+  // A delivery that failed after pickup is not re-booked: the food left the kitchen (ops decide).
+  const failed = await DeliveryJob.find({ status: "failed", order: { $ne: null }, pickedUpAt: null, updatedAt: { $lte: new Date(Date.now() - 2 * 60_000) } }).limit(100);
   for (const job of failed) {
     const settings = await deliverySettings(job.kitchen);
     if (job.attempts > settings.rebookAttempts) continue;
@@ -316,8 +322,42 @@ export async function handleProviderWebhook(providerKey, body, headers) {
   if (adapter.key !== providerKey) return { ignored: true };
   const update = adapter.parseWebhook(body, headers);
   if (!update?.providerJobId) return { ignored: true };
-  const job = await DeliveryJob.findOne({ provider: providerKey, providerJobId: update.providerJobId });
-  if (!job) return { ignored: true };
-  await updateJob(job, { ...update, by: providerKey });
+  const filter = { provider: providerKey, providerJobId: update.providerJobId };
+  const { version, providerJobId, ...changes } = update;
+  if (version == null) {
+    const job = await DeliveryJob.findOne(filter);
+    if (!job) return { ignored: true };
+    if (["cancelled", "delivered"].includes(job.status)) return { ignored: true, reason: "closed" };
+    await updateJob(job, { ...changes, by: providerKey });
+    return { processed: true };
+  }
+  // Webhooks may arrive out of order, twice, or several at once: claim the event's
+  // version (only newer ones win) and save only while no newer event has claimed
+  // the job since, so an older status can never overwrite a newer one.
+  const job = await DeliveryJob.findOneAndUpdate(
+    { ...filter, $or: [{ providerVersion: null }, { providerVersion: { $lt: version } }] },
+    { $set: { providerVersion: version } },
+    { new: true },
+  );
+  if (!job) return (await DeliveryJob.exists(filter)) ? { ignored: true, reason: "stale" } : { ignored: true };
+  // A job MealJi already closed (cancelled or re-booked, or delivered) takes no more updates.
+  if (["cancelled", "delivered"].includes(job.status)) return { ignored: true, reason: "closed" };
+  job.$where = { providerVersion: version };
+  try {
+    await updateJob(job, { ...changes, by: providerKey });
+  } catch (err) {
+    if (err?.name === "DocumentNotFoundError") return { ignored: true, reason: "stale" };
+    // Let the provider's retry apply this event again.
+    await DeliveryJob.updateOne({ _id: job._id, providerVersion: version }, { $set: { providerVersion: version - 1 } });
+    throw err;
+  }
   return { processed: true };
+}
+
+/** Live rider position from a provider's stream; shared while the food is on its way (as for kitchen riders). */
+export async function applyProviderLocation(providerKey, providerJobId, location) {
+  const job = await DeliveryJob.findOne({ provider: providerKey, providerJobId, status: "picked_up" });
+  if (!job) return false;
+  await updateJob(job, { location, by: providerKey });
+  return true;
 }

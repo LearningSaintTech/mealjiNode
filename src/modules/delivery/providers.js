@@ -1,9 +1,12 @@
+import { shippingConfigured, shippingProvider } from "./shipping.provider.js";
+
 /**
  * Delivery provider adapters. Each implements:
  *   quote({ pickup, drop }) → { pricePaise, etaMinutes } | null
- *   create(job) → { providerJobId, status, trackingUrl? }
+ *   create(job, { order, kitchen }) → { providerJobId, status, trackingUrl?, costPaise?, deliveryOtp? }
  *   cancel(job) → void
- *   parseWebhook(body, headers) → { providerJobId, status, rider?, location?, costPaise? } | null
+ *   parseWebhook(rawBody, headers) → { providerJobId, version?, status, rider?, location?, costPaise?, note?, pickedUp? } | null
+ *     (rawBody is a Buffer so the adapter can check the signature; throw AppError(401) when it fails)
  * "manual" and "self" are built in: the kitchen books, assigns the rider and
  * moves the job forward from the kitchen console. A third-party adapter (Porter,
  * Shadowfax, Borzo…) is registered here once the partner is chosen; orders, the
@@ -33,6 +36,8 @@ const self = {
 };
 
 const registry = new Map([[manual.key, manual], [self.key, self]]);
+// Our own delivery platform, once its API URL and key are set.
+if (shippingConfigured()) registry.set(shippingProvider.key, shippingProvider);
 
 export function registerProvider(adapter) {
   registry.set(adapter.key, adapter);

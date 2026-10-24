@@ -133,6 +133,11 @@ export const env = {
   emailFrom: String(process.env.EMAIL_FROM || "MealJi <no-reply@mealji.local>").trim(),
   sesRegion: String(process.env.SES_REGION || process.env.S3_REGION || "ap-south-1").trim(),
   emailWebhookToken: String(process.env.EMAIL_WEBHOOK_TOKEN || "").trim(),
+
+  // Our delivery platform ("shipping" provider). Without URL and key the provider is not offered.
+  shippingApiUrl: String(process.env.SHIPPING_API_URL || "").trim().replace(/\/$/, ""),
+  shippingApiKey: String(process.env.SHIPPING_API_KEY || "").trim(),
+  shippingWebhookSecret: String(process.env.SHIPPING_WEBHOOK_SECRET || "").trim(),
 };
 
 export function assertRuntimeEnv() {
@@ -178,6 +183,9 @@ export function assertRuntimeEnv() {
 
   if (env.isProd && (!env.razorpayKeyId || !env.razorpayKeySecret || !env.razorpayWebhookSecret)) {
     problems.push("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET are required in production");
+  }
+  if (env.isProd && env.shippingApiUrl && env.shippingApiKey && !env.shippingWebhookSecret) {
+    problems.push("SHIPPING_WEBHOOK_SECRET is required when the delivery platform is configured");
   }
   if (env.storageDriver === "s3" && (!env.s3Bucket || !env.awsAccessKeyId || !env.awsSecretAccessKey)) {
     problems.push("S3_BUCKET, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required when STORAGE_DRIVER=s3");

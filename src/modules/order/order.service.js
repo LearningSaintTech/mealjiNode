@@ -731,6 +731,8 @@ export async function trackingView(userId, orderId) {
     location: job?.lastLocation?.lat != null ? job.lastLocation : null,
     trackingUrl: job?.trackingUrl || null,
     deliveryStatus: job?.status || null,
+    // The customer gives this code to the rider at the door (while the delivery is open).
+    deliveryOtp: job?.deliveryOtp && ["booked", "assigned", "picked_up"].includes(job.status) ? job.deliveryOtp : null,
     estimatedDeliveryAt: order.estimatedDeliveryAt,
     // “Estimated by 8:38 PM” · “Arriving in 12 mins”.
     arrivingAtLabel: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? istTime(order.estimatedDeliveryAt) : null,

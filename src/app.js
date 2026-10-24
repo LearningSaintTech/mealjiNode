@@ -27,6 +27,7 @@ import { adminContentRouter, customerContentRouter, publicContentRouter } from "
 import { adminNotificationRouter, customerNotificationRouter, notificationWebhookRouter, publicNotificationRouter } from "./modules/notification/notification.routes.js";
 import { adminOrderRouter, customerOrderRouter, kitchenOrderRouter } from "./modules/order/order.routes.js";
 import { adminPaymentRouter, paymentRouter, webhookRouter } from "./modules/payment/payment.routes.js";
+import { deliveryWebhookRouter } from "./modules/delivery/delivery.routes.js";
 import profileRoutes from "./modules/profile/profile.routes.js";
 import { adminReportRouter, kitchenReportRouter } from "./modules/report/report.routes.js";
 import uploadRoutes from "./modules/upload/upload.routes.js";
@@ -47,6 +48,7 @@ export function createApp() {
   // Provider webhooks need the raw body for signature checks: before the JSON parser.
   app.use("/api/v1/webhooks", recordMountPath, webhookRouter);
   app.use("/api/v1/webhooks", recordMountPath, notificationWebhookRouter);
+  app.use("/api/v1/webhooks", recordMountPath, deliveryWebhookRouter);
   app.use("/api/v1/uploads", recordMountPath, uploadRoutes);
   app.use(express.json({ limit: "256kb" }));
   app.use(cookieParser());

@@ -3,6 +3,7 @@ import { logger } from "../config/logger.js";
 import { dispatchEvent } from "../events/eventBus.js";
 import { registerEventHandlers } from "../events/handlers.js";
 import { startHub } from "../realtime/hub.js";
+import { startShippingStream, stopShippingStream } from "../modules/delivery/shipping.stream.js";
 import { markOutboxFailed, relayOutbox } from "../events/relay.js";
 import { closeQueues, connectQueues, getQueue, markWorkersRunning, QUEUES, startWorker } from "./queue.js";
 import { runTask, SCHEDULED_TASKS } from "./tasks.js";
@@ -48,6 +49,8 @@ export async function startBackground({ role = "worker" } = {}) {
   await startHub();
 
   every(env.outboxRelayIntervalMs, relayOutbox, "outbox-relay");
+  // Rider positions from our delivery platform (when it is configured).
+  startShippingStream();
 
   const queues = await connectQueues();
   if (queues) {
@@ -74,6 +77,7 @@ export async function startBackground({ role = "worker" } = {}) {
 export async function stopBackground() {
   for (const timer of timers) clearInterval(timer);
   timers.length = 0;
+  stopShippingStream();
   await closeQueues();
   running = false;
 }

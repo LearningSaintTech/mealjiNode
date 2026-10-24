@@ -24,6 +24,8 @@ const deliveryJobSchema = new mongoose.Schema(
     kitchen: { type: ObjectId, ref: "Kitchen", required: true },
     provider: { type: String, required: true },
     providerJobId: { type: String, default: null },
+    // Highest event version applied from the provider: older webhooks arriving late are ignored.
+    providerVersion: { type: Number, default: null },
     // pending → booked → assigned → picked_up → delivered; or cancelled / failed.
     status: { type: String, enum: ["pending", "booked", "assigned", "picked_up", "delivered", "cancelled", "failed"], default: "pending" },
     quotePaise: { type: Number, default: null },
@@ -38,6 +40,8 @@ const deliveryJobSchema = new mongoose.Schema(
       deliveriesCount: { type: Number, default: null },
     },
     trackingUrl: { type: String, default: null },
+    // Code the customer tells the rider at the door (providers that require one).
+    deliveryOtp: { type: String, default: null },
     pickup: { latitude: Number, longitude: Number, address: String },
     drop: { latitude: Number, longitude: Number, address: String },
     attempts: { type: Number, default: 1 },
