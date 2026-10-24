@@ -34,6 +34,7 @@ export const DEFAULT_TEMPLATES = {
   }, "moto"),
   "order.delivered": order("Delivered", "Enjoy your meal! Rate order {{order.orderNumber}} to earn points."),
   "order.cancelled": order("Order cancelled", "Order {{order.orderNumber}} was cancelled. {{order.refundNote}}"),
+  "order.delivery_failed": order("Delivery problem", "We couldn't deliver order {{order.orderNumber}}. Our team will contact you shortly."),
   "payment.failed": order("Payment failed", "Payment for order {{order.orderNumber}} did not go through. Tap to retry."),
   "refund.processed": {
     category: "transactional",
@@ -81,6 +82,7 @@ export const DEFAULT_TEMPLATES = {
   "meal.auto_shifted": meal("We moved today's {{meal.slotName}}", "No meal was picked by the cutoff, so we moved it to {{meal.shiftedTo}}."),
   "meal.locked": meal("Your {{meal.slotName}} is locked in", "{{meal.items}}"),
   "meal.out_for_delivery": meal("Your {{meal.slotName}} is on the way", "It should reach you soon."),
+  "meal.delivery_failed": meal("Delivery problem", "We couldn't deliver your {{meal.slotName}}. Our team will contact you shortly."),
   "support.ticket_update": {
     category: "transactional",
     inboxCategory: "account",

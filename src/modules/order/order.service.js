@@ -26,6 +26,8 @@ import { resolveSetting } from "../settings/settings.service.js";
 import { User } from "../user/user.model.js";
 import { Order } from "./order.model.js";
 import { ACTIVE_STATUSES, STATUS_LABELS, allowedFor, customerCanCancel, kitchenActions } from "./order.states.js";
+import { partnerRunsDelivery, riderCallable } from "../delivery/delivery.service.js";
+import { riderCard, trackingFields } from "../delivery/rider.view.js";
 
 // ------------------------------------------------------------------ views
 
@@ -92,21 +94,7 @@ function relativeDay(date, now = new Date()) {
  * Call. The number is given only while the rider is on the way to the customer.
  */
 function riderView(order) {
-  const rider = order.rider;
-  if (!rider?.name) return null;
-  const onTheWay = order.status === "dispatched";
-  const deliveries = rider.deliveriesCount != null ? `${rider.deliveriesCount.toLocaleString("en-IN")} deliveries` : null;
-  return {
-    name: rider.name,
-    photoUrl: rider.photoUrl || null,
-    rating: rider.rating ?? null,
-    deliveriesCount: rider.deliveriesCount ?? null,
-    ratingLabel: rider.rating != null ? `${rider.rating.toFixed(1)}${deliveries ? ` (${deliveries})` : ""}` : deliveries,
-    vehicleNumber: rider.vehicleNumber || null,
-    phoneMasked: rider.phone ? maskPhone(rider.phone) : null,
-    canCall: Boolean(onTheWay && rider.phone),
-    callNumber: onTheWay && rider.phone ? `+91${rider.phone}` : null,
-  };
+  return riderCard(order.rider, { onTheWay: order.status === "dispatched" });
 }
 
 /** “Butter chicken bowl + butter naan” (2 items), “Dal ramen, gulab cheesecake +2 more”. */
@@ -728,15 +716,7 @@ export async function trackingView(userId, orderId) {
     kitchen: kitchen ? { name: kitchen.name, latitude: kitchen.latitude, longitude: kitchen.longitude } : null,
     destination: order.address ? { latitude: order.address.latitude, longitude: order.address.longitude, fullAddress: order.address.fullAddress } : null,
     rider: riderView(order),
-    location: job?.lastLocation?.lat != null ? job.lastLocation : null,
-    trackingUrl: job?.trackingUrl || null,
-    deliveryStatus: job?.status || null,
-    // The customer gives this code to the rider at the door (while the delivery is open).
-    deliveryOtp: job?.deliveryOtp && ["booked", "assigned", "picked_up"].includes(job.status) ? job.deliveryOtp : null,
-    estimatedDeliveryAt: order.estimatedDeliveryAt,
-    // “Estimated by 8:38 PM” · “Arriving in 12 mins”.
-    arrivingAtLabel: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? istTime(order.estimatedDeliveryAt) : null,
-    etaMinutes: order.estimatedDeliveryAt && ACTIVE_STATUSES.includes(order.status) ? Math.max(0, Math.round((new Date(order.estimatedDeliveryAt) - Date.now()) / 60_000)) : null,
+    ...trackingFields(job, { fallbackEta: order.estimatedDeliveryAt, active: ACTIVE_STATUSES.includes(order.status), canCallRider: riderCallable(job) }),
   };
 }
 
@@ -895,6 +875,10 @@ export async function kitchenSetStatus(kitchenId, orderId, { status, reason }, b
   const order = await Order.findOne({ _id: objectId(orderId, "order ID"), kitchen: kitchenId }).lean();
   if (!order) throw new AppError(404, "Order not found");
   if (status === "cancelled" && !reason) throw new AppError(422, "Give a reason for rejecting the order");
+  // The partner's rider moves a partner-run delivery (picked up → dispatched, delivered); the kitchen can't do it by hand.
+  if (["dispatched", "delivered"].includes(status) && (await partnerRunsDelivery(order.deliveryJob))) {
+    throw new AppError(409, "This delivery is run by the delivery partner: it updates when the rider picks up and delivers");
+  }
   const updated = await transition(order._id, status, { actor: "kitchen", by, reason, cancelledBy: "kitchen" });
   if (status === "cancelled") await refundIfPaid(updated, { reason: `Rejected by kitchen: ${reason}`, actor: by, automatic: true });
   return toOrder((await Order.findById(order._id).lean()), { view: "kitchen" });

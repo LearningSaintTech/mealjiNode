@@ -107,6 +107,10 @@ const orderSchema = new mongoose.Schema(
       photoUrl: { type: String, default: null },
       rating: { type: Number, default: null },
       deliveriesCount: { type: Number, default: null },
+      // A partner rider: only a masked number (calls go through the partner), the vehicle type and the partner's rider id.
+      phoneMasked: { type: String, default: null },
+      vehicleType: { type: String, default: null },
+      externalId: { type: String, default: null },
     },
     deliveryJob: { type: ObjectId, ref: "DeliveryJob", default: null },
     invoice: { type: ObjectId, ref: "Invoice", default: null },

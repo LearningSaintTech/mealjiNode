@@ -283,3 +283,61 @@ Retrieves customer dish details including story, allergens, and kitchen informat
 - Null-safe kitchen lookup: `kitchenId ? await kitchenRepository.findActiveById(kitchenId) : null`.
 - Fallback chef name `"Head Chef"` if kitchen has no explicit chef name configured.
 - Omits chef card gracefully (`view.chef = null`) when the dish has no story.
+
+---
+
+## Delivery platform integration (branch `shipping-delivery-provider`)
+
+Riders can now come from our own delivery platform (provider `shipping`), for orders and for
+subscription meal drops. Setup: `docs/DEPLOYMENT.md` → "Delivery platform".
+
+### New endpoints
+
+| Endpoint | Method | Auth | Description |
+|:---|:---:|:---:|:---|
+| `/api/v1/orders/:id/call-rider` | `POST` | Customer | The partner rings the customer and connects them to the rider (numbers hidden). 3/min per customer. 409 when the rider can't be called, 429 too many calls, 502 call not connected. |
+| `/api/v1/subscriptions/me/days/:date/slots/:slot/tracking` | `GET` | Customer | Meal tracking, same shape as order tracking (below). |
+| `/api/v1/subscriptions/me/days/:date/slots/:slot/call-rider` | `POST` | Customer | "Call rider" for a subscription meal (same rules as orders). |
+| `/api/v1/kitchen/meals/:id/delivery` | `POST` | Kitchen (`kitchen.delivery`) | `{ action: book \| rebook \| cancel, provider?, reason? }` for a meal's delivery. |
+| `/api/v1/webhooks/delivery/:provider` | `POST` | Signed by the partner | Partner status webhooks (`shipping`: HMAC over `timestamp.rawBody`, 5-minute window). |
+
+### Changed endpoints and fields
+
+- **Order tracking** `GET /orders/:id/tracking` and **meal tracking** share these fields:
+  `rider` (card below), `deliveryStatus`, `deliverySubStatus` (partner detail, e.g. `arrived_at_pickup`,
+  `returning`), `deliveryProblem` (text after a failed delivery, else null), `location` (only while the
+  delivery is open), `remainingDistanceM`, `deliveryOtp` (code to tell the rider, only while open),
+  `canCallRider` (show "Call rider"), `estimatedDeliveryAt` / `arrivingAtLabel` / `etaMinutes` (the
+  partner's live ETA when known), plus `kitchen` and `destination`.
+- **Rider card** (orders, meals, socket events): `name, photoUrl, rating, deliveriesCount, ratingLabel,
+  vehicleNumber, vehicleType, phoneMasked, canCall, callNumber`. For partner riders `canCall` is false and
+  `callNumber` null: use `canCallRider` + `POST …/call-rider` instead.
+- **Kitchen** `PATCH /kitchen/orders/:id/status` → `dispatched`/`delivered` and meal `dispatch`/`deliver`
+  return 409 while a partner runs the delivery (it moves with the rider). "Dispatch all" skips partner meals
+  (`skippedForPartner`).
+- **Admin** `GET /admin/deliveries`: `kind=order|meal` filter; items gain `kind`, `meal {date, slot}`,
+  `providerSubStatus`, `gaveUpAt`, `eta`. `POST /admin/deliveries/:id/:action`: `rebook` works for meal
+  drops and takes `provider`; `assign_rider`/`picked_up`/`delivered` on a partner delivery need `force: true`.
+- **Cancel** (kitchen/admin, and automatically when an order is cancelled) closes the delivery only after the
+  partner confirms; after pickup it returns 409.
+
+### Socket events
+
+| Room | Event | Payload |
+|:---|:---|:---|
+| `order:{id}` | `order:rider_assigned` | `{ orderId, rider (card), canCallRider }` (when the rider changes) |
+| `order:{id}` | `order:rider_unassigned` | `{ orderId }` (rider handed the delivery back) |
+| `order:{id}` | `track:location` | `{ orderId, lat, lng, heading, speed, eta, remainingDistanceM, updatedAt }` |
+| `user:{id}` | `meal:rider_assigned` / `meal:rider_unassigned` / `meal:location` | same as the order events with `{ mealId, date, slot }` |
+| `admin:ops`, `kitchen:{id}` | `delivery:alert` | `{ type: delivery_failed \| booking_gave_up \| cancelled_after_pickup, jobId, orderId?, mealId?, reason, … }` |
+| `kitchen:{id}` | `kitchen:delivery_updated` | the delivery job (orders and meals) |
+
+### Settings (Delivery)
+
+- "Delivery partner" and "Meal drops are delivered by" offer **MealJi delivery platform** once configured.
+- `mealBookLeadMinutes`: book meal riders this many minutes before the slot's dispatch time (default 15).
+- "Re-book attempts when a booking fails or the partner cancels" (renamed).
+
+### Notifications
+
+`order.delivery_failed`, `meal.delivery_failed`: sent when a delivery fails after pickup or re-booking gives up.

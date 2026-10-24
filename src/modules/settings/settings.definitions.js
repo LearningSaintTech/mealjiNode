@@ -9,6 +9,8 @@
 // Later phases add pricing, tax, billing entity, slot, loyalty and notification
 // definitions to this same registry.
 
+import { env } from "../../config/env.js";
+
 export const SCOPE_ORDER = ["global", "city", "kitchen"];
 
 export const SETTING_DEFINITIONS = {
@@ -186,6 +188,8 @@ export const SETTING_DEFINITIONS = {
           { value: "manual", label: "Manual (kitchen hands over and updates the rider)" },
           { value: "self", label: "Kitchen delivers itself" },
           { value: "auto", label: "Best available partner (compare quotes)" },
+          // Our delivery platform, once its API URL and key are configured.
+          ...(env.shippingApiUrl && env.shippingApiKey ? [{ value: "shipping", label: "MealJi delivery platform" }] : []),
         ],
         help: "More partners appear here once their accounts are added.",
       },
@@ -211,7 +215,9 @@ export const SETTING_DEFINITIONS = {
         ],
       },
       { key: "bookOffsetMinutes", label: "Offset after accept (minutes)", type: "integer", default: 10, min: 0, max: 120 },
-      { key: "rebookAttempts", label: "Re-book attempts when a rider cancels", type: "integer", default: 2, min: 0, max: 10 },
+      // Subscription meals: booked with a partner this long before the slot's dispatch time, so the rider is there when the meals are packed.
+      { key: "mealBookLeadMinutes", label: "Book subscription meal riders before dispatch (minutes)", type: "integer", default: 15, min: 0, max: 120 },
+      { key: "rebookAttempts", label: "Re-book attempts when a booking fails or the partner cancels", type: "integer", default: 2, min: 0, max: 10 },
       { key: "selfDeliveryAllowed", label: "Kitchen may deliver itself as a fallback", type: "boolean", default: true },
       {
         key: "costBorneBy",
@@ -291,7 +297,19 @@ export const SETTING_DEFINITIONS = {
       { key: "selectionReminderMinutes", label: "Remind to pick meals before cutoff (minutes)", type: "moneyList", default: [120, 30], maxItems: 4 },
       { key: "cancelReasons", label: "Cancellation reasons offered", type: "stringList", default: ["It’s too expensive", "I’m not using it enough", "I want different meal choices", "Delivery timing doesn’t work", "I’m moving or travelling", "Something else"], maxItems: 10, maxLength: 60, public: true },
       { key: "preDebitNoticeHours", label: "Pre-debit notice before autopay (hours)", type: "integer", default: 24, min: 24, max: 72 },
-      { key: "mealDropProvider", label: "Meal drops are delivered by", type: "enum", default: "manual", options: [{ value: "manual", label: "Manual (kitchen riders)" }, { value: "self", label: "Kitchen delivers itself" }] },
+      {
+        key: "mealDropProvider",
+        label: "Meal drops are delivered by",
+        type: "enum",
+        default: "manual",
+        options: [
+          { value: "manual", label: "Manual (kitchen riders)" },
+          { value: "self", label: "Kitchen delivers itself" },
+          { value: "auto", label: "Best available partner (compare quotes)" },
+          ...(env.shippingApiUrl && env.shippingApiKey ? [{ value: "shipping", label: "MealJi delivery platform" }] : []),
+        ],
+        help: "With a partner, riders are booked automatically before each slot's dispatch time (see the Delivery settings).",
+      },
     ],
   },
 

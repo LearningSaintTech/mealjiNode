@@ -8,8 +8,8 @@ import { env } from "../../config/env.js";
  * Adapter for our own delivery partner platform ("shipping"): a headless
  * delivery API with a shared driver pool. MealJi is one company (tenant) on it.
  *   - create → POST /v1/orders (pickup = the kitchen, drop = the customer)
- *   - status → signed webhooks (order.status_changed), see parseWebhook
- *   - live rider position → WebSocket stream, see shipping.stream.js
+ *   - status → signed webhooks (order.status_changed, driver.erased), see parseWebhook
+ *   - live rider position and ETA → WebSocket stream, see shipping.stream.js
  */
 
 const WEBHOOK_TOLERANCE_S = 300;
@@ -41,22 +41,57 @@ function client() {
   });
 }
 
+// Circuit breaker: after a run of failures that look like an outage, calls fail
+// at once for a short while instead of each waiting for the timeout (keeps the
+// event worker and the minute jobs moving while the platform is down).
+const BREAKER = { failures: 0, openUntil: 0, threshold: 5, coolDownMs: 30_000 };
+
+function outage(err) {
+  return !err.response || err.response.status >= 500 || err.code === "ECONNABORTED";
+}
+
+/** A partner call through the breaker; an outage-like failure is marked `transient` (the call may have gone through). */
+async function partner(fn) {
+  if (Date.now() < BREAKER.openUntil) {
+    const err = new Error("Delivery partner unavailable (paused after repeated failures)");
+    err.transient = true;
+    err.unsent = true;
+    throw err;
+  }
+  try {
+    const result = await fn(client());
+    BREAKER.failures = 0;
+    return result;
+  } catch (err) {
+    if (outage(err)) {
+      BREAKER.failures += 1;
+      if (BREAKER.failures >= BREAKER.threshold) BREAKER.openUntil = Date.now() + BREAKER.coolDownMs;
+    }
+    throw err;
+  }
+}
+
 /** Turns an axios failure into a readable message (stored as the job's failure reason). */
 function apiError(err) {
+  if (err.unsent) return err;
   const detail = err.response?.data?.error;
-  return new Error(detail ? `Delivery partner: ${detail.code} – ${detail.message}` : `Delivery partner unreachable: ${err.message}`);
+  const error = new Error(detail ? `Delivery partner: ${detail.code} – ${detail.message}` : `Delivery partner unreachable: ${err.message}`);
+  error.transient = outage(err);
+  return error;
 }
 
 const point = (place) => ({ lat: Number(place.latitude), lng: Number(place.longitude) });
 const rupeesToPaise = (amount) => (amount == null ? null : Math.round(Number(amount) * 100));
 
-/** The order body sent to the platform. Exported for tests. */
-export function orderPayload(job, { order, kitchen }) {
-  const drop = order.address || {};
-  const cod = order.paymentMethod === "cod" && order.paymentStatus === "cod_pending";
-  const deliverBy = order.estimatedDeliveryAt ? new Date(order.estimatedDeliveryAt) : null;
+/**
+ * The order body sent to the platform. `context` is built by the delivery
+ * service for an order or a subscription meal drop: { reference, recipient:
+ * { name, phone }, codPaise, deliverBy, kitchen }. Exported for tests.
+ */
+export function orderPayload(job, { reference, recipient, codPaise = 0, deliverBy = null, kitchen }) {
+  const by = deliverBy ? new Date(deliverBy) : null;
   return {
-    external_ref: order.orderNumber,
+    external_ref: reference,
     pickup: {
       name: kitchen.name,
       phone: kitchen.phoneNumber,
@@ -64,17 +99,17 @@ export function orderPayload(job, { order, kitchen }) {
       ...point(job.pickup),
     },
     drop: {
-      name: drop.recipientName || order.customer?.name || "Customer",
-      phone: drop.phone || order.customer?.phone,
+      name: recipient.name || "Customer",
+      phone: recipient.phone,
       address: job.drop.address,
       ...point(job.drop),
     },
     package: { size: "small", fragile: false },
     priority: "standard",
-    // The platform refuses deadlines in the past: only a future ETA is passed on.
-    ...(deliverBy && deliverBy.getTime() > Date.now() + 60_000 ? { deliver_by: deliverBy.toISOString() } : {}),
-    cod_amount: cod ? (order.bill?.grandTotalPaise ?? 0) / 100 : 0,
-    notes: `MealJi order ${order.orderNumber}`,
+    // The platform refuses deadlines in the past: only a future one is passed on.
+    ...(by && by.getTime() > Date.now() + 60_000 ? { deliver_by: by.toISOString() } : {}),
+    cod_amount: codPaise / 100,
+    notes: `MealJi ${reference}`,
   };
 }
 
@@ -88,6 +123,7 @@ export function verifySignature(rawBody, headers, secret, now = Date.now()) {
 
 /** Webhook payload → DeliveryJob update, or null for events that change nothing here. Exported for tests. */
 export function toUpdate(event) {
+  if (event?.type === "driver.erased" && event.data?.driver_id) return { riderErased: String(event.data.driver_id) };
   if (event?.type !== "order.status_changed" || !event.data?.order_id) return null;
   const data = event.data;
   const status = STATUS_MAP[data.status] || null;
@@ -96,8 +132,23 @@ export function toUpdate(event) {
     providerJobId: data.order_id,
     version: Number.isInteger(data.version) ? data.version : null,
     status,
-    // A driver who handed the order back is replaced on the next "assigned".
-    rider: status === "assigned" && driver?.name ? { name: driver.name, phone: driver.phone_masked || null, vehicleNumber: null } : null,
+    // Calls go through the platform: only its masked number is kept (never dialled directly).
+    rider: status === "assigned" && driver?.name
+      ? {
+          name: driver.name,
+          phone: null,
+          phoneMasked: driver.phone_masked || null,
+          vehicleNumber: null,
+          vehicleType: driver.vehicle_type || null,
+          externalId: driver.id ? String(driver.id) : null,
+          photoUrl: driver.photo_url || null,
+          rating: driver.rating ?? null,
+          deliveriesCount: driver.deliveries_count ?? null,
+        }
+      : null,
+    // Back to waiting for a driver (the rider handed it back): nobody is assigned now.
+    clearRider: data.status === "created",
+    subStatus: data.sub_status || null,
     location: data.location?.lat != null ? { lat: data.location.lat, lng: data.location.lng } : null,
     // Every status from picked_up on means the food left the kitchen, even if the picked_up event itself lost a race.
     pickedUp: ["picked_up", "out_for_delivery", "delivered", "failed", "returned"].includes(data.status),
@@ -109,21 +160,31 @@ export const shippingProvider = {
   key: "shipping",
   label: "MealJi delivery platform",
   managedByKitchen: false,
+  // The created order carries the price: no separate quote call when booking.
+  quoteOnCreate: true,
 
+  /** No quote when no rider is free (so "best available partner" does not pick an empty pool); ETA = time to pickup. */
   async quote({ pickup, drop }) {
     try {
-      const { data } = await client().post("/v1/quotes", { pickup: point(pickup), drop: point(drop) });
-      return { pricePaise: rupeesToPaise(data.price?.amount), etaMinutes: data.estimated_minutes_to_delivery ?? null };
+      const { data } = await partner((http) => http.post("/v1/quotes", { pickup: point(pickup), drop: point(drop) }));
+      if (data.drivers_available === 0) return null;
+      return { pricePaise: rupeesToPaise(data.price?.amount), etaMinutes: data.estimated_minutes_to_pickup ?? null };
     } catch (err) {
       throw apiError(err);
     }
   },
 
+  /** The request saved on the job before the call, so a retry sends exactly the same body. */
+  requestFor(job, context) {
+    return orderPayload(job, context);
+  },
+
   async create(job, context) {
     try {
-      // The job id as idempotency key: a retried call never books a second driver;
-      // a re-book is a new job, so it gets a new delivery.
-      const { data } = await client().post("/v1/orders", orderPayload(job, context), { headers: { "Idempotency-Key": String(job._id) } });
+      // The job id as idempotency key and the saved request as body: a retried
+      // call returns the delivery already created instead of booking a second rider.
+      const body = job.providerRequest || orderPayload(job, context);
+      const { data } = await partner((http) => http.post("/v1/orders", body, { headers: { "Idempotency-Key": String(job._id) } }));
       return {
         providerJobId: data.id,
         status: "booked",
@@ -136,13 +197,43 @@ export const shippingProvider = {
     }
   },
 
+  /** Cancels on the platform; resolves only when the delivery is (now or already) cancelled there. */
   async cancel(job) {
     if (!job.providerJobId) return;
     try {
-      await client().post(`/v1/orders/${job.providerJobId}/cancel`, { reason: "Cancelled by MealJi" });
+      await partner((http) => http.post(`/v1/orders/${job.providerJobId}/cancel`, { reason: "Cancelled by MealJi" }));
     } catch (err) {
-      // Already cancelled or delivered on their side: nothing left to cancel.
-      if (err.response?.status === 409) return;
+      if (err.response?.status === 409) {
+        const status = await partner((http) => http.get(`/v1/orders/${job.providerJobId}`)).then((res) => res.data?.status).catch(() => null);
+        if (status === "cancelled") return;
+        throw new AppError(409, "The rider already has the food, so this delivery can't be cancelled");
+      }
+      const error = apiError(err);
+      throw new AppError(502, `Couldn't cancel with the delivery partner. Try again. (${error.message})`);
+    }
+  },
+
+  /** Rings the customer (the drop phone given at booking) and connects them to the rider; numbers stay hidden. */
+  async callRider(job) {
+    try {
+      await partner((http) => http.post(`/v1/orders/${job.providerJobId}/call`, {})); // JSON body: the platform rejects a bare form post
+      return { calling: true };
+    } catch (err) {
+      const code = err.response?.data?.error?.code;
+      if (code === "no_active_driver") throw new AppError(409, "The rider can be called while they are on the way");
+      if (code === "calls_not_masked") throw new AppError(409, "Calling the rider is not available right now");
+      if (code === "number_not_allowed") throw new AppError(409, "Calling isn't available for this phone number");
+      if (code === "too_many_calls") throw new AppError(429, "Too many calls for this delivery. Please try again later.");
+      throw new AppError(502, "Couldn't connect the call. Please try again.");
+    }
+  },
+
+  /** Passes the customer's delivery stars on to the rider's profile (once per delivery; no review text). */
+  async rate(job, { rating }) {
+    try {
+      await partner((http) => http.post(`/v1/orders/${job.providerJobId}/rating`, { rating }));
+    } catch (err) {
+      if (err.response?.status === 409) return; // already rated, or not rateable
       throw apiError(err);
     }
   },

@@ -75,6 +75,7 @@ export const SCHEDULED_TASKS = [
   { name: "settings-activation", every: 60_000, description: "Puts scheduled setting changes into effect", run: activateDueSettings },
   { name: "order-watchdog", every: 60_000, description: "Expires unpaid orders, raises accept-SLA alerts and auto-cancels unaccepted orders", run: lazy("../modules/order/order.service.js", "orderWatchdog") },
   { name: "delivery-watchdog", every: 60_000, description: "Books deliveries after the accept offset and retries failed bookings", run: lazy("../modules/delivery/delivery.service.js", "deliveryWatchdog") },
+  { name: "meal-deliveries", every: 60_000, description: "Books subscription meal drops before their slot's dispatch time and retries failed ones", run: lazy("../modules/delivery/delivery.service.js", "mealDeliveryRun") },
   { name: "analytics-rollup", pattern: "5 * * * *", description: "Hourly metrics rollups for today and yesterday", run: lazy("../modules/analytics/analytics.service.js", "rollupRecent") },
   { name: "payment-apply-retry", every: 5 * 60_000, description: "Finishes captured payments whose order or plan was not updated", run: lazy("../modules/payment/payment.service.js", "retryUnappliedPayments") },
   { name: "payment-reconciliation", pattern: "0 3 * * *", description: "Compares captured payments with the gateway", run: lazy("../modules/payment/payment.service.js", "reconcilePayments") },

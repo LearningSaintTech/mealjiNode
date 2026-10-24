@@ -3,10 +3,12 @@ import { shippingConfigured, shippingProvider } from "./shipping.provider.js";
 /**
  * Delivery provider adapters. Each implements:
  *   quote({ pickup, drop }) → { pricePaise, etaMinutes } | null
- *   create(job, { order, kitchen }) → { providerJobId, status, trackingUrl?, costPaise?, deliveryOtp? }
+ *   create(job, { reference, recipient: { name, phone }, codPaise, deliverBy, kitchen })
+ *     → { providerJobId, status, trackingUrl?, costPaise?, deliveryOtp? }   (an order or a subscription meal drop)
  *   cancel(job) → void
  *   parseWebhook(rawBody, headers) → { providerJobId, version?, status, rider?, location?, costPaise?, note?, pickedUp? } | null
  *     (rawBody is a Buffer so the adapter can check the signature; throw AppError(401) when it fails)
+ * Optional: callRider(job) (customer ↔ rider masked call), rate(job, { rating, comment }) (delivery stars).
  * "manual" and "self" are built in: the kitchen books, assigns the rider and
  * moves the job forward from the kitchen console. A third-party adapter (Porter,
  * Shadowfax, Borzo…) is registered here once the partner is chosen; orders, the

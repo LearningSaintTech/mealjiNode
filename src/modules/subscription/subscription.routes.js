@@ -17,6 +17,8 @@ import * as slots from "./slot.service.js";
 import * as subs from "./subscription.service.js";
 import { SLOT_KEYS } from "./subscription.model.js";
 import "./reports.subscription.js";
+import { callRiderLimiter } from "../delivery/delivery.routes.js";
+import { kitchenMealDeliveryAction } from "../delivery/delivery.service.js";
 
 const dateParam = param("date").isISO8601({ strict: true }).withMessage("Date must be YYYY-MM-DD");
 const slotParam = param("slot").isIn(SLOT_KEYS);
@@ -73,6 +75,9 @@ customer.get("/subscriptions/me/days/:date", dateParam, validate, asyncHandler(a
 customer.get("/subscriptions/me/menu", query("date").isISO8601({ strict: true }), query("slot").isIn(SLOT_KEYS), query("q").optional().isString().isLength({ max: 60 }), query("categoryId").optional({ values: "falsy" }).isMongoId(), validate, asyncHandler(async (req, res) => ok(res, await meals.slotMenu(req.auth.userId, req.query), "Menu fetched.")));
 customer.get("/subscriptions/me/days/:date/slots/:slot", dateParam, slotParam, validate, asyncHandler(async (req, res) => ok(res, await meals.getSelection(req.auth.userId, req.params), "Meal fetched.")));
 customer.get("/subscriptions/me/days/:date/slots/:slot/selection", dateParam, slotParam, validate, asyncHandler(async (req, res) => ok(res, await meals.getSelection(req.auth.userId, req.params), "Meal fetched.")));
+// Meal on its way: rider, live position and the delivery code; and "Call rider".
+customer.get("/subscriptions/me/days/:date/slots/:slot/tracking", dateParam, slotParam, validate, asyncHandler(async (req, res) => ok(res, await meals.mealTracking(req.auth.userId, req.params), "Tracking.")));
+customer.post("/subscriptions/me/days/:date/slots/:slot/call-rider", callRiderLimiter, dateParam, slotParam, validate, asyncHandler(async (req, res) => ok(res, await meals.callMealRider(req.auth.userId, req.params), "Calling you now.")));
 customer.put(
   "/subscriptions/me/days/:date/slots/:slot/selection",
   dateParam,
@@ -133,6 +138,18 @@ kitchen.get("/meal-plan/pdf", authorize("kitchen.production"), ownKitchen, query
   res.setHeader("Content-Disposition", `inline; filename="production-${sheet.date}.pdf"`);
   return res.send(slots.productionPdf(sheet, record?.name || "Kitchen"));
 }));
+// The meal's delivery with a partner: book, re-book (optionally with another provider) or cancel.
+kitchen.post(
+  "/meals/:id/delivery",
+  authorize("kitchen.delivery"),
+  ownKitchen,
+  idParam(),
+  body("action").isIn(["book", "rebook", "cancel"]),
+  body("provider").optional({ values: "null" }).isIn(["manual", "self", "auto", "shipping"]),
+  body("reason").optional().isString().isLength({ max: 200 }),
+  validate,
+  asyncHandler(async (req, res) => ok(res, await kitchenMealDeliveryAction(req.kitchenId, req.params.id, req.body), "Delivery updated.")),
+);
 kitchen.post("/meals/:id/:action", authorize("kitchen.delivery"), ownKitchen, idParam(), param("action").isIn(["dispatch", "deliver"]), validate, asyncHandler(async (req, res) => ok(res, await meals.kitchenMealAction(req.kitchenId, req.params.id, req.params.action), "Meal updated.")));
 kitchen.post("/meal-plan/dispatch", authorize("kitchen.delivery"), ownKitchen, body("date").isISO8601({ strict: true }), body("slot").isIn(SLOT_KEYS), validate, asyncHandler(async (req, res) => ok(res, await meals.kitchenBulkDispatch(req.kitchenId, req.body), "Meals dispatched.")));
 

@@ -13,6 +13,7 @@ import { invoicePdf, toInvoice } from "../billing/billing.service.js";
 import { PAYMENT_METHODS } from "../cart/cart.service.js";
 import * as delivery from "../delivery/delivery.service.js";
 import * as orders from "./order.service.js";
+import { callRiderLimiter } from "../delivery/delivery.routes.js";
 
 const byOf = (req) => ({ userId: req.auth.userId, role: req.auth.role, name: req.auth.user?.name || null });
 
@@ -52,6 +53,8 @@ customerOrderRouter.get("/", pageQuery, query("status").optional().isIn(["active
 customerOrderRouter.get("/:id", idParam(), validate, asyncHandler(async (req, res) => ok(res, orders.toOrder(await orders.getMyOrder(req.auth.userId, req.params.id)), "Order fetched.")));
 customerOrderRouter.get("/:id/live", idParam(), validate, asyncHandler(async (req, res) => ok(res, await orders.liveView(req.auth.userId, req.params.id), "Live status.")));
 customerOrderRouter.get("/:id/tracking", idParam(), validate, asyncHandler(async (req, res) => ok(res, await orders.trackingView(req.auth.userId, req.params.id), "Tracking.")));
+// "Call rider": the delivery partner rings the customer and connects them to the rider (numbers hidden).
+customerOrderRouter.post("/:id/call-rider", callRiderLimiter, idParam(), validate, asyncHandler(async (req, res) => ok(res, await delivery.callRider(req.auth.userId, { orderId: req.params.id }), "Calling you now.")));
 customerOrderRouter.patch("/:id/cancel", idParam(), body("reason").optional().isString().isLength({ max: 200 }), validate, asyncHandler(async (req, res) => (
   ok(res, await orders.cancelMyOrder(req.auth.userId, req.params.id, req.body), "Order cancelled.")
 )));
@@ -176,7 +179,7 @@ kitchenOrderRouter.patch(
   body("rider.photoUrl").optional({ values: "null" }).isURL({ protocols: ["https", "http"] }).withMessage("photoUrl is a link"),
   body("rider.rating").optional({ values: "null" }).isFloat({ min: 0, max: 5 }).toFloat(),
   body("rider.deliveriesCount").optional({ values: "null" }).isInt({ min: 0 }).toInt(),
-  body("provider").optional().isIn(["manual", "self"]),
+  body("provider").optional().isIn(["manual", "self", "auto", "shipping"]),
   body("reason").optional().isString().isLength({ max: 200 }),
   validate,
   asyncHandler(async (req, res) => ok(res, await delivery.kitchenDeliveryAction(req.kitchenId, req.params.id, req.body), "Delivery updated.")),
@@ -252,6 +255,7 @@ adminOrderRouter.get(
   pageQuery,
   query("status").optional().isIn(["pending", "booked", "assigned", "picked_up", "delivered", "cancelled", "failed"]),
   query("kitchenId").optional({ values: "falsy" }).isString().isMongoId(),
+  query("kind").optional().isIn(["order", "meal"]),
   validate,
   asyncHandler(async (req, res) => {
     const { page, limit } = paging(req.query);
@@ -280,6 +284,9 @@ adminOrderRouter.post(
   authorize("delivery.manage"),
   idParam(),
   param("action").isIn(["rebook", "cancel", "assign_rider", "picked_up", "delivered", "set_cost"]),
+  body("provider").optional({ values: "null" }).isIn(["manual", "self", "auto", "shipping"]),
+  // Moving a partner-run delivery by hand needs an explicit override.
+  body("force").optional().isBoolean().toBoolean(true),
   validate,
   asyncHandler(async (req, res) => {
     const data = await delivery.adminJobAction(req.params.id, { action: req.params.action, ...req.body });

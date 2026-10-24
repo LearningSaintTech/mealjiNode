@@ -37,6 +37,27 @@ Razorpay Dashboard webhook: URL `https://api.mealji.in/api/v1/webhooks/razorpay`
 `refund.processed`, `refund.failed`, `payment_link.paid`, `subscription.activated`,
 `subscription.charged`, `subscription.halted`, `subscription.cancelled`.
 
+## Delivery platform (MealJi as a tenant)
+
+Riders come from our own delivery platform (the `shipping` project). MealJi is one company
+(tenant) on it. Once per environment, on the platform's production server:
+
+1. Create the company (ops admin key) and keep the API key it returns (shown once):
+   `curl -X POST https://<platform host>/admin/companies -H "x-admin-key: <ADMIN_API_KEY>" -H "content-type: application/json" -d '{"name":"MealJi"}'`
+2. Register MealJi's webhook with that key and keep the secret it returns (shown once):
+   `curl -X POST https://<platform host>/v1/webhooks -H "Authorization: Bearer <sk_live_...>" -H "content-type: application/json" -d '{"url":"https://api.mealji.in/api/v1/webhooks/delivery/shipping"}'`
+   (Both steps can also be done in the platform's company portal at `/portal`.)
+3. In `/opt/mealji/api/.env`: `SHIPPING_API_URL=https://<platform host>`, `SHIPPING_API_KEY`,
+   `SHIPPING_WEBHOOK_SECRET`; then `pm2 reload mealji-api mealji-worker`. The worker logs
+   "Delivery platform stream connected" (live rider positions; one worker holds the stream).
+4. In the admin console, Settings → Delivery: set "Delivery partner" to **MealJi delivery platform**
+   (globally, per city or per kitchen), keep "Book a rider automatically" on, and choose when riders are
+   booked for orders and how many minutes before dispatch for subscription meals. "Best available
+   partner" also compares the platform's quote with other partners.
+
+Rotate the webhook secret on the platform (`POST /v1/webhooks/:id/rotate-secret`) and update `.env`
+within 24 hours (the old secret keeps signing until then). Revoke a leaked API key from the portal.
+
 The database still holds demo data (demo staff and customer numbers are not real phones).
 Before opening to customers, reseed without demo data (`node scripts/seed.js --no-demo-data`)
 or clean the demo records, and make sure a real mobile number has the super-admin role.

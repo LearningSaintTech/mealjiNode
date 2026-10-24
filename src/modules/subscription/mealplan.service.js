@@ -1,6 +1,6 @@
 import { AppError } from "../../common/errors/AppError.js";
 import { objectId } from "../../common/http.js";
-import { addIstDays, istDateKey } from "../../common/time.js";
+import { addIstDays, istDateKey, istDateTime } from "../../common/time.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { acquireLock, releaseLock } from "../../infrastructure/redisStore.js";
 import { publish } from "../../realtime/hub.js";
@@ -292,6 +292,44 @@ export async function getSelection(userId, { date, slot }) {
   return toMeal(meal, slotDoc, await dishesOf([meal]));
 }
 
+/** The meal of a date and slot on the customer's plan (stored rows only: a tracked meal always has one). */
+async function myMeal(userId, { date, slot }) {
+  const sub = await requireSub(userId);
+  const meal = await MealSelection.findOne({ subscription: sub._id, date, slot }).lean();
+  if (!meal) throw new AppError(404, "Meal not found");
+  return meal;
+}
+
+/** Meal on its way: same shape as order tracking (kitchen, destination, rider card, live position, ETA, code, "Call rider"). */
+export async function mealTracking(userId, params) {
+  const meal = await myMeal(userId, params);
+  const { DeliveryJob } = await import("../delivery/delivery.model.js");
+  const { riderCallable } = await import("../delivery/delivery.service.js");
+  const { riderCard, trackingFields } = await import("../delivery/rider.view.js");
+  const { Kitchen } = await import("../kitchen/kitchen.model.js");
+  const [job, slot, kitchen] = await Promise.all([
+    meal.deliveryJob ? DeliveryJob.findById(meal.deliveryJob).lean() : null,
+    MealSlot.findOne({ kitchen: meal.kitchen, key: meal.slot }).lean(),
+    Kitchen.findById(meal.kitchen).select("name latitude longitude").lean(),
+  ]);
+  const active = ["selected", "locked", "out_for_delivery"].includes(meal.status);
+  return {
+    mealId: String(meal._id),
+    status: meal.status,
+    statusLabel: MEAL_STATUS_LABELS[meal.status] || meal.status,
+    kitchen: kitchen ? { name: kitchen.name, latitude: kitchen.latitude, longitude: kitchen.longitude } : null,
+    destination: meal.address ? { latitude: meal.address.latitude, longitude: meal.address.longitude, fullAddress: meal.address.fullAddress } : null,
+    rider: riderCard(job?.rider, { onTheWay: meal.status === "out_for_delivery" }),
+    ...trackingFields(job, { fallbackEta: slot?.windowEnd ? istDateTime(meal.date, slot.windowEnd) : null, active, canCallRider: riderCallable(job) }),
+  };
+}
+
+export async function callMealRider(userId, params) {
+  const meal = await myMeal(userId, params);
+  const { callRider } = await import("../delivery/delivery.service.js");
+  return callRider(userId, { mealId: String(meal._id) });
+}
+
 // ------------------------------------------------------------------ shifting
 
 /**
@@ -347,12 +385,13 @@ async function shiftLocked(sub, { date, slot, kind }) {
     const stored = await MealSelection.findOne({ subscription: sub._id, date, slot: slotDoc.key }).lean();
     if (!slotServes(sub, slotDoc, date, stored)) continue;
     const meal = await ensureMeal(sub, slotDoc, date);
-    if (kind === "manual" && (cutoffAt(slotDoc, date) <= new Date() || !["open", "selected"].includes(meal.status))) continue;
+    // A meal with a rider booked is on its way: it can no longer be shifted.
+    if (kind === "manual" && (cutoffAt(slotDoc, date) <= new Date() || !["open", "selected"].includes(meal.status) || meal.deliveryJob)) continue;
     if (meal.status === "shifted") continue;
     const newDay = await extensionDayFor(sub, slotDoc);
     // The cutoff job only moves a meal nobody chose (a choice saved at the last second stays).
     const moved = await MealSelection.findOneAndUpdate(
-      { _id: meal._id, status: { $in: kind === "auto" ? ["open"] : ["open", "selected"] } },
+      { _id: meal._id, status: { $in: kind === "auto" ? ["open"] : ["open", "selected"] }, deliveryJob: null },
       { $set: { status: "shifted", shiftedTo: newDay, shiftKind: kind }, $push: { timeline: { status: "shifted", at: new Date() } } },
       { new: true },
     );
@@ -407,7 +446,7 @@ export async function shiftPreview(userId, { date, slot = null }) {
   const stored = new Map((await MealSelection.find({ subscription: sub._id, date }).lean()).map((meal) => [meal.slot, meal]));
   const due = slots.filter((item) => slotServes(sub, item, date, stored.get(item.key) || null));
   if (!due.length) throw new AppError(409, "No meal is due on this date");
-  const movable = due.filter((item) => cutoffAt(item, date) > new Date() && ["open", "selected"].includes(stored.get(item.key)?.status || "open"));
+  const movable = due.filter((item) => cutoffAt(item, date) > new Date() && ["open", "selected"].includes(stored.get(item.key)?.status || "open") && !stored.get(item.key)?.deliveryJob);
   const targets = await Promise.all(movable.map((item) => extensionDayFor(sub, item)));
   const shiftedTo = targets.sort().at(-1) || nextServiceDay(sub.currentPeriodEnd || sub.validTill, plan.activeDays);
   const newValidTill = shiftedTo > sub.validTill ? shiftedTo : sub.validTill;
@@ -442,9 +481,14 @@ export async function shift(userId, input) {
 
 // ---- kitchen dispatch
 
-export async function kitchenMealAction(kitchenId, mealId, action) {
+export async function kitchenMealAction(kitchenId, mealId, action, { fromPartner = false } = {}) {
   const meal = await MealSelection.findOne({ _id: objectId(mealId, "meal ID"), kitchen: kitchenId });
   if (!meal) throw new AppError(404, "Meal not found");
+  // A partner-run drop moves with its rider (picked up → out for delivery → delivered), not by hand.
+  if (!fromPartner && meal.deliveryJob) {
+    const { partnerRunsDelivery } = await import("../delivery/delivery.service.js");
+    if (await partnerRunsDelivery(meal.deliveryJob)) throw new AppError(409, "This meal's delivery is run by the delivery partner");
+  }
   const next = { dispatch: "out_for_delivery", deliver: "delivered" }[action];
   if (!next) throw new AppError(422, "Unknown action");
   if (action === "dispatch" && !["locked", "selected"].includes(meal.status)) throw new AppError(409, "Only locked meals can be dispatched");
@@ -458,8 +502,28 @@ export async function kitchenMealAction(kitchenId, mealId, action) {
   return { mealId: String(meal._id), status: meal.status };
 }
 
+/**
+ * "Dispatch all" for the kitchen's own riders: meals whose drop is booked with
+ * a partner (or will be: the slot's meals go to a partner) are left to the rider.
+ */
 export async function kitchenBulkDispatch(kitchenId, { date, slot }) {
-  const meals = await MealSelection.find({ kitchen: kitchenId, date, slot, status: "locked" }).select("_id").lean();
-  for (const meal of meals) await kitchenMealAction(kitchenId, meal._id, "dispatch");
-  return { dispatched: meals.length };
+  const { mealDropProviderFor } = await import("../delivery/delivery.service.js");
+  const mealDropProvider = await mealDropProviderFor(kitchenId);
+  const meals = await MealSelection.find({ kitchen: kitchenId, date, slot, status: "locked" }).select("_id deliveryJob").lean();
+  let dispatched = 0;
+  let skipped = 0;
+  for (const meal of meals) {
+    if (!meal.deliveryJob && !["manual", "self"].includes(mealDropProvider)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await kitchenMealAction(kitchenId, meal._id, "dispatch");
+      dispatched += 1;
+    } catch (err) {
+      if (err.statusCode !== 409) throw err;
+      skipped += 1;
+    }
+  }
+  return { dispatched, skippedForPartner: skipped };
 }

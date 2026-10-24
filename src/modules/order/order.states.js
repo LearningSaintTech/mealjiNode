@@ -8,8 +8,9 @@ const TRANSITIONS = {
   payment_pending: { placed: ["system"], payment_failed: ["system", "customer"], cancelled: ["system", "admin", "customer"] },
   payment_failed: { payment_pending: ["customer", "system"], cancelled: ["system", "admin", "customer"] },
   placed: { accepted: ["kitchen", "admin", "system"], cancelled: ["customer", "kitchen", "admin", "system"] },
-  accepted: { preparing: ["kitchen", "admin"], ready: ["kitchen", "admin"], cancelled: ["admin", "system"] },
-  preparing: { ready: ["kitchen", "admin"], cancelled: ["admin", "system"] },
+  // "system" → ready: the delivery partner's rider picked the food up although the kitchen did not tap "ready".
+  accepted: { preparing: ["kitchen", "admin"], ready: ["kitchen", "admin", "system"], cancelled: ["admin", "system"] },
+  preparing: { ready: ["kitchen", "admin", "system"], cancelled: ["admin", "system"] },
   ready: { dispatched: ["kitchen", "admin", "system"], delivered: ["kitchen", "admin", "system"], cancelled: ["admin"] },
   dispatched: { delivered: ["kitchen", "admin", "system"], cancelled: ["admin"] },
   delivered: {},

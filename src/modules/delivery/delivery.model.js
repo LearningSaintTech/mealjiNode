@@ -38,10 +38,24 @@ const deliveryJobSchema = new mongoose.Schema(
       photoUrl: { type: String, default: null },
       rating: { type: Number, default: null },
       deliveriesCount: { type: Number, default: null },
+      // A partner rider: only a masked number (calls go through the partner), the vehicle type and the partner's rider id.
+      phoneMasked: { type: String, default: null },
+      vehicleType: { type: String, default: null },
+      externalId: { type: String, default: null },
     },
     trackingUrl: { type: String, default: null },
     // Code the customer tells the rider at the door (providers that require one).
     deliveryOtp: { type: String, default: null },
+    // The partner's detailed status (e.g. arrived_at_pickup, delivery_failed, returning) and live ETA.
+    providerSubStatus: { type: String, default: null },
+    eta: { type: Date, default: null },
+    remainingDistanceM: { type: Number, default: null },
+    // The exact booking request, so a retry after a timeout replays it with the same idempotency key.
+    providerRequest: { type: mongoose.Schema.Types.Mixed, default: null },
+    // The partner may have created the delivery although the call failed (timeout, 5xx): retry the same job, never a new one.
+    bookingUncertain: { type: Boolean, default: false },
+    // Re-booking stopped (attempts used up); ops were alerted.
+    gaveUpAt: { type: Date, default: null },
     pickup: { latitude: Number, longitude: Number, address: String },
     drop: { latitude: Number, longitude: Number, address: String },
     attempts: { type: Number, default: 1 },
@@ -58,4 +72,7 @@ deliveryJobSchema.index({ order: 1 });
 deliveryJobSchema.index({ kitchen: 1, status: 1, createdAt: -1 });
 deliveryJobSchema.index({ provider: 1, providerJobId: 1 }, { sparse: true });
 deliveryJobSchema.index({ createdAt: -1 });
+deliveryJobSchema.index({ status: 1, updatedAt: 1 });
+deliveryJobSchema.index({ mealDrop: 1 });
+deliveryJobSchema.index({ "rider.externalId": 1 }, { sparse: true });
 export const DeliveryJob = mongoose.model("DeliveryJob", deliveryJobSchema);

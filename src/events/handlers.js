@@ -112,6 +112,20 @@ export async function registerEventHandlers() {
     const { onOrderStatus } = await import("../modules/delivery/delivery.service.js");
     await onOrderStatus(event.payload);
   });
+  subscribe("order.cancelled", "delivery.cancel_rider", async (event) => {
+    const { onOrderCancelled } = await import("../modules/delivery/delivery.service.js");
+    await onOrderCancelled(event.payload);
+  });
+  for (const name of ["delivery.failed", "delivery.gave_up"]) {
+    subscribe(name, "delivery.problem_notice", async (event) => {
+      const { onDeliveryProblem } = await import("../modules/delivery/delivery.service.js");
+      await onDeliveryProblem(event);
+    });
+  }
+  subscribe("order.rated", "delivery.forward_rating", async (event) => {
+    const { forwardDeliveryRating } = await import("../modules/delivery/delivery.service.js");
+    await forwardDeliveryRating(event.payload);
+  });
 
   // ---- loyalty
   subscribe("order.delivered", "loyalty.order_points", async (event) => {
