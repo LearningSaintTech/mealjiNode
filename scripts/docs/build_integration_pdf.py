@@ -2,7 +2,7 @@
 
 Built from the Postman collection (step folders: descriptions, request bodies,
 live example responses) and the release-step test report, plus the screen
-requirements gathered from the app. Add a step to STEPS when it is released.
+requiremefnts gathered from the app. Add a step to STEPS when it is released.
 """
 import glob, json, re
 from reportlab.lib import colors
