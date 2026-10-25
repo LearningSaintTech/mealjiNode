@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "../../common/errors/AppError.js";
 import { env, rootDir } from "../../config/env.js";
+import { logger } from "../../config/logger.js";
 import { presignS3, presignS3Put } from "../../infrastructure/awsSigV4.js";
 
 // Uploads go straight from the client to storage: the API hands out a
@@ -119,7 +120,10 @@ export async function putFile(key, body, contentType, { overwrite = false } = {}
       if (head.ok) return publicUrl(key);
     }
     const res = await fetch(presignS3Put({ key, contentType, expiresSec: 600 }), { method: "PUT", headers: { "Content-Type": contentType }, body, signal: AbortSignal.timeout(60_000) });
-    if (!res.ok) throw new AppError(502, `Storage upload failed (${res.status}) for ${key}`);
+    if (!res.ok) {
+      logger.error({ status: res.status, key }, "Storage upload failed");
+      throw new AppError(502, "Storage upload failed");
+    }
     return publicUrl(key);
   }
   const target = path.join(LOCAL_DIR, ...key.split("/"));

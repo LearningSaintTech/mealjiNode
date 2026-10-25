@@ -599,16 +599,19 @@ export async function afterTransition(order, previous, to) {
 }
 
 export async function setKitchenStep(kitchenId, orderId, { stepKey, state }) {
-  const order = await Order.findOne({ _id: objectId(orderId, "order ID"), kitchen: kitchenId });
+  let order = await Order.findOne({ _id: objectId(orderId, "order ID"), kitchen: kitchenId });
   if (!order) throw new AppError(404, "Order not found");
   if (!["accepted", "preparing"].includes(order.status)) throw new AppError(409, "Steps can be updated while the order is being prepared");
   const index = order.kitchenSteps.findIndex((step) => step.key === stepKey);
   if (index < 0) throw new AppError(404, "Step not found");
-  const now = new Date();
+  // The first step starts the cooking: a real status change (event, "Cooking now" notification, order:status).
+  // Re-read afterwards: the transition saved its own copy (with a status guard) in a transaction.
   if (order.status === "accepted") {
-    order.status = "preparing";
-    order.statusHistory.push({ status: "preparing", at: now, by: { role: "kitchen" } });
+    await transition(order._id, "preparing", { actor: "kitchen", note: "Kitchen started the first step" });
+    order = await Order.findOne({ _id: order._id, kitchen: kitchenId });
+    if (order?.status !== "preparing") throw new AppError(409, "This order was just updated. Refresh and try again.");
   }
+  const now = new Date();
   order.kitchenSteps.forEach((step, position) => {
     if (position < index && step.state !== "done") {
       step.state = "done";

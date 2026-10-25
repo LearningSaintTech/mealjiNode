@@ -35,7 +35,7 @@ export async function checkRateLimit({ key, limit, windowSec }) {
   } catch (err) {
     if (err instanceof AppError) throw err;
     if (env.isProd) {
-      throw new AppError(503, "Service temporarily unavailable. Please try again later.");
+      throw new AppError(503, "Service temporarily unavailable. Please try again later.", null, { expose: true });
     }
   }
 }

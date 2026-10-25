@@ -33,7 +33,7 @@ const cooldownKey = (userId) => `otp:cooldown:${OTP_PURPOSE}:${userId}`;
  */
 async function deliverOtp(user, { onCooldown = "skip" } = {}) {
   const existing = await storeGetOptional(cooldownKey(user._id));
-  if (!existing.ok) throw new AppError(503, OTP_UNAVAILABLE);
+  if (!existing.ok) throw new AppError(503, OTP_UNAVAILABLE, null, { expose: true });
   if (existing.value && await hasPendingOtp({ subjectId: user._id, purpose: OTP_PURPOSE })) {
     if (onCooldown === "reject") throw new AppError(429, "Please wait before requesting another OTP.");
     return {

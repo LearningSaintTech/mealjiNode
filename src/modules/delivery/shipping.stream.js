@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
-import { acquireLock, releaseLock, storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
+import { acquireLock, releaseLock, renewLock } from "../../infrastructure/redisStore.js";
 import { applyProviderLocation } from "./delivery.service.js";
 import { shippingConfigured } from "./shipping.provider.js";
 
@@ -80,10 +80,9 @@ async function leaderCheck() {
   if (stopped) return;
   try {
     if (lockToken) {
-      const { ok, value } = await storeGetOptional(LOCK_KEY);
-      if (ok && value === lockToken) {
-        await storeSet(LOCK_KEY, lockToken, LOCK_TTL_S);
-      } else if (ok) {
+      // Atomic compare-and-expire; null = Redis unreachable, keep going and check again.
+      const renewed = await renewLock(LOCK_KEY, lockToken, LOCK_TTL_S);
+      if (renewed === false) {
         // Lost it (e.g. paused past the TTL): another process has the stream now.
         lockToken = null;
         disconnect();

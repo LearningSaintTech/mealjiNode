@@ -27,7 +27,8 @@ function httpFail(error, action) {
     { action, status: error?.response?.status, details: providerDetails(error) },
     "2Factor request failed",
   );
-  throw new AppError(502, `Failed to ${action}`);
+  // The action and provider detail are in the log; the user gets a plain message.
+  throw new AppError(502, "OTP service temporarily unavailable. Please try again.", null, { expose: true });
 }
 
 export async function providerSendOtp(mobile) {

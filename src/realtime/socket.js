@@ -4,10 +4,12 @@ import { isAccessDenied } from "../infrastructure/accessTokenDenylist.service.js
 import { verifyAccessToken } from "../infrastructure/token.service.js";
 import { userRepository } from "../modules/user/user.repository.js";
 import { isSuspended, tokenRevoked } from "../modules/user/user.status.js";
+import { handshakeToken, selectProtocol } from "./handshake.js";
 import { onMessage, startHub } from "./hub.js";
 
 /**
- * WebSocket endpoint: wss://host/ws?token=<accessToken>. Envelope {type, data}.
+ * WebSocket endpoint: wss://host/ws with the access token as the subprotocol
+ * (`new WebSocket(url, [token])`; ?token= still works for older apps). Envelope {type, data}.
  * On connect a socket joins user:{id}; kitchen users join kitchen:{id}; staff
  * with orders.read join admin:ops. Clients add order rooms with
  * {type:"track:subscribe", data:{orderId}} (ownership is checked).
@@ -62,7 +64,7 @@ export function connectedClients() {
 
 export async function attachRealtime(server) {
   await startHub({ subscribe: true });
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024, handleProtocols: selectProtocol });
 
   server.on("upgrade", async (request, socket, head) => {
     const url = new URL(request.url, "http://localhost");
@@ -71,7 +73,16 @@ export async function attachRealtime(server) {
       return;
     }
     // Prefer the token in the WebSocket subprotocol header (query strings end up in proxy logs).
-    const auth = await authenticate(String(request.headers["sec-websocket-protocol"] || "").split(",").map((part) => part.trim()).find((part) => part.split(".").length === 3) || url.searchParams.get("token"));
+    let auth;
+    try {
+      auth = await authenticate(handshakeToken(request.headers, url));
+    } catch (err) {
+      // Redis or MongoDB failed mid-check: answer instead of leaving the client hanging.
+      logger.warn({ err: err.message }, "WebSocket handshake failed");
+      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     if (!auth) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();

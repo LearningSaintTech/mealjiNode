@@ -288,7 +288,7 @@ export async function onSubscriptionPaymentCaptured(payment) {
     token = await acquireLock(lockKey, 30);
     if (!token) await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  if (!token) throw new AppError(503, "Subscription activation is busy. It will be retried.");
+  if (!token) throw new AppError(503, "Subscription activation is busy. It will be retried.", null, { expose: true });
   try {
     return await applyCapture(payment);
   } finally {

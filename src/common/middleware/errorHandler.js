@@ -42,11 +42,10 @@ export function errorHandler(err, req, res, next) {
     req.log?.error({ err }, "Request failed");
   }
 
-  // Server faults never leak details in production. An AppError for a dependency that is down or
-  // refused (502/503/504) keeps its message: it was written for the user ("Couldn't connect the
-  // call. Please try again."). Plain 500s (configuration, bugs) stay generic.
-  const userFacing = err.isOperational && statusCode >= 502 && statusCode <= 504;
-  if (statusCode >= 500 && env.isProd && !userFacing) {
+  // Server faults never leak details in production. Only an error marked `expose` (written for the
+  // user, e.g. "Couldn't connect the call. Please try again.") keeps its message; everything else
+  // (configuration, bugs, a partner's raw error) stays generic and the detail is in the log above.
+  if (statusCode >= 500 && env.isProd && !(err.isOperational && err.expose)) {
     message = "Internal server error";
     errors = null;
   }

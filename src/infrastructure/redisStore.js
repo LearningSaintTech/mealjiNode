@@ -24,7 +24,8 @@ function memSet(key, value, ttlSec) {
 }
 
 function unavailable(message) {
-  return new AppError(503, message || UNAVAILABLE);
+  // Written for the user (callers pass their own copy), so production shows it.
+  return new AppError(503, message || UNAVAILABLE, null, { expose: true });
 }
 
 function redisReady() {
@@ -105,6 +106,27 @@ export async function releaseLock(key, token) {
     await redis.eval(RELEASE_SCRIPT, 1, key, token);
   } catch {
     if (!env.isProd && memGet(key) === token) memory.delete(key);
+  }
+}
+
+const RENEW_SCRIPT = 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("expire", KEYS[1], ARGV[2]) else return 0 end';
+
+/**
+ * Extends the lock only if this process still owns it, in one step (a GET then
+ * SET could overwrite a lock another process took in between). Returns true when
+ * renewed, false when the lock is someone else's (or gone), null when the store
+ * can't be reached (keep the current state and try again).
+ */
+export async function renewLock(key, token, ttlSec) {
+  if (!token) return false;
+  try {
+    if (!redisReady()) throw new Error("redis not ready");
+    return Number(await redis.eval(RENEW_SCRIPT, 1, key, token, ttlSec)) === 1;
+  } catch {
+    if (env.isProd) return null;
+    if (memGet(key) !== token) return false;
+    memSet(key, token, ttlSec);
+    return true;
   }
 }
 

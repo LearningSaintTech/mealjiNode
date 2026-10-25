@@ -505,16 +505,18 @@ export async function onDeliveryProblem(event) {
   const { jobId, orderId, mealId, pickedUp } = event.payload;
   if (event.name === "delivery.failed" && !pickedUp) return; // before pickup the watchdog re-books
   const { notify } = await import("../notification/notification.service.js");
+  // Gave up before pickup: the food is still at the kitchen, nobody tried to deliver it yet.
+  const gaveUp = event.name === "delivery.gave_up";
   if (orderId) {
     const order = await Order.findById(orderId).select("user orderNumber kitchen").lean();
     if (!order) return;
-    await notify({ userId: order.user, templateKey: "order.delivery_failed", data: { order: { orderId: String(order._id), orderNumber: order.orderNumber } }, dedupeKey: `delivery:${jobId}:problem` });
+    await notify({ userId: order.user, templateKey: gaveUp ? "order.delivery_delayed" : "order.delivery_failed", data: { order: { orderId: String(order._id), orderNumber: order.orderNumber } }, dedupeKey: `delivery:${jobId}:problem` });
     if (event.name === "delivery.failed") opsAlert(order.kitchen, { type: "delivery_failed", jobId, orderId, orderNumber: order.orderNumber, reason: event.payload.reason, subStatus: event.payload.subStatus });
   } else if (mealId) {
     const { MealSelection } = await import("../subscription/subscription.model.js");
     const meal = await MealSelection.findById(mealId).select("user slot date kitchen").lean();
     if (!meal) return;
-    await notify({ userId: meal.user, templateKey: "meal.delivery_failed", data: { meal: { slotName: meal.slot, date: meal.date } }, dedupeKey: `delivery:${jobId}:problem` });
+    await notify({ userId: meal.user, templateKey: gaveUp ? "meal.delivery_delayed" : "meal.delivery_failed", data: { meal: { slotName: meal.slot, date: meal.date } }, dedupeKey: `delivery:${jobId}:problem` });
     if (event.name === "delivery.failed") opsAlert(meal.kitchen, { type: "delivery_failed", jobId, mealId, reason: event.payload.reason, subStatus: event.payload.subStatus });
   }
 }
@@ -565,7 +567,11 @@ export async function updateRiderLocation(kitchenId, orderId, { lat, lng, headin
   if (!order?.deliveryJob) throw new AppError(404, "No delivery for this order");
   if (order.status !== "dispatched") throw new AppError(409, "Location is shared while the order is out for delivery");
   const job = await DeliveryJob.findById(order.deliveryJob);
-  await updateJob(job, { location: { lat, lng, heading, speed }, by: "kitchen" });
+  if (!job) throw new AppError(404, "No delivery for this order");
+  // The order is out for delivery, so a kitchen rider has the food: the position is shown
+  // only for picked-up jobs, so a job the kitchen didn't mark picked up catches up here.
+  const catchUp = getProvider(job.provider).managedByKitchen && ["booked", "assigned"].includes(job.status);
+  await updateJob(job, { location: { lat, lng, heading, speed }, ...(catchUp ? { status: "picked_up" } : {}), by: "kitchen" });
   return { updated: true };
 }
 
@@ -709,6 +715,12 @@ export async function handleProviderWebhook(providerKey, body, headers) {
   if (!update?.providerJobId) return { ignored: true };
   const filter = { provider: providerKey, providerJobId: update.providerJobId };
   const { version, providerJobId, ...changes } = update;
+  // The rider's position is shared only once the food is on its way (as with the stream);
+  // a status event carrying one before pickup must not reveal where the rider is.
+  const withLocation = (job) => {
+    const next = changes.status || job.status;
+    return next === "picked_up" ? changes : { ...changes, location: null };
+  };
   // A delivered job only finishes its order/meal sync (a retry after that sync failed).
   const closed = async (job) => {
     if (job.status === "delivered" && changes.status === "delivered") await syncTargets(job, { status: "delivered", by: providerKey });
@@ -718,7 +730,7 @@ export async function handleProviderWebhook(providerKey, body, headers) {
     const job = await DeliveryJob.findOne(filter);
     if (!job) return { ignored: true };
     if (CLOSED.includes(job.status)) return closed(job);
-    await updateJob(job, { ...changes, by: providerKey });
+    await updateJob(job, { ...withLocation(job), by: providerKey });
     return { processed: true };
   }
   // Webhooks may arrive out of order, twice, or several at once: claim the event's
@@ -734,7 +746,7 @@ export async function handleProviderWebhook(providerKey, body, headers) {
     // A job MealJi already closed (cancelled or re-booked, or delivered) takes no more updates.
     if (CLOSED.includes(job.status)) return await closed(job);
     job.$where = { providerVersion: version };
-    await updateJob(job, { ...changes, by: providerKey });
+    await updateJob(job, { ...withLocation(job), by: providerKey });
   } catch (err) {
     if (err?.name === "DocumentNotFoundError") return { ignored: true, reason: "stale" };
     // Let the provider's retry apply this event again.

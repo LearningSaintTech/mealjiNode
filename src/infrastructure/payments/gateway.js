@@ -31,7 +31,7 @@ async function rzp(method, url, data) {
     const detail = error?.response?.data?.error?.description || error.message;
     logger.error({ url, status: error?.response?.status, detail }, "Razorpay request failed");
     // The provider's own text stays in the logs; customers get a plain message.
-    const failure = new AppError(502, "The payment service is not responding. Please try again.");
+    const failure = new AppError(502, "The payment service is not responding. Please try again.", null, { expose: true });
     // No answer at all (timeout / network): the call may still have gone through.
     failure.uncertain = !error?.response;
     failure.detail = detail;

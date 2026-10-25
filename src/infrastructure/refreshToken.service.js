@@ -62,7 +62,7 @@ export async function rotateRefreshToken({ refreshToken, deviceId }) {
   try {
     const current = await storeGetOptional(refreshKey(user._id, resolvedDeviceId));
     if (!current.ok) {
-      throw new AppError(503, "Service temporarily unavailable. Please try again later.");
+      throw new AppError(503, "Service temporarily unavailable. Please try again later.", null, { expose: true });
     }
 
     const previous = await storeGetOptional(previousKey(user._id, resolvedDeviceId));
@@ -83,7 +83,7 @@ export async function rotateRefreshToken({ refreshToken, deviceId }) {
     }
 
     if (!previous.ok) {
-      throw new AppError(503, "Service temporarily unavailable. Please try again later.");
+      throw new AppError(503, "Service temporarily unavailable. Please try again later.", null, { expose: true });
     }
 
     // The token was just rotated by a parallel request: hand back the new one.

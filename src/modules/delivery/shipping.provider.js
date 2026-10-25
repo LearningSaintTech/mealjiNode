@@ -3,6 +3,7 @@ import axios from "axios";
 import { AppError } from "../../common/errors/AppError.js";
 import { timingSafeEqualString } from "../../common/timingSafe.js";
 import { env } from "../../config/env.js";
+import { logger } from "../../config/logger.js";
 
 /**
  * Adapter for our own delivery partner platform ("shipping"): a headless
@@ -208,8 +209,9 @@ export const shippingProvider = {
         if (status === "cancelled") return;
         throw new AppError(409, "The rider already has the food, so this delivery can't be cancelled");
       }
-      const error = apiError(err);
-      throw new AppError(502, `Couldn't cancel with the delivery partner. Try again. (${error.message})`);
+      // The partner's own text stays in the logs; the user gets a plain message.
+      logger.error({ jobId: String(job._id), providerJobId: job.providerJobId, error: apiError(err).message }, "Delivery partner cancel failed");
+      throw new AppError(502, "Couldn't cancel the delivery right now. Please try again.", null, { expose: true });
     }
   },
 
@@ -224,7 +226,7 @@ export const shippingProvider = {
       if (code === "calls_not_masked") throw new AppError(409, "Calling the rider is not available right now");
       if (code === "number_not_allowed") throw new AppError(409, "Calling isn't available for this phone number");
       if (code === "too_many_calls") throw new AppError(429, "Too many calls for this delivery. Please try again later.");
-      throw new AppError(502, "Couldn't connect the call. Please try again.");
+      throw new AppError(502, "Couldn't connect the call. Please try again.", null, { expose: true });
     }
   },
 

@@ -31,17 +31,27 @@ const istTime = (date) => IST_TIME.format(new Date(date)).replace(/\bam\b/, "AM"
 /**
  * Delivery part of a tracking screen (orders and meals alike): status, live
  * position and delivery code while the delivery is open, the partner's live ETA
- * (else `fallbackEta`), "Call rider" and a problem notice after a failed delivery.
+ * (else `fallbackEta`), "Call rider" and a problem notice after a failed delivery
+ * or when re-booking a rider was given up. The rider's position is shown only
+ * once the food is picked up.
  * `canCallRider` comes from the delivery service (it knows the providers).
  */
+function deliveryProblem(job) {
+  if (job?.status !== "failed") return null;
+  if (job.pickedUpAt) return "We couldn't deliver this. Our team will contact you shortly.";
+  // No rider could be booked (the food is still at the kitchen).
+  if (job.gaveUpAt) return "We're having trouble finding a rider. Our team will contact you shortly.";
+  return null;
+}
+
 export function trackingFields(job, { fallbackEta = null, active = true, canCallRider = false } = {}) {
   const open = Boolean(job && ["booked", "assigned", "picked_up"].includes(job.status));
   const eta = active ? (open && job.eta ? job.eta : fallbackEta) : null;
   return {
     deliveryStatus: job?.status || null,
     deliverySubStatus: job?.providerSubStatus || null,
-    deliveryProblem: job?.status === "failed" && job.pickedUpAt ? "We couldn't deliver this. Our team will contact you shortly." : null,
-    location: open && job.lastLocation?.lat != null ? job.lastLocation : null,
+    deliveryProblem: deliveryProblem(job),
+    location: job?.status === "picked_up" && job.lastLocation?.lat != null ? job.lastLocation : null,
     remainingDistanceM: open ? job.remainingDistanceM ?? null : null,
     trackingUrl: job?.trackingUrl || null,
     // The customer gives this code to the rider at the door (while the delivery is open).

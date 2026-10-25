@@ -92,3 +92,14 @@ test("tracking fields: live ETA while open, problem notice after a failed delive
   assert.ok(failed.deliveryProblem);
   assert.equal(failed.deliverySubStatus, "returning");
 });
+
+test("tracking fields: rider position only once picked up; notice when no rider could be booked", () => {
+  const assigned = trackingFields({ status: "assigned", lastLocation: { lat: 1, lng: 2 }, deliveryOtp: "1234" });
+  assert.equal(assigned.location, null);
+  assert.equal(assigned.deliveryOtp, "1234");
+  const gaveUp = trackingFields({ status: "failed", pickedUpAt: null, gaveUpAt: new Date() });
+  assert.equal(gaveUp.deliveryProblem, "We're having trouble finding a rider. Our team will contact you shortly.");
+  // Before pickup and still re-booking: no notice yet.
+  assert.equal(trackingFields({ status: "failed", pickedUpAt: null, gaveUpAt: null }).deliveryProblem, null);
+  assert.equal(trackingFields({ status: "failed", pickedUpAt: new Date() }).deliveryProblem, "We couldn't deliver this. Our team will contact you shortly.");
+});

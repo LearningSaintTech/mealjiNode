@@ -10,19 +10,21 @@ function component(components, ...types) {
   return match?.long_name || null;
 }
 
+// Fallback messages are plain copy for the user (exposed in production); which API or billing
+// setting the key is missing goes to the log only.
+const failed = (message) => new AppError(502, message, null, { expose: true });
+
 function rejectGeocode(status, errorMessage, fallback, api = "Geocoding API") {
   if (status === "REQUEST_DENIED") {
-    logger.error({ status }, "Google Maps rejected the key");
     const billing = /billing/i.test(errorMessage || "");
-    throw new AppError(
-      502,
-      billing
-        ? `Google Maps rejected the key. Enable billing for the ${api} on this Cloud project.`
-        : `Google Maps rejected the key. Enable the ${api} for this key.`,
+    logger.error(
+      { status, api, error: errorMessage },
+      billing ? `Google Maps rejected the key: enable billing for the ${api} on this Cloud project` : `Google Maps rejected the key: enable the ${api} for this key`,
     );
+    throw failed(fallback);
   }
   logger.error({ status, error: errorMessage }, "Google Maps geocoding rejected the request");
-  throw new AppError(502, fallback);
+  throw failed(fallback);
 }
 
 function textualLocation(result) {
@@ -89,7 +91,7 @@ export async function searchPlaces(query) {
     response = await client.get(env.googleMapsGeocodeUrl, { params });
   } catch (error) {
     logger.error({ status: error?.response?.status }, "Google Maps geocoding request failed");
-    throw new AppError(502, "Could not search Google Maps");
+    throw failed("Could not search Google Maps");
   }
 
   const status = response?.data?.status;
@@ -123,7 +125,7 @@ export async function geocodeAddress(address) {
     response = await client.get(env.googleMapsGeocodeUrl, { params });
   } catch (error) {
     logger.error({ status: error?.response?.status }, "Google Maps geocoding request failed");
-    throw new AppError(502, "Could not place this kitchen address");
+    throw failed("Could not place this kitchen address");
   }
 
   const status = response?.data?.status;
@@ -159,7 +161,7 @@ export async function reverseGeocode({ latitude, longitude }) {
     response = await client.get(env.googleMapsGeocodeUrl, { params });
   } catch (error) {
     logger.error({ status: error?.response?.status }, "Google Maps geocoding request failed");
-    throw new AppError(502, "Could not resolve the location");
+    throw failed("Could not resolve the location");
   }
 
   const status = response?.data?.status;
@@ -182,17 +184,17 @@ function requireKey() {
   if (!env.googleMapsApiKey) throw new AppError(503, "Address search is not configured");
 }
 
-/** Maps a Places API (New) error response to our error; the key problems name the API to enable. */
+/** Maps a Places API (New) error response to our error; the key problems are logged with the API to enable. */
 function rejectPlaces(error, fallback) {
   const status = error?.response?.status;
   const detail = error?.response?.data?.error;
   if (status === 404 || detail?.status === "NOT_FOUND" || detail?.status === "INVALID_ARGUMENT") throw new AppError(404, "Place not found");
   if (status === 403 || detail?.status === "PERMISSION_DENIED") {
-    logger.error({ status, error: detail?.message }, "Google Places rejected the key");
-    throw new AppError(502, "Google Maps rejected the key. Enable the Places API (New) for this key.");
+    logger.error({ status, error: detail?.message }, "Google Places rejected the key: enable the Places API (New) for this key");
+    throw failed(fallback);
   }
   logger.error({ status, error: detail?.message }, "Google Places request failed");
-  throw new AppError(502, fallback);
+  throw failed(fallback);
 }
 
 const placesHeaders = (fieldMask) => ({ "X-Goog-Api-Key": env.googleMapsApiKey, ...(fieldMask ? { "X-Goog-FieldMask": fieldMask } : {}) });

@@ -308,7 +308,7 @@ async function redeemLocked(userId, reward) {
     await earnPoints({ userId, points: reward.points, source: "cancellation", title: `Points back: ${reward.name}`, referenceType: "reward", referenceId: String(reward._id), dedupeKey: `reward-undo:${userId}:${code}` });
     await Reward.updateOne({ _id: reward._id, redeemedCount: { $gt: 0 } }, { $inc: { redeemedCount: -1 } });
     logger.error({ err: err.message, rewardId: String(reward._id) }, "Reward code could not be issued; points given back");
-    throw new AppError(503, "Could not issue your reward right now. Your points are back — please try again.");
+    throw new AppError(503, "Could not issue your reward right now. Your points are back — please try again.", null, { expose: true });
   }
   const left = (await User.findById(userId).select("pointsBalance").lean())?.pointsBalance || 0;
 
@@ -356,7 +356,7 @@ async function ensureReferralCode(userId) {
       if (err?.code !== 11000) throw err;
     }
   }
-  throw new AppError(503, "Could not create a referral code");
+  throw new AppError(503, "Could not create a referral code. Please try again.", null, { expose: true });
 }
 
 export async function myReferrals(userId) {
