@@ -365,6 +365,15 @@ async function redrivePending() {
 }
 
 /**
+ * Whether an update takes the rider off the delivery: the rider handed it back, or the booking
+ * failed before pickup (partner cancel; a new booking follows), so nobody is assigned until the
+ * next one accepts. After pickup the rider keeps the food, so a failed delivery keeps its rider.
+ */
+export function riderLeaves({ clearRider = false, status = null, pickedUp = false, pickedUpAt = null }) {
+  return clearRider || (status === "failed" && !pickedUp && !pickedUpAt);
+}
+
+/**
  * Applies a delivery change (kitchen action for manual/self jobs, admin, or a
  * provider webhook) to the job, then to its order or meal. The job is saved
  * first and everything else follows, so a save refused by a condition (a newer
@@ -389,8 +398,7 @@ export async function updateJob(job, { status, rider = null, clearRider = false,
       externalId: rider.externalId || null,
     };
     if (status == null && job.status === "booked") status = "assigned";
-  } else if (clearRider && job.rider?.name) {
-    // The rider handed the delivery back: nobody is assigned until the next one accepts.
+  } else if (riderLeaves({ clearRider, status, pickedUp, pickedUpAt: job.pickedUpAt }) && job.rider?.name) {
     job.rider = { ...RIDER_NONE };
     riderCleared = true;
   }

@@ -103,3 +103,13 @@ test("tracking fields: rider position only once picked up; notice when no rider 
   assert.equal(trackingFields({ status: "failed", pickedUpAt: null, gaveUpAt: null }).deliveryProblem, null);
   assert.equal(trackingFields({ status: "failed", pickedUpAt: new Date() }).deliveryProblem, "We couldn't deliver this. Our team will contact you shortly.");
 });
+
+test("rider leaves the delivery on hand-back or a failed booking before pickup, never after pickup", async () => {
+  const { riderLeaves } = await import("../src/modules/delivery/delivery.service.js");
+  assert.equal(riderLeaves({ clearRider: true }), true); // handed back
+  assert.equal(riderLeaves({ status: "failed" }), true); // partner cancelled before pickup: re-booked
+  assert.equal(riderLeaves({ status: "failed", pickedUp: true }), false); // delivery failed with the food
+  assert.equal(riderLeaves({ status: "failed", pickedUpAt: new Date() }), false); // closed after pickup
+  assert.equal(riderLeaves({ status: "assigned" }), false);
+  assert.equal(riderLeaves({}), false);
+});
