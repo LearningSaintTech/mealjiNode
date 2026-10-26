@@ -67,6 +67,11 @@ export const env = {
   appleReviewOtpEnabled: bool("APPLE_REVIEW_OTP_ENABLED", false),
   appleReviewPhone: String(process.env.APPLE_REVIEW_PHONE || "").trim(),
   appleReviewOtp: String(process.env.APPLE_REVIEW_OTP || "").trim(),
+  // Demo sign-in for testing: DEMO_LOGIN_OTP works (no SMS) for DEMO_LOGIN_PHONES until
+  // DEMO_LOGIN_UNTIL, never for super admin accounts. Empty DEMO_LOGIN_OTP = off.
+  demoLoginOtp: String(process.env.DEMO_LOGIN_OTP || "").trim(),
+  demoLoginUntil: process.env.DEMO_LOGIN_UNTIL ? new Date(process.env.DEMO_LOGIN_UNTIL) : null,
+  demoLoginPhones: String(process.env.DEMO_LOGIN_PHONES || "").split(",").map((p) => p.replace(/\D/g, "").slice(-10)).filter((p) => p.length === 10),
   seedAdminName: process.env.SEED_ADMIN_NAME || "MealJi Admin",
   seedAdminCountryCode: process.env.SEED_ADMIN_COUNTRY_CODE || "+91",
   seedAdminPhone: String(process.env.SEED_ADMIN_PHONE || "").trim(),
@@ -174,6 +179,13 @@ export function assertRuntimeEnv() {
     problems.push("FIXED_OTP must be empty in production");
   }
 
+  if (env.demoLoginOtp) {
+    const until = env.demoLoginUntil;
+    if (!/^\d{6}$/.test(env.demoLoginOtp)) problems.push("DEMO_LOGIN_OTP must be 6 digits");
+    if (!until || Number.isNaN(until.getTime())) problems.push("DEMO_LOGIN_OTP needs DEMO_LOGIN_UNTIL (a date)");
+    else if (env.isProd && until.getTime() - Date.now() > 30 * 24 * 3600 * 1000) problems.push("DEMO_LOGIN_UNTIL must be at most 30 days ahead");
+    if (!env.demoLoginPhones.length) problems.push("DEMO_LOGIN_OTP needs DEMO_LOGIN_PHONES (the test numbers it works for)");
+  }
   if (env.appleReviewOtpEnabled && (!env.appleReviewPhone || !env.appleReviewOtp)) {
     problems.push("APPLE_REVIEW_PHONE and APPLE_REVIEW_OTP are required when review OTP is enabled");
   }

@@ -2,7 +2,7 @@ import { AppError } from "../common/errors/AppError.js";
 import { normalizeMobile } from "../common/phone.util.js";
 import { timingSafeEqualString } from "../common/timingSafe.js";
 import { env } from "../config/env.js";
-import { FIXED_OTP_SENTINEL, OTP_PURPOSE, OTP_TTL, REVIEW_SESSION_SENTINEL } from "../constants/otp.constants.js";
+import { DEMO_SESSION_SENTINEL, FIXED_OTP_SENTINEL, OTP_PURPOSE, OTP_TTL, REVIEW_SESSION_SENTINEL } from "../constants/otp.constants.js";
 import { createLocalOtp, deleteLocalOtp, readLocalOtp } from "./localOtp.service.js";
 import { storeDel, storeGet, storeIncr, storeSet } from "./redisStore.js";
 import { providerSendOtp, providerVerifyOtp } from "./twofactorApi.service.js";
@@ -26,6 +26,12 @@ export function isReviewPhone(phoneNumber) {
   return Boolean(reviewPhone) && normalizeMobile(phoneNumber) === reviewPhone;
 }
 
+/** A listed demo number while the demo code is on (DEMO_LOGIN_OTP, before DEMO_LOGIN_UNTIL). */
+export function isDemoPhone(phoneNumber, now = new Date()) {
+  if (!env.demoLoginOtp || !env.demoLoginUntil || !(now < env.demoLoginUntil)) return false;
+  return env.demoLoginPhones.includes(normalizeMobile(phoneNumber));
+}
+
 // True while a sent code is still waiting to be used (not verified, not
 // expired, not locked out after too many wrong attempts).
 export async function hasPendingOtp({ subjectId, purpose = OTP_PURPOSE }) {
@@ -34,7 +40,7 @@ export async function hasPendingOtp({ subjectId, purpose = OTP_PURPOSE }) {
   return Boolean(await readLocalOtp({ subjectId, purpose }));
 }
 
-export async function sendOtp({ subjectId, purpose = OTP_PURPOSE, phoneNumber }) {
+export async function sendOtp({ subjectId, purpose = OTP_PURPOSE, phoneNumber, allowDemo = false }) {
   if (!subjectId || !phoneNumber) {
     throw new AppError(400, "subjectId and phoneNumber are required");
   }
@@ -46,6 +52,13 @@ export async function sendOtp({ subjectId, purpose = OTP_PURPOSE, phoneNumber })
   if (isReviewPhone(phoneNumber)) {
     await deleteLocalOtp(local);
     await storeSet(key, REVIEW_SESSION_SENTINEL, OTP_TTL, { unavailableMessage: OTP_UNAVAILABLE });
+    return;
+  }
+
+  // Demo numbers get no SMS; the caller decides whether the account may use one (never super admin).
+  if (allowDemo && isDemoPhone(phoneNumber)) {
+    await deleteLocalOtp(local);
+    await storeSet(key, DEMO_SESSION_SENTINEL, OTP_TTL, { unavailableMessage: OTP_UNAVAILABLE });
     return;
   }
 
@@ -88,6 +101,11 @@ export async function verifyOtp({ subjectId, purpose = OTP_PURPOSE, otp, source 
   try {
     if (sessionId === REVIEW_SESSION_SENTINEL) {
       if (!timingSafeEqualString(otp, env.appleReviewOtp)) {
+        throw new AppError(400, "Invalid OTP.");
+      }
+    } else if (sessionId === DEMO_SESSION_SENTINEL) {
+      // Checked again here: the demo may have ended since the code was requested.
+      if (!env.demoLoginOtp || !env.demoLoginUntil || !(new Date() < env.demoLoginUntil) || !timingSafeEqualString(otp, env.demoLoginOtp)) {
         throw new AppError(400, "Invalid OTP.");
       }
     } else if (sessionId === FIXED_OTP_SENTINEL) {

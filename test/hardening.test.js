@@ -75,3 +75,23 @@ test("production shows a 5xx message only when the error is marked expose", () =
   }
   assert.equal(respond(new AppError(502, "Storage upload failed")).body.message, "Storage upload failed");
 });
+
+test("demo sign-in: listed numbers only, while on and before the end date", async () => {
+  const { env } = await import("../src/config/env.js");
+  const { isDemoPhone } = await import("../src/infrastructure/otpSession.service.js");
+  const saved = { otp: env.demoLoginOtp, until: env.demoLoginUntil, phones: env.demoLoginPhones };
+  try {
+    env.demoLoginOtp = "123456";
+    env.demoLoginUntil = new Date(Date.now() + 86_400_000);
+    env.demoLoginPhones = ["9876500001"];
+    assert.equal(isDemoPhone("+91 98765 00001"), true);
+    assert.equal(isDemoPhone("9876500002"), false, "unlisted number");
+    env.demoLoginUntil = new Date(Date.now() - 1000);
+    assert.equal(isDemoPhone("9876500001"), false, "after the end date");
+    env.demoLoginUntil = new Date(Date.now() + 86_400_000);
+    env.demoLoginOtp = "";
+    assert.equal(isDemoPhone("9876500001"), false, "demo code off");
+  } finally {
+    Object.assign(env, { demoLoginOtp: saved.otp, demoLoginUntil: saved.until, demoLoginPhones: saved.phones });
+  }
+});
