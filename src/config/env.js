@@ -70,6 +70,8 @@ export const env = {
   // Demo sign-in for testing: DEMO_LOGIN_OTP works (no SMS) for DEMO_LOGIN_PHONES until
   // DEMO_LOGIN_UNTIL, never for super admin accounts. Empty DEMO_LOGIN_OTP = off.
   demoLoginOtp: String(process.env.DEMO_LOGIN_OTP || "").trim(),
+  // Super admin accounts may use the demo code only when this is explicitly on (owner's decision).
+  demoLoginAllowSuperadmin: bool("DEMO_LOGIN_ALLOW_SUPERADMIN", false),
   demoLoginUntil: process.env.DEMO_LOGIN_UNTIL ? new Date(process.env.DEMO_LOGIN_UNTIL) : null,
   demoLoginPhones: String(process.env.DEMO_LOGIN_PHONES || "").split(",").map((p) => p.replace(/\D/g, "").slice(-10)).filter((p) => p.length === 10),
   seedAdminName: process.env.SEED_ADMIN_NAME || "MealJi Admin",

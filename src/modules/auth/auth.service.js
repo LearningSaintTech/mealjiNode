@@ -49,8 +49,9 @@ async function deliverOtp(user, { onCooldown = "skip" } = {}) {
     subjectId: user._id,
     purpose: OTP_PURPOSE,
     phoneNumber: user.phoneNumber,
-    // A demo code must never open a super admin account (it controls the whole platform).
-    allowDemo: Boolean(user.role?.slug) && user.role.slug !== "superadmin",
+    // A demo code opens a super admin account (it controls the whole platform) only when
+    // DEMO_LOGIN_ALLOW_SUPERADMIN is explicitly on.
+    allowDemo: Boolean(user.role?.slug) && (user.role.slug !== "superadmin" || env.demoLoginAllowSuperadmin),
   });
   await storeSet(cooldownKey(user._id), "1", env.otpResendCooldownSec, { unavailableMessage: OTP_UNAVAILABLE });
   // The app uses these to size the OTP boxes and run its resend timer, instead
