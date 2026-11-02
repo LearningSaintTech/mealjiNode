@@ -40,7 +40,7 @@ router.post(
   validate,
   asyncHandler(async (req, res) => {
     // Menu, content and banner uploads are for staff consoles only.
-    const staffOnly = ["dish", "banner", "kitchen", "content", "import"];
+    const staffOnly = ["dish", "banner", "kitchen", "content", "import", "notification"];
     if (staffOnly.includes(req.body.purpose) && req.auth.role === "user") throw new AppError(403, "This upload is for staff only");
     return ok(res, presignUpload({ ...req.body, ownerId: req.auth.userId }), "Upload URL created.", 201);
   }),

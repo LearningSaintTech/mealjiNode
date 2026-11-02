@@ -110,13 +110,10 @@ export const DEFAULT_TEMPLATES = {
   "journey.plus_upsell": mk("offers", "Save with Meal Ji Plus", "You order often. A plan gets you daily meals for less.", "mealji://plus"),
   "journey.pause_instead": mk("account", "Need a break instead?", "You can pause Meal Ji Plus for up to 3 months instead of cancelling.", "mealji://plus/pause"),
   "journey.win_back": mk("offers", "We miss you!", "Your favourite dishes are waiting. Order again today.", "mealji://menu"),
-  "campaign.generic": mk("offers", "{{title}}", "{{body}}", "{{deepLink}}"),
-  "ops.message": {
-    category: "transactional",
-    inboxCategory: "account",
-    channels: { push: { title: "{{title}}", body: "{{body}}" }, inapp: { title: "{{title}}", body: "{{body}}", icon: "info", iconColor: "#2563EB" } },
-    channelOrder: ["push", "inapp"],
-  },
+  // Free-text messages (broadcasts, campaigns without a template, ops messages). The title and
+  // body may use the personal variables ({{user.firstName}}…); imageUrl must be a MealJi upload.
+  "campaign.generic": adHoc("marketing", "offers", "sparkles", "#EA580C"),
+  "ops.message": adHoc("transactional", "account", "info", "#2563EB"),
 };
 
 function sub(title, body, multi = false) {
@@ -139,6 +136,19 @@ function meal(title, body) {
     channels: {
       push: { title, body, deepLink: "mealji://plus/meals/{{meal.date}}" },
       inapp: { title, body, icon: "utensils", iconColor: "#EA580C", deepLink: "mealji://plus/meals/{{meal.date}}" },
+    },
+    channelOrder: ["push", "inapp"],
+  };
+}
+
+function adHoc(category, inboxCategory, icon, iconColor) {
+  return {
+    category,
+    inboxCategory,
+    channels: {
+      push: { title: "{{title}}", body: "{{body}}", imageUrl: "{{imageUrl}}", deepLink: "{{deepLink}}" },
+      inapp: { title: "{{title}}", body: "{{body}}", imageUrl: "{{imageUrl}}", icon, iconColor, deepLink: "{{deepLink}}" },
+      email: { subject: "{{title}}", html: "<p>{{body}}</p>{{imageHtml}}", text: "{{body}}" },
     },
     channelOrder: ["push", "inapp"],
   };

@@ -15,6 +15,8 @@ import { User } from "../user/user.model.js";
 import { channelStatus } from "./channels.js";
 import { CHANNELS, INBOX_CATEGORIES, MessageLog } from "./notification.model.js";
 import * as notifications from "./notification.service.js";
+import * as broadcasts from "./broadcast.service.js";
+import { PERSONAL_VARIABLES } from "./personalize.js";
 
 // ------------------------------------------------------------------ app
 export const customerNotificationRouter = Router();
@@ -74,20 +76,82 @@ adminNotificationRouter.post(
   body("userIds").isArray({ min: 1, max: 200 }),
   body("userIds.*").isMongoId(),
   body("title").isString().trim().isLength({ min: 2, max: 80 }),
-  body("body").isString().trim().isLength({ min: 2, max: 300 }),
+  body("body").isString().trim().isLength({ min: 2, max: 500 }),
+  body("imageUrl").optional({ values: "falsy" }).isString().isLength({ max: 500 }),
+  body("deepLink").optional({ values: "falsy" }).isString().isLength({ max: 300 }),
   body("channels").optional().isArray(),
   body("category").optional().isIn(["transactional", "marketing"]),
   validate,
   asyncHandler(async (req, res) => {
+    // Title and body may use {{user.firstName}} and the other personal variables.
+    const content = broadcasts.checkContent(req.body);
     const results = [];
     // Marketing sends respect consent, quiet hours and caps; transactional (service) messages do not.
     for (const userId of req.body.userIds) {
-      results.push({ userId, ...(await notifications.notify({ userId, templateKey: "ops.message", data: { title: req.body.title, body: req.body.body }, channels: req.body.channels || ["inapp", "push"], category: req.body.category || "transactional" })) });
+      results.push({ userId, ...(await notifications.notify({ userId, templateKey: req.body.category === "marketing" ? "campaign.generic" : "ops.message", data: content, channels: req.body.channels || ["inapp", "push"], category: req.body.category || "transactional" })) });
     }
     await recordAudit(req, { action: "notification.sent", entityType: "notification", summary: `Sent "${req.body.title}" to ${req.body.userIds.length} person(s)`, diff: false, after: { userIds: req.body.userIds } });
     return ok(res, { sent: results.length, results }, "Sent.");
   }),
 );
+
+// Personal variables a message can use, with examples ({{user.firstName}}, {{user.city | your city}}…).
+adminNotificationRouter.get("/notifications/variables", authorize("notifications.send"), asyncHandler(async (req, res) => ok(res, { variables: PERSONAL_VARIABLES, fallbackSyntax: "{{user.firstName | there}}", mediaHosts: notifications.mediaHosts() }, "Variables.")));
+
+// ---- broadcasts: bulk, scheduled and segmented free-text notifications
+const actorOf = (req) => ({ userId: req.auth.userId, name: req.auth.user?.name || null, role: req.auth.role });
+const audienceRules = [
+  body("audience").isObject().withMessage("Choose who gets it"),
+  body("audience.type").isIn(["all", "segment", "rules", "users", "phones"]),
+  body("audience.segmentId").optional().isMongoId(),
+  body("audience.rules").optional().isObject(),
+  body("audience.userIds").optional().isArray({ max: 200_000 }),
+  body("audience.phones").optional().isArray({ max: 200_000 }),
+  body("audience.csv").optional().isString().isLength({ max: 5_000_000 }),
+];
+const contentRules = [
+  body("content").isObject().withMessage("Write the message"),
+  body("content.title").isString(),
+  body("content.body").isString(),
+  body("content.imageUrl").optional({ values: "falsy" }).isString().isLength({ max: 500 }),
+  body("content.deepLink").optional({ values: "falsy" }).isString().isLength({ max: 300 }),
+  body("channels").optional().isArray({ min: 1, max: 5 }),
+  body("category").optional().isIn(["marketing", "transactional"]),
+];
+adminNotificationRouter.post("/notifications/audience-preview", authorize("campaigns.manage"), ...audienceRules, validate, asyncHandler(async (req, res) => ok(res, await broadcasts.previewAudience(req.body.audience), "Audience.")));
+adminNotificationRouter.post("/notifications/broadcasts/test", authorize("campaigns.manage"), ...contentRules, validate, asyncHandler(async (req, res) => ok(res, await broadcasts.testBroadcast(req.body, actorOf(req)), "Test sent to you.")));
+adminNotificationRouter.get("/notifications/broadcasts", authorize("campaigns.manage"), pageQuery, query("status").optional().isString(), validate, asyncHandler(async (req, res) => {
+  const { page, limit } = paging(req.query);
+  return ok(res, await broadcasts.listBroadcasts({ status: req.query.status, page, limit }), "Broadcasts.");
+}));
+adminNotificationRouter.post(
+  "/notifications/broadcasts",
+  authorize("campaigns.manage"),
+  body("name").optional().isString().isLength({ max: 100 }),
+  ...contentRules,
+  ...audienceRules,
+  body("schedule").optional().isObject(),
+  body("throttlePerMinute").optional().isInt({ min: 10, max: 5000 }).toInt(),
+  body("couponCode").optional({ values: "falsy" }).isString().isLength({ max: 20 }),
+  validate,
+  asyncHandler(async (req, res) => {
+    const data = await broadcasts.createBroadcast(req.body, actorOf(req));
+    await recordAudit(req, { action: "broadcast.created", entityType: "campaign", entityId: data.broadcastId, summary: `Broadcast "${data.content?.title}" to ${data.audienceSize} people: ${data.status}`, diff: false });
+    return ok(res, data, data.status === "pending_approval" ? "Sent for approval." : "Scheduled.", 201);
+  }),
+);
+adminNotificationRouter.get("/notifications/broadcasts/:id", authorize("campaigns.manage"), idParam(), validate, asyncHandler(async (req, res) => ok(res, await broadcasts.getBroadcast(req.params.id), "Broadcast.")));
+adminNotificationRouter.patch("/notifications/broadcasts/:id/schedule", authorize("campaigns.manage"), idParam(), body("schedule").isObject(), validate, asyncHandler(async (req, res) => {
+  const data = await broadcasts.reschedule(req.params.id, req.body.schedule, actorOf(req));
+  await recordAudit(req, { action: "broadcast.rescheduled", entityType: "campaign", entityId: data.broadcastId, summary: `Broadcast "${data.content?.title}" rescheduled`, diff: false });
+  return ok(res, data, "Rescheduled.");
+}));
+adminNotificationRouter.post("/notifications/broadcasts/:id/cancel", authorize("campaigns.manage"), idParam(), validate, asyncHandler(async (req, res) => {
+  const data = await broadcasts.cancelBroadcast(req.params.id);
+  await recordAudit(req, { action: "broadcast.cancelled", entityType: "campaign", entityId: data.broadcastId, summary: `Broadcast "${data.content?.title}" cancelled`, diff: false });
+  return ok(res, data, "Cancelled.");
+}));
+
 adminNotificationRouter.get("/messages", authorize("messages.read"), pageQuery, validate, asyncHandler(async (req, res) => {
   const { page, limit } = paging(req.query);
   return ok(res, await notifications.searchMessages({ ...req.query, page, limit }), "Messages fetched.");

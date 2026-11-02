@@ -55,8 +55,9 @@ export async function sendPush({ token, title, body, imageUrl = null, data = {} 
           token,
           notification: { title, body, ...(imageUrl ? { image: imageUrl } : {}) },
           data: Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value ?? "")])),
-          android: { priority: "high" },
-          apns: { payload: { aps: { sound: "default" } } },
+          android: { priority: "high", ...(imageUrl ? { notification: { image: imageUrl } } : {}) },
+          // iOS shows the picture only through a notification service extension (mutable-content).
+          apns: { payload: { aps: { sound: "default", ...(imageUrl ? { "mutable-content": 1 } : {}) } }, ...(imageUrl ? { fcm_options: { image: imageUrl } } : {}) },
         },
       },
       { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -71,7 +72,11 @@ export async function sendPush({ token, title, body, imageUrl = null, data = {} 
 
 // ---- WhatsApp (Meta Cloud API, approved templates only)
 
-export async function sendWhatsapp({ phone, templateName, language = "en", variables = [] }) {
+export async function sendWhatsapp({ phone, templateName, language = "en", variables = [], headerImageUrl = null }) {
+  const components = [];
+  // An approved template with an IMAGE header takes the picture per message.
+  if (headerImageUrl) components.push({ type: "header", parameters: [{ type: "image", image: { link: headerImageUrl } }] });
+  if (variables.length) components.push({ type: "body", parameters: variables.map((text) => ({ type: "text", text: String(text).slice(0, 1000) })) });
   if (!env.whatsappToken || !env.whatsappPhoneNumberId) return notConfigured("whatsapp", { to: phone, title: templateName, body: variables.join(" | ") });
   try {
     const response = await http.post(
@@ -83,7 +88,7 @@ export async function sendWhatsapp({ phone, templateName, language = "en", varia
         template: {
           name: templateName,
           language: { code: language },
-          components: variables.length ? [{ type: "body", parameters: variables.map((text) => ({ type: "text", text: String(text).slice(0, 1000) })) }] : [],
+          components,
         },
       },
       { headers: { Authorization: `Bearer ${env.whatsappToken}` } },

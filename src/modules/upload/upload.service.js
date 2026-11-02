@@ -15,6 +15,8 @@ export const UPLOAD_PURPOSES = {
   banner: { types: ["image/jpeg", "image/png", "image/webp"], maxBytes: 5 * 1024 * 1024 },
   kitchen: { types: ["image/jpeg", "image/png", "image/webp"], maxBytes: 5 * 1024 * 1024 },
   content: { types: ["image/jpeg", "image/png", "image/webp", "image/svg+xml"], maxBytes: 5 * 1024 * 1024 },
+  // Pictures in push and inbox messages (FCM shows up to 1 MB reliably; keep them small).
+  notification: { types: ["image/jpeg", "image/png", "image/webp"], maxBytes: 1024 * 1024 },
   ticket: { types: ["image/jpeg", "image/png", "image/webp", "application/pdf"], maxBytes: 5 * 1024 * 1024 },
   import: { types: ["text/csv"], maxBytes: 10 * 1024 * 1024 },
 };
@@ -39,7 +41,7 @@ export function storageKey(relativeKey) {
 // Files anyone may open by link (menu and profile pictures). Support attachments and
 // staff imports are private: they are only handed out as short-lived signed links
 // to people allowed to see them.
-const PUBLIC_PURPOSES = new Set(["avatar", "dish", "banner", "kitchen", "content"]);
+const PUBLIC_PURPOSES = new Set(["avatar", "dish", "banner", "kitchen", "content", "notification"]);
 const purposeOf = (key) => (env.s3KeyPrefix && key.startsWith(`${env.s3KeyPrefix}/`) ? key.slice(env.s3KeyPrefix.length + 1) : key).split("/")[0];
 
 /** A short-lived link that serves a stored file (the /files route on S3 without a CDN). */

@@ -28,7 +28,7 @@ const OPERATORS = ["eq", "neq", "gt", "gte", "lt", "lte", "between", "in", "nin"
 
 // ------------------------------------------------------------------ compiler
 
-function validateRules(node, path = "rules", depth = 0) {
+export function validateRules(node, path = "rules", depth = 0) {
   if (depth > 4) throw new AppError(422, "Rules are nested too deeply");
   if (!node || typeof node !== "object") throw new AppError(422, `${path} must be an object`);
   if (node.conditions) {

@@ -11,22 +11,28 @@ import { resolveSetting } from "../settings/settings.service.js";
 import { User } from "../user/user.model.js";
 import { sendEmail, sendPush, sendSms, sendWhatsapp } from "./channels.js";
 import { DeviceToken, MessageLog, Notification, NotificationTemplate, Suppression } from "./notification.model.js";
+import { mediaUrlProblem, needsProfile, render, renderAdHoc, userVariables } from "./personalize.js";
 import { DEFAULT_TEMPLATES } from "./templates.defaults.js";
+
+export { render };
 
 // ------------------------------------------------------------------ templates
 
-/** Fills {{a.b}} placeholders from data; unknown paths render empty. */
-export function render(text, data = {}) {
-  if (typeof text !== "string") return text;
-  return text.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, path) => {
-    const value = path.split(".").reduce((acc, key) => (acc == null ? undefined : acc[key]), data);
-    return value == null ? "" : String(value);
-  }).replace(/\s+([.,!])/g, "$1").trim();
+const MEDIA_KEYS = ["imageUrl", "headerImageUrl"];
+
+/** Hosts a notification picture may come from: MealJi's API, CDN, S3 bucket and LINK_HOSTS. */
+export function mediaHosts() {
+  const hosts = [env.publicBaseUrl, env.cdnBaseUrl].filter(Boolean).map((base) => new URL(base).hostname.toLowerCase());
+  if (env.s3Bucket) hosts.push(`${env.s3Bucket}.s3.${env.s3Region}.amazonaws.com`.toLowerCase(), `${env.s3Bucket}.s3.amazonaws.com`.toLowerCase());
+  return [...new Set([...hosts, ...env.linkHostsExtra])];
 }
 
 function renderChannel(content, data) {
   if (!content) return null;
-  return Object.fromEntries(Object.entries(content).map(([key, value]) => [key, Array.isArray(value) ? value : render(value, data)]));
+  const out = Object.fromEntries(Object.entries(content).map(([key, value]) => [key, Array.isArray(value) ? value : render(value, data)]));
+  // A picture that rendered empty, or from a host MealJi does not own, is left out (the message still goes).
+  for (const key of MEDIA_KEYS) if (key in out && (!out[key] || mediaUrlProblem(out[key], mediaHosts()))) out[key] = null;
+  return out;
 }
 
 /** The template in force for a key: latest active saved version, else the code default. */
@@ -75,10 +81,6 @@ export async function saveTemplate(key, input, actor) {
 
 // ------------------------------------------------------------------ orchestrator
 
-function firstName(name) {
-  return name && name !== "User" ? name.split(" ")[0] : "there";
-}
-
 async function isSuppressed(channel, address) {
   if (!address) return false;
   return Boolean(await Suppression.exists({ channel, address: String(address).toLowerCase() }));
@@ -125,7 +127,7 @@ async function deliver(channel, content, target, ctx) {
   }
   if (channel === "whatsapp") {
     if (content.approvalStatus && content.approvalStatus !== "approved" && env.isProd) return { ok: false, error: "WhatsApp template not approved", permanent: true };
-    return sendWhatsapp({ phone: target, templateName: content.providerTemplateName, language: content.language, variables: (content.variables || []).map((path) => render(`{{${path}}}`, ctx.data)) });
+    return sendWhatsapp({ phone: target, templateName: content.providerTemplateName, language: content.language, variables: (content.variables || []).map((path) => render(`{{${path}}}`, ctx.data)), headerImageUrl: content.headerImageUrl || null });
   }
   if (channel === "sms") return sendSms({ phone: target, text: content.text, dltTemplateId: content.dltTemplateId, senderId: content.senderId });
   if (channel === "email") {
@@ -169,7 +171,17 @@ export async function notify({ userId, templateKey, data = {}, channels = null, 
   if (!user || user.deletedAt || user.suspendedAt) return { messageId: null, results: [] };
   const kind = category || template.category || "transactional";
   const locale = user.preferences?.language && template.locales?.[user.preferences.language] ? template.locales[user.preferences.language] : {};
-  const ctx = { messageId: crypto.randomUUID(), userId: String(userId), category: kind, data: { ...data, user: { name: user.name, firstName: firstName(user.name), ...(data.user || {}) } } };
+  // Profile variables (city, points, plan…) cost a read, so only when the message uses them.
+  let stats = false;
+  if (needsProfile(template.channels, locale, data)) {
+    const { UserStats } = await import("../engagement/traits.service.js");
+    stats = await UserStats.findOne({ user: user._id }).lean();
+  }
+  const vars = { ...data, user: { ...userVariables(user, stats), ...(data.user || {}) } };
+  const adHoc = renderAdHoc(data, vars);
+  // Email shows the broadcast picture inline (only a link MealJi owns, quoted for the attribute).
+  if (adHoc.imageUrl && !mediaUrlProblem(adHoc.imageUrl, mediaHosts())) adHoc.imageHtml = `<p><img src="${String(adHoc.imageUrl).replace(/"/g, "%22")}" alt="" style="max-width:100%;border-radius:8px"></p>`;
+  const ctx = { messageId: crypto.randomUUID(), userId: String(userId), category: kind, data: { ...adHoc, user: vars.user } };
   const policy = kind === "marketing" ? (await resolveSetting("notification_policy")).values : null;
   const results = [];
 

@@ -9,7 +9,7 @@ import { storeDel, storeSetNx } from "../../infrastructure/redisStore.js";
 import { MessageLog } from "../notification/notification.model.js";
 import { notify } from "../notification/notification.service.js";
 import { resolveSetting } from "../settings/settings.service.js";
-import { Segment, segmentUserIds } from "./segment.service.js";
+import { compileRules, Segment, segmentUserIds, validateRules } from "./segment.service.js";
 import { UserStats } from "./traits.service.js";
 
 const { ObjectId } = mongoose.Schema.Types;
@@ -21,8 +21,16 @@ const campaignSchema = new mongoose.Schema(
     channels: { type: [String], default: ["push", "inapp"] },
     variants: { type: [{ _id: false, key: String, templateKey: String, templateVersion: Number, weight: Number }], default: [] },
     holdoutPercent: { type: Number, default: 0 },
-    audience: { type: String, enum: ["all", "segment"], default: "segment" },
+    // all customers · a saved segment · rules given here (not saved as a segment) · a list of people
+    audience: { type: String, enum: ["all", "segment", "rules", "users"], default: "segment" },
     segment: { type: ObjectId, ref: "Segment", default: null },
+    audienceRules: { type: mongoose.Schema.Types.Mixed, default: null },
+    audienceUserIds: { type: [ObjectId], default: [] },
+    // "broadcast": a free-text message sent from the notifications screen (no template to pick).
+    kind: { type: String, enum: ["campaign", "broadcast"], default: "campaign" },
+    // marketing: consent, quiet hours and caps apply · transactional: service notices (kitchen closed…)
+    category: { type: String, enum: ["marketing", "transactional"], default: "marketing" },
+    content: { title: String, body: String, imageUrl: String, deepLink: String },
     schedule: {
       type: { type: String, enum: ["now", "once", "recurring"], default: "now" },
       sendAt: Date,
@@ -113,6 +121,11 @@ export function toCampaign(campaign) {
     audience: campaign.audience,
     segmentId: campaign.segment ? String(campaign.segment._id || campaign.segment) : null,
     segmentName: campaign.segment?.name || null,
+    audienceRules: campaign.audienceRules || null,
+    audienceUserCount: campaign.audienceUserIds?.length || 0,
+    kind: campaign.kind || "campaign",
+    category: campaign.category || "marketing",
+    content: campaign.content?.title ? campaign.content : null,
     schedule: campaign.schedule,
     sendStrategy: campaign.sendStrategy,
     goal: campaign.goal,
@@ -133,17 +146,34 @@ export function toCampaign(campaign) {
 
 async function audienceSize(campaign) {
   if (campaign.audience === "all") return UserStats.countDocuments({});
+  if (campaign.audience === "users") return campaign.audienceUserIds.length;
+  if (campaign.audience === "rules") return UserStats.countDocuments(await compileRules(campaign.audienceRules));
   const segment = await Segment.findById(campaign.segment).lean();
   return segment?.estimatedSize || 0;
 }
 
 // ------------------------------------------------------------------ CRUD & lifecycle
 
-const EDITABLE = ["name", "objective", "channels", "variants", "holdoutPercent", "audience", "schedule", "sendStrategy", "goal", "data", "deepLink", "couponCode", "utm"];
+const EDITABLE = ["name", "objective", "channels", "variants", "holdoutPercent", "audience", "schedule", "sendStrategy", "goal", "data", "deepLink", "couponCode", "utm", "kind", "category", "content"];
+export const MAX_LIST_AUDIENCE = 200_000;
+
+/** The template a free-text message goes out with. */
+export const adHocTemplate = (category) => (category === "transactional" ? "ops.message" : "campaign.generic");
 
 export async function saveCampaign(campaignId, input, actor) {
   const data = Object.fromEntries(EDITABLE.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
   if (input.segmentId !== undefined) data.segment = input.segmentId ? objectId(input.segmentId, "segment ID") : null;
+  if (input.rules !== undefined) {
+    validateRules(input.rules);
+    data.audienceRules = input.rules;
+  }
+  if (input.userIds !== undefined) {
+    if (!Array.isArray(input.userIds) || input.userIds.length > MAX_LIST_AUDIENCE) throw new AppError(422, `A list holds up to ${MAX_LIST_AUDIENCE.toLocaleString("en-IN")} people`);
+    data.audienceUserIds = [...new Set(input.userIds.map(String))].map((id) => objectId(id, "user ID"));
+  }
+  if (data.category && !["marketing", "transactional"].includes(data.category)) throw new AppError(422, "Category: marketing or transactional");
+  // A free-text message needs no template: it goes out with the generic one for its category.
+  if (data.content?.title && !data.variants && !campaignId) data.variants = [{ key: "A", templateKey: adHocTemplate(data.category), weight: 1 }];
   if (data.channels && (!Array.isArray(data.channels) || !data.channels.length || data.channels.some((channel) => !["push", "inapp", "whatsapp", "sms", "email"].includes(channel)))) throw new AppError(422, "Channels: push, inapp, whatsapp, sms, email");
   if (data.variants) {
     if (!Array.isArray(data.variants) || !data.variants.length || data.variants.length > 4) throw new AppError(422, "1 to 4 variants");
@@ -161,7 +191,10 @@ export async function saveCampaign(campaignId, input, actor) {
     return toCampaign(campaign);
   }
   if (!data.name || !data.variants?.length) throw new AppError(422, "Name and at least one variant are required");
-  if ((data.audience || "segment") === "segment" && !data.segment) throw new AppError(422, "Choose a segment");
+  const audience = data.audience || "segment";
+  if (audience === "segment" && !data.segment) throw new AppError(422, "Choose a segment");
+  if (audience === "rules" && !data.audienceRules) throw new AppError(422, "Give the audience rules");
+  if (audience === "users" && !data.audienceUserIds?.length) throw new AppError(422, "The list has nobody in it");
   return toCampaign(await Campaign.create({ ...data, createdBy: actor }));
 }
 
@@ -229,8 +262,8 @@ export async function deleteDraft(campaignId) {
   return { campaignId, deleted: true };
 }
 
-export async function listCampaigns({ status, page = 1, limit = 25 }) {
-  const filter = status ? { status } : {};
+export async function listCampaigns({ status, kind, page = 1, limit = 25 }) {
+  const filter = { ...(status ? { status } : {}), ...(kind === "broadcast" ? { kind } : kind === "campaign" ? { kind: { $ne: "broadcast" } } : {}) };
   const [items, total] = await Promise.all([
     Campaign.find(filter).populate("segment", "name").sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     Campaign.countDocuments(filter),
@@ -258,9 +291,10 @@ async function snapshot(campaign) {
     if (docs.length) await CampaignRecipient.insertMany(docs, { ordered: false }).catch((err) => { if (err?.code !== 11000 && !err?.writeErrors) throw err; });
     total += docs.length;
   };
-  if (campaign.audience === "all") {
+  if (campaign.audience === "all" || campaign.audience === "rules") {
+    const filter = campaign.audience === "rules" ? await compileRules(campaign.audienceRules) : {};
     let batch = [];
-    for await (const row of UserStats.find({}).select("user").lean().cursor()) {
+    for await (const row of UserStats.find(filter).select("user").lean().cursor()) {
       batch.push(String(row.user));
       if (batch.length >= 1000) {
         await insert(batch);
@@ -268,10 +302,20 @@ async function snapshot(campaign) {
       }
     }
     if (batch.length) await insert(batch);
+  } else if (campaign.audience === "users") {
+    const ids = campaign.audienceUserIds.map(String);
+    for (let i = 0; i < ids.length; i += 1000) await insert(ids.slice(i, i + 1000));
   } else {
     for await (const batch of segmentUserIds(campaign.segment)) await insert(batch);
   }
   return total;
+}
+
+/** A free-text message's fields as template variables (the generic templates print {{title}}, {{body}}…). */
+function contentData(campaign) {
+  const content = campaign.content || {};
+  if (!content.title) return {};
+  return { title: content.title, body: content.body || "", imageUrl: content.imageUrl || "", deepLink: content.deepLink || campaign.deepLink || "" };
 }
 
 async function sendPending(campaign) {
@@ -285,9 +329,9 @@ async function sendPending(campaign) {
         userId: recipient.user,
         templateKey: variant.templateKey,
         templateVersion: variant.templateVersion || null,
-        data: { ...(campaign.data || {}), couponCode: campaign.couponCode, campaign: { name: campaign.name } },
+        data: { ...(campaign.data || {}), ...contentData(campaign), couponCode: campaign.couponCode, campaign: { name: campaign.name } },
         channels: campaign.channels,
-        category: "marketing",
+        category: campaign.category || "marketing",
         dedupeKey: `campaign:${campaign._id}:run:${campaign.runs}:user:${recipient.user}`,
         campaign: campaign._id,
         campaignRun: campaign.runs,
