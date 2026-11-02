@@ -68,6 +68,15 @@ export async function registerEventHandlers() {
     const { notify } = await import("../modules/notification/notification.service.js");
     await notify({ userId: event.payload.userId, templateKey: template, data, dedupeKey: `order:${event.payload.orderId}:${event.payload.to}` });
   });
+  // A cash order is created already placed, so it never passes through a status change.
+  // Same dedupe key as above: an online order's "placed" message is never sent twice.
+  subscribe("order.placed", "notify.cod_placed", async (event) => {
+    if (event.payload.paymentMethod !== "cod") return;
+    const data = await orderData(event.payload.orderId);
+    if (!data) return;
+    const { notify } = await import("../modules/notification/notification.service.js");
+    await notify({ userId: event.payload.userId, templateKey: "order.placed", data, dedupeKey: `order:${event.payload.orderId}:placed` });
+  });
   subscribe("payment.failed", "notify.payment_failed", async (event) => {
     if (event.payload.refType !== "order") return;
     const data = await orderData(event.payload.refId);
