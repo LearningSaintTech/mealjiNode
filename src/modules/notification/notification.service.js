@@ -198,7 +198,9 @@ export async function notify({ userId, templateKey, data = {}, channels = null, 
         campaignRun,
         variant,
         journey,
-        dedupeKey: dedupeKey ? `${dedupeKey}` : undefined,
+        // The unique (dedupeKey, channel) index is sparse, which still indexes rows without a key as
+        // null: so every message gets one, or only the first un-keyed message per channel would be kept.
+        dedupeKey: dedupeKey ? `${dedupeKey}` : `msg:${ctx.messageId}`,
         status,
         sentAt: ["sent", "delivered"].includes(status) ? new Date() : undefined,
         ...extra,
