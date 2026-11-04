@@ -92,5 +92,63 @@ export default async function step11(ctx) {
     const notMine = await me.call("POST", "/notifications/track", { messageId: "msg_not_mine_123", event: "opened" });
     return { ok: (!log || mine.status === 200) && notMine.status === 404, detail: `${log ? `own ${mine.status}` : "no message log yet"} · other ${notMine.status}` };
   });
+
+  // Push targets as the sender picks them (notification.service.js reachable()).
+  const targets = async (client) => (await database.collection("devicetokens")
+    .find({ user: new mongoose.Types.ObjectId(client.session.user.userId), isValid: true, fcmToken: { $ne: null } })
+    .toArray()).map((row) => row.deviceId).sort();
+  const onPhone = async (deviceId, phone, fcmToken) => {
+    const client = new Client(deviceId);
+    await client.signIn(phone);
+    await client.call("POST", "/devices", { deviceId, fcmToken, platform: "android" });
+    return client;
+  };
+  const stamp = Date.now();
+  ctx.cleanups.push(() => database.collection("devicetokens").deleteMany({ deviceId: /^step11-fcm-/ }));
+
+  await s.run("11-10", "Log out, log in: the phone stops getting pushes while signed out", "Profile → Log out, then sign in again", async () => {
+    let a = await onPhone("step11-fcm-phone-a", "9000000038", `fcm-a-${stamp}`);
+    const signedIn = await targets(a);
+    const out = await a.call("POST", "/auth/logout");
+    const signedOut = await targets(a);
+    a = await onPhone("step11-fcm-phone-a", "9000000038", `fcm-a-${stamp}`);
+    const back = await targets(a);
+    await a.call("POST", "/auth/logout");
+    return { ok: out.status === 200 && signedIn.includes("step11-fcm-phone-a") && !signedOut.includes("step11-fcm-phone-a") && back.filter((id) => id === "step11-fcm-phone-a").length === 1, detail: `signed in ${signedIn.length} · logged out ${signedOut.length} · back ${back.length}` };
+  });
+  await s.run("11-11", "Same phone, another account: pushes follow whoever is signed in", "Log out, a family member signs in on the phone", async () => {
+    const token = `fcm-shared-${stamp}`;
+    const a = await onPhone("step11-fcm-shared", "9000000038", token);
+    await a.call("POST", "/auth/logout");
+    const aAfterLogout = await targets(a);
+    const b = await onPhone("step11-fcm-shared", "9000000039", token);
+    const bTargets = await targets(b);
+    await b.call("POST", "/auth/logout");
+    return { ok: !aAfterLogout.includes("step11-fcm-shared") && bTargets.includes("step11-fcm-shared"), detail: `A after logout ${aAfterLogout.includes("step11-fcm-shared") ? "still targeted" : "not targeted"} · B ${bTargets.includes("step11-fcm-shared") ? "targeted" : "missing"}` };
+  });
+  await s.run("11-12", "New phone, same account: the old phone stops after logging out there", "Switch phones", async () => {
+    const old = await onPhone("step11-fcm-old", "9000000038", `fcm-old-${stamp}`);
+    await old.call("POST", "/auth/logout");
+    const fresh = await onPhone("step11-fcm-new", "9000000038", `fcm-new-${stamp}`);
+    const now = await targets(fresh);
+    await fresh.call("POST", "/auth/logout");
+    return { ok: now.includes("step11-fcm-new") && !now.includes("step11-fcm-old"), detail: now.filter((id) => id.startsWith("step11-fcm-")).join(", ") };
+  });
+  await s.run("11-13", "Several phones at once: logging out one leaves the rest; no double pushes", "Signed in on 3 phones", async () => {
+    const phones = [];
+    for (const n of [1, 2, 3]) phones.push(await onPhone(`step11-fcm-multi-${n}`, "9000000038", `fcm-multi-${n}-${stamp}`));
+    const all = (await targets(phones[0])).filter((id) => id.startsWith("step11-fcm-multi-"));
+    await phones[1].call("POST", "/auth/logout");
+    const afterOne = (await targets(phones[0])).filter((id) => id.startsWith("step11-fcm-multi-"));
+    const stillIn = [await phones[0].call("GET", "/notifications?limit=1"), await phones[2].call("GET", "/notifications?limit=1")].map((res) => res.status);
+    // Reinstall on phone 1: new install id, Firebase may hand back the same token.
+    const again = await onPhone("step11-fcm-multi-1b", "9000000038", `fcm-multi-1-${stamp}`);
+    const sameToken = await database.collection("devicetokens").countDocuments({ fcmToken: `fcm-multi-1-${stamp}`, isValid: true });
+    for (const client of [phones[0], phones[2], again]) await client.call("POST", "/auth/logout");
+    return {
+      ok: all.length === 3 && afterOne.join() === "step11-fcm-multi-1,step11-fcm-multi-3" && stillIn.every((code) => code === 200) && sameToken === 1,
+      detail: `3 phones ${all.length} · after logging out phone 2: ${afterOne.join(", ")} · others still in ${stillIn.join("/")} · copies of a reinstalled token ${sameToken}`,
+    };
+  });
   return s;
 }

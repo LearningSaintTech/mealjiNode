@@ -10,6 +10,7 @@ import { storeGetOptional, storeSet } from "../../infrastructure/redisStore.js";
 import { publishEventSafe } from "../../events/eventBus.js";
 import { requireDeviceId } from "../../common/device.util.js";
 import { toPublicUser } from "../user/user.mapper.js";
+import { DeviceToken } from "../notification/notification.model.js";
 import { isSuspended } from "../user/user.status.js";
 import { roleRepository } from "../role/role.repository.js";
 import { userRepository } from "../user/user.repository.js";
@@ -182,4 +183,6 @@ export async function logout({ userId, jti, exp, deviceId }) {
   // Revoke the access token first so a missing device header cannot leave it usable.
   await revokeAccessToken({ jti, exp });
   await revokeRefreshToken({ userId, deviceId });
+  // A signed-out phone must not keep getting this account's pushes.
+  await DeviceToken.deleteOne({ user: userId, deviceId });
 }

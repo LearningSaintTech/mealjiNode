@@ -385,7 +385,9 @@ export async function markAllRead(userId) {
 }
 
 export async function registerDevice(userId, { deviceId, fcmToken, platform, appVersion, osVersion }) {
-  if (fcmToken) await DeviceToken.updateMany({ fcmToken, user: { $ne: userId } }, { $set: { isValid: false } });
+  // A phone token belongs to one sign-in: switch off older rows holding it (another
+  // account on this phone, or this account under an earlier install id).
+  if (fcmToken) await DeviceToken.updateMany({ fcmToken, $nor: [{ user: userId, deviceId }] }, { $set: { isValid: false } });
   await DeviceToken.updateOne(
     { user: userId, deviceId },
     { $set: { fcmToken: fcmToken || null, platform, appVersion: appVersion || null, osVersion: osVersion || null, isValid: Boolean(fcmToken), lastSeenAt: new Date() } },
