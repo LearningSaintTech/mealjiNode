@@ -7,6 +7,7 @@ import { authMiddleware } from "../../common/middleware/auth.middleware.js";
 import { authorize } from "../../common/middleware/authorize.middleware.js";
 import { idempotent } from "../../common/middleware/idempotency.js";
 import { validate } from "../../common/middleware/validate.js";
+import { env } from "../../config/env.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { Invoice } from "../billing/billing.model.js";
 import { invoicePdf, toInvoice } from "../billing/billing.service.js";
@@ -64,6 +65,8 @@ customerOrderRouter.post(
   idParam(),
   validate,
   asyncHandler(async (req, res) => {
+    // Testing shortcut (marks the order paid and delivered): never in production.
+    if (env.isProd) throw new AppError(404, "Not found");
     const order = await orders.getMyOrder(req.auth.userId, req.params.id);
     const previous = order.status;
     const now = new Date();

@@ -1,4 +1,7 @@
 import mongoose from "mongoose";
+// Roles reference permissions: register that model wherever roles are loaded
+// (the worker process never loads the permission routes).
+import "../permission/permission.model.js";
 
 const roleSchema = new mongoose.Schema(
   {
